@@ -65,7 +65,7 @@ coverage.xml
 
 # Docker
 *.log
-docker-compose*.yml
+#docker-compose*.yml
 
 # MacOS
 .DS_Store

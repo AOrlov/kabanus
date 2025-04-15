@@ -1,0 +1,12 @@
+version: '3.8'
+services:
+  kabanus:
+    build: .
+    container_name: kabanus
+    env_file:
+      - .env
+    restart: unless-stopped
+    volumes:
+      - ./:/app
+    ports:
+      - "8080:8080"
