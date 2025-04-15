@@ -36,8 +36,8 @@ ADMIN_CHAT_ID=your-admin-chat-id
 
 ### 4. Build and Run with Docker
 ```
-docker build -t telegram-speech-bot .
-docker run --env-file .env telegram-speech-bot
+docker build -t kabanus .
+docker run --env-file .env kabanus
 ```
 
 ### 5. Run Locally (for development)
