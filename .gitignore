@@ -62,6 +62,7 @@ coverage.xml
 # Environment variables
 .env
 .env.*
+stack.env
 
 # Docker
 *.log
