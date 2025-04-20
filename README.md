@@ -7,7 +7,7 @@ This bot listens for Russian voice messages in a Telegram group and replies with
 - Transcribes Russian speech to text using Whisper (small model) or Gemini Flash 2.0
 - Modular: easily switch between Whisper and Gemini for speech-to-text
 - Replies with the transcription or an error message
-- Supports Gemini for text generation via `/gemini` command
+- Supports Gemini for text generation
 - Notifies admin on critical errors
 - Logs to stdout and temporary files
 
@@ -60,23 +60,28 @@ python main.py
 
 ## Usage
 
-- By default, the bot uses Whisper for speech-to-text.  
+- By default, the bot uses Whisper for speech-to-text.
 - To use Gemini for speech-to-text, set `PROVIDER_AI=gemini` in your environment.
 
 ## Testing
 Run the test suite:
 ```
-python -m unittest test_main.py
+python -m unittest src/test_main.py
+```
+Or to discover all tests:
+```
+python -m unittest discover -s src
 ```
 
-## Deployment
-- Deploy the Docker container on your server or Raspberry Pi 3 (4GB recommended)
-- Monitor logs via stdout or Docker logs
+## VS Code Debugging
+
+A `.vscode/launch.json` is provided. Use the "Run Telegram Bot (src.main)" or "Debug Unit Tests" configurations from the Run & Debug panel.
 
 ## Notes
-- The bot does not store any audio or transcription data permanently
-- Only Russian voice messages are supported
-- For best results, ensure ffmpeg and Whisper dependencies are installed
+- All imports in `src/` use relative imports (e.g., `from .config import ...`).
+- Do not run files in `src/` directly; always use the `-m` module syntax from the project root.
+- The bot does not store any audio or transcription data permanently.
+- Only Russian voice messages are supported.
 - Gemini support requires a valid API key from Google AI Studio
 
 ## License
