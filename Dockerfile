@@ -10,4 +10,4 @@ RUN pip install git+https://github.com/openai/whisper.git
 
 COPY . .
 
-CMD ["python", "main.py"]
+CMD ["python", "-m", "src.main"]

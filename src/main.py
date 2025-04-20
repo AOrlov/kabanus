@@ -1,5 +1,3 @@
-# main.py
-
 import logging
 import tempfile
 import os
@@ -65,7 +63,7 @@ async def gemini_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     prompt = " ".join(context.args)
     if not prompt:
-        await update.message.reply_text("Usage: /gemini <your prompt>")
+        await update.message.reply_text("Usage: /kaban <your prompt>")
         return
     await update.message.chat.send_action(action=ChatAction.TYPING)
     try:
@@ -100,7 +98,7 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 if __name__ == "__main__":
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("кабаняка", gemini_command))
+    app.add_handler(CommandHandler("kaban", gemini_command))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
     logger.info("Bot started.")
     app.run_polling()
