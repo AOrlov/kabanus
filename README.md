@@ -1,11 +1,13 @@
 # Telegram Speech-to-Text Bot
 
-This bot listens for Russian voice messages in a Telegram group and replies with a text transcription using OpenAI Whisper. It is designed for easy deployment in a Docker container and notifies an admin in case of critical errors.
+This bot listens for Russian voice messages in a Telegram group and replies with a text transcription using OpenAI Whisper or Google Gemini Flash 2.0 (cheapest Gemini model). It is designed for easy deployment in a Docker container and notifies an admin in case of critical errors.
 
 ## Features
 - Listens for voice messages in a Telegram group
-- Transcribes Russian speech to text using Whisper (small model)
+- Transcribes Russian speech to text using Whisper (small model) or Gemini Flash 2.0
+- Modular: easily switch between Whisper and Gemini for speech-to-text
 - Replies with the transcription or an error message
+- Supports Gemini for text generation via `/gemini` command
 - Notifies admin on critical errors
 - Logs to stdout and temporary files
 
@@ -13,6 +15,7 @@ This bot listens for Russian voice messages in a Telegram group and replies with
 - Docker (recommended)
 - Telegram bot token
 - Admin Telegram chat ID (for error notifications)
+- (Optional) Google Gemini API key for Gemini support
 
 ## Setup
 
@@ -32,6 +35,8 @@ Create a `.env` file or set environment variables:
 ```
 TELEGRAM_BOT_TOKEN=your-telegram-bot-token
 ADMIN_CHAT_ID=your-admin-chat-id
+GEMINI_API_KEY=your-gemini-api-key  # Optional, for Gemini support
+PROVIDER_AI=whisper                 # or "gemini" to use Gemini for speech-to-text
 ```
 
 ### 4. Build and Run with Docker
@@ -53,6 +58,11 @@ Run the bot:
 python main.py
 ```
 
+## Usage
+
+- By default, the bot uses Whisper for speech-to-text.  
+- To use Gemini for speech-to-text, set `PROVIDER_AI=gemini` in your environment.
+
 ## Testing
 Run the test suite:
 ```
@@ -67,6 +77,7 @@ python -m unittest test_main.py
 - The bot does not store any audio or transcription data permanently
 - Only Russian voice messages are supported
 - For best results, ensure ffmpeg and Whisper dependencies are installed
+- Gemini support requires a valid API key from Google AI Studio
 
 ## License
 MIT

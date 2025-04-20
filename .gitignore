@@ -60,7 +60,7 @@ coverage.xml
 .vscode/
 
 # Environment variables
-.env
+*.env
 .env.*
 stack.env
 
