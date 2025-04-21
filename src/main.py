@@ -13,6 +13,10 @@ from telegram.ext import (
 )
 from telegram.constants import ChatAction
 from .config import TELEGRAM_BOT_TOKEN, ADMIN_CHAT_ID
+
+# Add allowed user/group IDs (comma-separated in env or hardcoded)
+ALLOWED_CHAT_IDS = os.getenv("ALLOWED_CHAT_IDS", "").split(",") if os.getenv("ALLOWED_CHAT_IDS") else []
+
 from .whisper_provider import WhisperProvider
 from .gemini_provider import GeminiProvider
 from .model_provider import ModelProvider
@@ -53,11 +57,24 @@ async def notify_admin(context: ContextTypes.DEFAULT_TYPE, message: str):
             logger.error(f"Failed to notify admin: {e}")
 
 
+def is_allowed(update: Update) -> bool:
+    chat_id = str(update.effective_chat.id)
+    user_id = str(update.effective_user.id)
+    # Allow if chat or user is in the allowed list (if list is not empty)
+    if ALLOWED_CHAT_IDS:
+        return chat_id in ALLOWED_CHAT_IDS or user_id in ALLOWED_CHAT_IDS
+    return True  # If no restriction set, allow all (for dev)
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_allowed(update):
+        return
     await update.message.reply_text("Hello! I am your speech-to-text bot.")
 
 
 async def gemini_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_allowed(update):
+        return
     if not gemini_provider:
         await update.message.reply_text("Gemini API key not configured.")
         return
@@ -65,7 +82,7 @@ async def gemini_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not prompt:
         await update.message.reply_text("Usage: /kaban <your prompt>")
         return
-    await update.message.chat.send_action(action=ChatAction.TYPING)
+    await update.effective_chat.send_action(action=ChatAction.TYPING)
     try:
         response = gemini_provider.generate(prompt)
         await update.message.reply_text(response)
@@ -75,8 +92,10 @@ async def gemini_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_allowed(update):
+        return
     logger.info(f"Received voice message from user {update.effective_user.id}")
-    await update.message.chat.send_action(action=ChatAction.TYPING)
+    await update.effective_chat.send_action(action=ChatAction.TYPING)
     voice = update.message.voice
     with tempfile.NamedTemporaryFile(delete=False, suffix=".ogg") as temp_audio:
         file = await context.bot.get_file(voice.file_id)
@@ -95,10 +114,36 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         os.remove(temp_audio_path)
 
 
+async def handle_addressed_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_allowed(update):
+        return
+    text = update.message.text or ""
+    bot_username = (await context.bot.get_me()).username
+    mentioned = f"@{bot_username}" in text
+    is_reply_to_bot = (
+        update.message.reply_to_message is not None and
+        update.message.reply_to_message.from_user is not None and
+        update.message.reply_to_message.from_user.id == (await context.bot.get_me()).id
+    )
+    if mentioned or is_reply_to_bot:
+        await update.effective_chat.send_action(action=ChatAction.TYPING)
+        if gemini_provider:
+            prompt = f"Ты реальный пацан. Ответь на это сообщение по-русски с уважением и по понятиям, также будь краток: {text}"
+            try:
+                response = gemini_provider.generate(prompt)
+                await update.message.reply_text(response)
+            except Exception as e:
+                logger.error(f"Gemini generation failed: {e}")
+                await update.message.reply_text("Gemini generation failed.")
+        else:
+            await update.message.reply_text("Gemini API key not configured.")
+
+
 if __name__ == "__main__":
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("kaban", gemini_command))
     app.add_handler(MessageHandler(filters.VOICE, handle_voice))
+    app.add_handler(MessageHandler(filters.TEXT, handle_addressed_message))
     logger.info("Bot started.")
     app.run_polling()
