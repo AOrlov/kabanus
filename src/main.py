@@ -97,6 +97,8 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"Received voice message from user {update.effective_user.id}")
     await update.effective_chat.send_action(action=ChatAction.TYPING)
     voice = update.message.voice
+    if voice is None:
+        return
     with tempfile.NamedTemporaryFile(delete=False, suffix=".ogg") as temp_audio:
         file = await context.bot.get_file(voice.file_id)
         await file.download_to_drive(temp_audio.name)
@@ -118,33 +120,53 @@ async def handle_addressed_message(update: Update, context: ContextTypes.DEFAULT
     if not is_allowed(update):
         return
     text = update.message.text or ""
-    bot_username = (await context.bot.get_me()).username
+    bot = await context.bot.get_me()
+    bot_username = bot.username
     mentioned = f"@{bot_username}" in text
     is_reply_to_bot = (
         update.message.reply_to_message is not None and
         update.message.reply_to_message.from_user is not None and
-        update.message.reply_to_message.from_user.id == (await context.bot.get_me()).id
+        update.message.reply_to_message.from_user.id == bot.id
     )
-    if mentioned or is_reply_to_bot:
-        await update.effective_chat.send_action(action=ChatAction.TYPING)
-        if gemini_provider:
-            if mentioned and update.message.reply_to_message and update.message.reply_to_message.text:
-                original = update.message.reply_to_message.text
-                prompt = f"Ты реальный пацан. Это контекст вопроса: '{original}'. Вот новый вопрос: '{text}'. Ответь по-русски с уважением и по понятиям, также будь краток."
-            # If replying to the bot, include the original message in the prompt
-            elif is_reply_to_bot and update.message.reply_to_message and update.message.reply_to_message.text:
-                original = update.message.reply_to_message.text
-                prompt = f"Ты реальный пацан. Вот твой предыдущий ответ: '{original}'. Вот новый вопрос: '{text}'. Ответь по-русски с уважением и по понятиям, также будь краток."
-            else:
-                prompt = f"Ты реальный пацан. Ответь на это сообщение по-русски с уважением и по понятиям, также будь краток: {text}"
-            try:
-                response = gemini_provider.generate(prompt)
-                await update.message.reply_text(response)
-            except Exception as e:
-                logger.error(f"Gemini generation failed: {e}")
-                await update.message.reply_text("Gemini generation failed.")
+    if not (mentioned or is_reply_to_bot):
+        return
+
+    await update.effective_chat.send_action(action=ChatAction.TYPING)
+    if not gemini_provider:
+        await update.message.reply_text("Gemini API key not configured.")
+        return
+
+    prompt_prefix= "Представь, что мы обсуждаем что-то из жизни обычных парней: " \
+    "спорт, машины, музыку, какие-то местные движухи. " \
+    "Отвечай на мои вопросы так, как будто ты свой в доску и шаришь в этих темах." \
+    "Используй соответствующий сленг, уважай собеседника. " \
+    "Говори по понятиям. Не душни. Отвечай по-русски. "
+    try:
+        if mentioned and update.message.reply_to_message:
+            caption = update.message.reply_to_message.caption or ""
+            original = update.message.reply_to_message.text or ""
+            #remove bot's name from the text
+            text = text.replace(f"@{bot_username}", "").strip()
+            details = f"'{caption}'" if caption else "" + f"'{original}'" if original else ""
+            prompt = (
+                f"{prompt_prefix}Это контекст: {details}. "
+                f"Вот мое новое сообщение: '{text}'."
+            )
+        elif is_reply_to_bot and update.message.reply_to_message and update.message.reply_to_message.text:
+            original = update.message.reply_to_message.text or ""
+            prompt = (
+                f"{prompt_prefix}Вот твой предыдущий ответ: '{original}'. "
+                f"Вот мое новое сообщение: '{text}'."
+            )
         else:
-            await update.message.reply_text("Gemini API key not configured.")
+            prompt = (
+                f"{prompt_prefix}Ответь на это сообщение: {text}"
+            )
+        response = gemini_provider.generate(prompt)
+        await update.message.reply_text(response)
+    except Exception as e:
+        logger.error(f"Gemini generation failed for user {update.effective_user.id}: {e}")
+        await update.message.reply_text("Gemini generation failed.")
 
 
 if __name__ == "__main__":
