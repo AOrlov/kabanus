@@ -128,7 +128,12 @@ async def handle_addressed_message(update: Update, context: ContextTypes.DEFAULT
     if mentioned or is_reply_to_bot:
         await update.effective_chat.send_action(action=ChatAction.TYPING)
         if gemini_provider:
-            prompt = f"Ты реальный пацан. Ответь на это сообщение по-русски с уважением и по понятиям, также будь краток: {text}"
+            # If replying to the bot, include the original message in the prompt
+            if is_reply_to_bot and update.message.reply_to_message and update.message.reply_to_message.text:
+                original = update.message.reply_to_message.text
+                prompt = f"Ты реальный пацан. Вот твой предыдущий ответ: '{original}'. Вот новый вопрос: '{text}'. Ответь по-русски с уважением и по понятиям, также будь краток."
+            else:
+                prompt = f"Ты реальный пацан. Ответь на это сообщение по-русски с уважением и по понятиям, также будь краток: {text}"
             try:
                 response = gemini_provider.generate(prompt)
                 await update.message.reply_text(response)
