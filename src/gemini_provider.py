@@ -2,6 +2,7 @@
 import os
 import google.generativeai as genai
 from .model_provider import ModelProvider
+from src.config import CALENDAR_AI_PROVIDER
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 if GEMINI_API_KEY:
@@ -10,7 +11,7 @@ if GEMINI_API_KEY:
 
 class GeminiProvider(ModelProvider):
     def __init__(self):
-        self.model = genai.GenerativeModel("gemini-1.5-flash-latest")
+        self.model = genai.GenerativeModel(CALENDAR_AI_PROVIDER)
 
     def transcribe(self, audio_path: str) -> str:
         with open(audio_path, "rb") as f:
