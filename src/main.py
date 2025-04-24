@@ -231,8 +231,9 @@ async def schedule_events(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
             # Handle time with proper error checking
             event_time = event_data.get('time')
+            is_all_day = event_time is None
             if event_time is None:
-                logger.warning("No time found in event data, using default time of 00:00")
+                logger.warning("No time found in event data, treating as all-day event")
                 event_time = '00:00'
             elif not isinstance(event_time, str):
                 logger.warning(f"Invalid time format: {event_time}, using default time of 00:00")
@@ -254,7 +255,7 @@ async def schedule_events(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             event = calendar.create_event(
                 title=event_data['title'],
-                is_all_day=event_data['time'] is None,
+                is_all_day=is_all_day,
                 start_time=start_time,
                 location=event_data.get('location'),
                 description=event_data.get('description')
@@ -263,13 +264,15 @@ async def schedule_events(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Format the time for display in local timezone
             formatted_time = start_time.strftime("%H:%M")
             
-            await update.message.reply_text(
-                f"Event created successfully!\n"
-                f"Title: {event_data['title']}\n"
-                f"Date: {event_data['date']}\n"
-                f"Time: {formatted_time}\n" if event_data['time'] else "All day event"
+            message_parts = [
+                "Event created successfully!",
+                f"Title: {event_data['title']}",
+                f"Date: {event_data['date']}",
+                f"Time: {formatted_time}" if event_data['time'] else "All day event",
                 f"Location: {event_data.get('location', 'Not specified')}"
-            )
+            ]
+            
+            await update.message.reply_text("\n".join(message_parts))
             
         except Exception as e:
             logger.error(f"Failed to process photo: {e}")

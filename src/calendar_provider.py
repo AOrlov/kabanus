@@ -1,6 +1,6 @@
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import tzlocal
 from src.config import GOOGLE_CALENDAR_ID, GOOGLE_CREDENTIALS_PATH, GOOGLE_CREDENTIALS_JSON
 import os
@@ -34,6 +34,14 @@ class CalendarProvider:
         }
 
         try:
+            print(f"Debug - Input parameters:")
+            print(f"title: {title}")
+            print(f"is_all_day: {is_all_day}")
+            print(f"start_time: {start_time} (type: {type(start_time)})")
+            print(f"end_time: {end_time} (type: {type(end_time) if end_time else None})")
+            print(f"location: {location}")
+            print(f"description: {description}")
+
             if is_all_day:
                 # For all-day events, ensure we have a date object
                 if isinstance(start_time, datetime):
@@ -61,13 +69,17 @@ class CalendarProvider:
                 if end_time.tzinfo is None:
                     end_time = end_time.replace(tzinfo=local_tz)
 
+                # Convert to UTC for Google Calendar API
+                start_time_utc = start_time.astimezone(tz=timezone.utc)
+                end_time_utc = end_time.astimezone(tz=timezone.utc)
+
                 event['start'] = {
-                    'dateTime': start_time.isoformat(),
-                    'timeZone': str(local_tz),
+                    'dateTime': start_time_utc.isoformat(),
+                    'timeZone': 'UTC',
                 }
                 event['end'] = {
-                    'dateTime': end_time.isoformat(),
-                    'timeZone': str(local_tz),
+                    'dateTime': end_time_utc.isoformat(),
+                    'timeZone': 'UTC',
                 }
 
             if location:
@@ -76,7 +88,8 @@ class CalendarProvider:
                 event['description'] = description
 
             # Log the event data for debugging
-            print(f"Creating event with data: {json.dumps(event, indent=2)}")
+            print(f"Debug - Final event data being sent to Google Calendar:")
+            print(json.dumps(event, indent=2))
 
             event = self.service.events().insert(
                 calendarId=GOOGLE_CALENDAR_ID,
