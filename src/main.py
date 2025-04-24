@@ -207,7 +207,6 @@ async def schedule_events(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "location (string), description (string), " +
                 "confidence (float between 0 and 1). " +
                 "If any field is unclear, set it to null." +
-                "If there is no time, set it to 00:00" +
                 f"If there is no year, set it to current year ({datetime.now().year})",
                 {"mime_type": "image/jpeg", "data": image_data}
             ])
@@ -255,6 +254,7 @@ async def schedule_events(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             event = calendar.create_event(
                 title=event_data['title'],
+                is_all_day=event_data['time'] is None,
                 start_time=start_time,
                 location=event_data.get('location'),
                 description=event_data.get('description')
@@ -267,7 +267,7 @@ async def schedule_events(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"Event created successfully!\n"
                 f"Title: {event_data['title']}\n"
                 f"Date: {event_data['date']}\n"
-                f"Time: {formatted_time}\n"
+                f"Time: {formatted_time}\n" if event_data['time'] else "All day event"
                 f"Location: {event_data.get('location', 'Not specified')}"
             )
             
