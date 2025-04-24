@@ -27,6 +27,7 @@ AI_PROVIDER = os.getenv("AI_PROVIDER", "whisper").lower()
 CALENDAR_AI_PROVIDER = os.getenv("CALENDAR_AI_PROVIDER", "gemini-1.5-flash-latest").lower()
 GOOGLE_CALENDAR_ID = os.getenv("GOOGLE_CALENDAR_ID", "primary")
 GOOGLE_CREDENTIALS_PATH = os.getenv("GOOGLE_CREDENTIALS_PATH", "credentials.json")
+GOOGLE_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON", "")
 
 # Allowed users/groups
 ALLOWED_CHAT_IDS = os.getenv("ALLOWED_CHAT_IDS", "").split(",") if os.getenv("ALLOWED_CHAT_IDS") else []
