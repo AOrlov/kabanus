@@ -208,7 +208,7 @@ async def schedule_events(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "confidence (float between 0 and 1). " +
                 "If any field is unclear, set it to null." +
                 "If there is no time, set it to 00:00" +
-                f"If there is no year, set it to current year ({datetime.year.now()})",
+                f"If there is no year, set it to current year ({datetime.now().year})",
                 {"mime_type": "image/jpeg", "data": image_data}
             ])
             
