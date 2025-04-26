@@ -249,7 +249,6 @@ async def schedule_events(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 raise ValueError(f"Invalid date or time format: {event_data['date']} {event_time}")
             
             # Get system's local timezone and set it for the datetime
-            #TODO: get user's timezone
             local_tz = tzlocal.get_localzone()
             start_time = naive_datetime.replace(tzinfo=local_tz)
             
@@ -268,7 +267,7 @@ async def schedule_events(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "Event created successfully!",
                 f"Title: {event_data['title']}",
                 f"Date: {event_data['date']}",
-                f"Time: {formatted_time}" if event_data['time'] else "All day event",
+                f"Time: {formatted_time} ({local_tz})" if event_data['time'] else "All day event",
                 f"Location: {event_data.get('location', 'Not specified')}"
             ]
             

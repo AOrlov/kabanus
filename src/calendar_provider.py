@@ -75,11 +75,11 @@ class CalendarProvider:
 
                 event['start'] = {
                     'dateTime': start_time_utc.isoformat(),
-                    'timeZone': 'UTC',
+                    'timeZone': str(tzlocal.get_localzone())
                 }
                 event['end'] = {
                     'dateTime': end_time_utc.isoformat(),
-                    'timeZone': 'UTC',
+                    'timeZone': str(tzlocal.get_localzone())
                 }
 
             if location:
