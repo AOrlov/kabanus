@@ -1,0 +1,41 @@
+{
+    // Launch configuration for VS Code to run src/main.py as a module
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Run Telegram Bot (src.main)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "src.main",
+            "justMyCode": true,
+            "envFile": "${workspaceFolder}/dev.env",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "Run Event Planner Bot (src.main)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "src.main",
+            "justMyCode": true,
+            "envFile": "${workspaceFolder}/dev.calendar.planner.env",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "name": "Debug Unit Tests",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "unittest",
+            "args": [
+                "discover",
+                "-s",
+                "src/tests"
+            ],
+            "justMyCode": true,
+            "envFile": "${workspaceFolder}/dev.env",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}"
+        }
+    ]
+}

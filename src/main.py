@@ -1,35 +1,27 @@
-import logging
-import tempfile
-import os
-import whisper
-import google.generativeai as genai
-from telegram import Update
-from telegram.ext import (
-    ApplicationBuilder,
-    CommandHandler,
-    ContextTypes,
-    MessageHandler,
-    filters,
-)
-import src.utils
-from telegram.constants import ChatAction
-from src.config import (
-    TELEGRAM_BOT_TOKEN,
-    ADMIN_CHAT_ID,
-    FEATURES,
-    GEMINI_API_KEY,
-    AI_PROVIDER,
-    ALLOWED_CHAT_IDS,
-    PROMPT_PREFIX,
-    CALENDAR_AI_PROVIDER
-)
-from src.whisper_provider import WhisperProvider
-from src.gemini_provider import GeminiProvider
-from src.model_provider import ModelProvider
-from src.calendar_provider import CalendarProvider
-from datetime import datetime
 import json
+import logging
+import os
+import tempfile
+
+import google.generativeai as genai
 import tzlocal
+import whisper
+from httpx import get
+from telegram import Update, Voice
+from telegram.constants import ChatAction
+from telegram.ext import (ApplicationBuilder, CommandHandler, ContextTypes,
+                          MessageHandler, filters)
+
+import src.utils
+from src.calendar_provider import CalendarProvider
+from src.config import (ADMIN_CHAT_ID, AI_PROVIDER, ALLOWED_CHAT_IDS,
+                        CALENDAR_AI_PROVIDER, FEATURES, GEMINI_API_KEY,
+                        PROMPT_PREFIX, TELEGRAM_BOT_TOKEN)
+from src.gemini_provider import GeminiProvider
+from src.message_store import (add_message, assemble_context, get_all_messages,
+                               get_last_message)
+from src.model_provider import ModelProvider
+from src.whisper_provider import WhisperProvider
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -100,21 +92,32 @@ async def gemini_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Gemini generation failed.")
 
 
-async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_allowed(update) or not FEATURES['voice_transcription']:
-        return
-    logger.info(f"Received voice message from user {update.effective_user.id}")
-    await update.effective_chat.send_action(action=ChatAction.TYPING)
-    voice = update.message.voice
+async def transcribe_voice_message(voice: Voice, context: ContextTypes.DEFAULT_TYPE) -> str:
     if voice is None:
-        return
+        return ""
     with tempfile.NamedTemporaryFile(delete=False, suffix=".ogg") as temp_audio:
         file = await context.bot.get_file(voice.file_id)
         await file.download_to_drive(temp_audio.name)
         temp_audio_path = temp_audio.name
     try:
-        text = transcribe_audio(temp_audio_path, get_model_provider())
+        return transcribe_audio(temp_audio_path, get_model_provider())
+    except Exception as e:
+        logger.error(f"Transcription failed: {e}")
+
+
+async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_allowed(update) or not FEATURES['voice_transcription']:
+        return
+    logger.info(f"Received voice message from user {update.effective_user.id}")
+    await update.effective_chat.send_action(action=ChatAction.TYPING)
+
+    try:
+        text = await transcribe_voice_message(update.message.voice, context)
         await update.message.reply_text(text)
+        # Add transcribed voice message to message store
+        sender = update.effective_user.first_name or str(
+            update.effective_user.id)
+        add_message(sender, text, is_bot=False)
     except Exception as e:
         logger.error(f"Transcription failed: {e}")
         await update.message.reply_text("Извините, не удалось распознать речь.")
@@ -128,7 +131,26 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_addressed_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update) or not FEATURES['message_handling']:
         return
-    text = update.message.text or ""
+    # if the message is audio, transcribe it
+    is_transcribe_text = False
+    if update.message.voice:
+        text = await transcribe_voice_message(update.message.voice, context)
+        is_transcribe_text = True
+    else:
+        text = update.message.text or ""
+    sender = update.effective_user.first_name or str(update.effective_user.id)
+    try:
+        if update.message.reply_to_message:
+            # bot never speaks
+            reply_text = update.message.reply_to_message.text
+            if reply_text:
+                if get_last_message() is None:
+                    add_message('Bot', reply_text, is_bot=True)
+        add_message(sender, text, is_bot=False)
+    except Exception as e:
+        logger.error(f"Failed to store user message: {e}")
+        await update.message.reply_text("Internal error: could not store your message.")
+        return
     bot = await context.bot.get_me()
     bot_username = bot.username
     mentioned = f"@{bot_username}" in text
@@ -139,39 +161,35 @@ async def handle_addressed_message(update: Update, context: ContextTypes.DEFAULT
     )
     if not (mentioned or is_reply_to_bot):
         return
-
     await update.effective_chat.send_action(action=ChatAction.TYPING)
     if not gemini_provider:
         await update.message.reply_text("Gemini API key not configured.")
         return
-
-    prompt_prefix= PROMPT_PREFIX
     try:
-        if mentioned and update.message.reply_to_message:
-            caption = update.message.reply_to_message.caption or ""
-            original = update.message.reply_to_message.text or ""
-            #remove bot's name from the text
-            text = text.replace(f"@{bot_username}", "").strip()
-            details = f"'{caption}'" if caption else "" + f"'{original}'" if original else ""
-            prompt = (
-                f"{prompt_prefix}Это контекст: {details}. "
-                f"Вот мое новое сообщение: '{text}'."
-            )
-        elif is_reply_to_bot and update.message.reply_to_message and update.message.reply_to_message.text:
-            original = update.message.reply_to_message.text or ""
-            prompt = (
-                f"{prompt_prefix}Вот твой предыдущий ответ: '{original}'. "
-                f"Вот мое новое сообщение: '{text}'."
-            )
-        else:
-            prompt = (
-                f"{prompt_prefix}Ответь на это сообщение: {text}"
-            )
-        response = gemini_provider.generate(prompt)
-        await update.message.reply_text(response)
+        try:
+            context_str = assemble_context(get_all_messages())
+        except Exception as e:
+            logger.error(f"Context assembly failed: {e}")
+            await update.message.reply_text("Internal error: could not assemble context.")
+            return
+        prompt = f"{PROMPT_PREFIX}\n{context_str}\n---\n{sender}: {text}"
+        try:
+            response = gemini_provider.generate(prompt)
+        except Exception as e:
+            logger.error(f"AI provider failed: {e}")
+            await update.message.reply_text("AI provider error. Please try again later.")
+            return
+        # if is_transcribe_text append a quote to the response
+        if is_transcribe_text:
+            response_with_transcribed_text = f">>{text}\n\n{response}"
+        await update.message.reply_text(response_with_transcribed_text if is_transcribe_text else response)
+        try:
+            add_message('Bot', response, is_bot=True)
+        except Exception as e:
+            logger.error(f"Failed to store bot reply: {e}")
     except Exception as e:
-        logger.error(f"Gemini generation failed for user {update.effective_user.id}: {e}")
-        await update.message.reply_text("Gemini generation failed.")
+        logger.error(f"Unexpected error in handle_addressed_message: {e}")
+        await update.message.reply_text("Unexpected error occurred.")
 
 
 async def schedule_events(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -309,10 +327,13 @@ if __name__ == "__main__":
         app.add_handler(MessageHandler(filters.PHOTO, schedule_events))
     
     if FEATURES['voice_transcription']:
-        app.add_handler(MessageHandler(filters.VOICE, handle_voice))
+        app.add_handler(MessageHandler(
+            filters.VOICE & ~filters.REPLY, handle_voice))
     
+        # Handle text and voice messages that mention the bot or are replies to the bot
     if FEATURES['message_handling']:
-        app.add_handler(MessageHandler(filters.TEXT, handle_addressed_message))
+        app.add_handler(MessageHandler(
+            filters.TEXT | filters.VOICE, handle_addressed_message))
     
     logger.info("Bot started with features: %s", FEATURES)
     app.run_polling()

@@ -1,5 +1,6 @@
 # config.py
 import os
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -24,7 +25,8 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 AI_PROVIDER = os.getenv("AI_PROVIDER", "whisper").lower()
 
 # Google Calendar settings
-CALENDAR_AI_PROVIDER = os.getenv("CALENDAR_AI_PROVIDER", "gemini-1.5-flash-latest").lower()
+CALENDAR_AI_PROVIDER = os.getenv(
+    "CALENDAR_AI_PROVIDER", "gemini-2.0-flash").lower()
 GOOGLE_CALENDAR_ID = os.getenv("GOOGLE_CALENDAR_ID", "primary")
 GOOGLE_CREDENTIALS_PATH = os.getenv("GOOGLE_CREDENTIALS_PATH", "credentials.json")
 GOOGLE_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON", "")
