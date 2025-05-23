@@ -1,17 +1,15 @@
 # gemini_provider.py
-import os
 import google.generativeai as genai
-from .model_provider import ModelProvider
-from src.config import CALENDAR_AI_PROVIDER
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
+from src.config import LANGUAGE
+
+from .model_provider import ModelProvider
 
 
 class GeminiProvider(ModelProvider):
-    def __init__(self):
-        self.model = genai.GenerativeModel(CALENDAR_AI_PROVIDER)
+    def __init__(self, gemini_api_key: str, gemini_model: str):
+        genai.configure(api_key=gemini_api_key)
+        self.model = genai.GenerativeModel(model_name=gemini_model)
 
     def transcribe(self, audio_path: str) -> str:
         with open(audio_path, "rb") as f:
@@ -19,7 +17,7 @@ class GeminiProvider(ModelProvider):
         response = self.model.generate_content(
             [
                 {"mime_type": "audio/ogg", "data": audio_bytes},
-                "Transcribe this audio to Russian text.",
+                f"Transcribe this audio to {LANGUAGE} text.",
             ]
         )
         return response.text.strip()

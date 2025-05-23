@@ -1,62 +1,42 @@
+import html
 import json
 import logging
 import os
 import tempfile
+import traceback
 
 import google.generativeai as genai
 import tzlocal
-import whisper
-from httpx import get
 from telegram import Update, Voice
-from telegram.constants import ChatAction
+from telegram.constants import ChatAction, ParseMode
 from telegram.ext import (ApplicationBuilder, CommandHandler, ContextTypes,
                           MessageHandler, filters)
 
 import src.utils
+from src import config
 from src.calendar_provider import CalendarProvider
-from src.config import (ADMIN_CHAT_ID, AI_PROVIDER, ALLOWED_CHAT_IDS,
-                        CALENDAR_AI_PROVIDER, FEATURES, GEMINI_API_KEY,
-                        PROMPT_PREFIX, TELEGRAM_BOT_TOKEN)
+from src.config import (ADMIN_CHAT_ID, ALLOWED_CHAT_IDS, DEBUG_MODE, FEATURES,
+                        GEMINI_API_KEY, GEMINI_MODEL, PROMPT_PREFIX,
+                        TELEGRAM_BOT_TOKEN)
 from src.gemini_provider import GeminiProvider
-from src.message_store import (add_message, assemble_context, get_all_messages,
-                               get_last_message)
+from src.message_store import add_message, assemble_context, get_all_messages
 from src.model_provider import ModelProvider
-from src.whisper_provider import WhisperProvider
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.DEBUG if DEBUG_MODE else logging.INFO
+)
+
 logger = logging.getLogger(__name__)
-
-# Configure Gemini if enabled
-if FEATURES['gemini_ai'] and GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
-
-# Instantiate providers
-whisper_provider = WhisperProvider() if FEATURES['voice_transcription'] else None
-gemini_provider = GeminiProvider() if FEATURES['gemini_ai'] and GEMINI_API_KEY else None
-
-def get_model_provider() -> ModelProvider:
-    if AI_PROVIDER == "gemini" and gemini_provider:
-        return gemini_provider
-    return whisper_provider
+gemini_provider = GeminiProvider(GEMINI_API_KEY, GEMINI_MODEL)
 
 
-def transcribe_audio(
-    audio_path: str, provider: ModelProvider = whisper_provider
-) -> str:
+def transcribe_audio(audio_path: str, provider: ModelProvider) -> str:
     return provider.transcribe(audio_path)
 
 
-async def notify_admin(context: ContextTypes.DEFAULT_TYPE, message: str):
-    if ADMIN_CHAT_ID:
-        try:
-            await context.bot.send_message(
-                chat_id=ADMIN_CHAT_ID, text=f"[CRITICAL ERROR]\n{message}"
-            )
-        except Exception as e:
-            logger.error(f"Failed to notify admin: {e}")
-
-
 def is_allowed(update: Update) -> bool:
+    if update.effective_chat is None or update.effective_user is None:
+        return False
     chat_id = str(update.effective_chat.id)
     user_id = str(update.effective_user.id)
     # Allow if chat or user is in the allowed list (if list is not empty)
@@ -64,32 +44,14 @@ def is_allowed(update: Update) -> bool:
         if chat_id not in ALLOWED_CHAT_IDS and user_id not in ALLOWED_CHAT_IDS:
             logger.warning(f"Unauthorized access attempt by user {user_id} in chat {chat_id}")
             return False
-    return True  # If no restriction set, allow all (for dev)
+        return True
+    return False  # If no restriction set, allow all (for dev)
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update):
         return
     await update.message.reply_text("Hello! I am your speech-to-text bot.")
-
-
-async def gemini_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_allowed(update) or not FEATURES['gemini_ai']:
-        return
-    if not gemini_provider:
-        await update.message.reply_text("Gemini API key not configured.")
-        return
-    prompt = " ".join(context.args)
-    if not prompt:
-        await update.message.reply_text("Usage: /kaban <your prompt>")
-        return
-    await update.effective_chat.send_action(action=ChatAction.TYPING)
-    try:
-        response = gemini_provider.generate(prompt)
-        await update.message.reply_text(response)
-    except Exception as e:
-        logger.error(f"Gemini generation failed: {e}")
-        await update.message.reply_text("Gemini generation failed.")
 
 
 async def transcribe_voice_message(voice: Voice, context: ContextTypes.DEFAULT_TYPE) -> str:
@@ -99,38 +61,16 @@ async def transcribe_voice_message(voice: Voice, context: ContextTypes.DEFAULT_T
         file = await context.bot.get_file(voice.file_id)
         await file.download_to_drive(temp_audio.name)
         temp_audio_path = temp_audio.name
-    try:
-        return transcribe_audio(temp_audio_path, get_model_provider())
-    except Exception as e:
-        logger.error(f"Transcription failed: {e}")
-
-
-async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_allowed(update) or not FEATURES['voice_transcription']:
-        return
-    logger.info(f"Received voice message from user {update.effective_user.id}")
-    await update.effective_chat.send_action(action=ChatAction.TYPING)
-
-    try:
-        text = await transcribe_voice_message(update.message.voice, context)
-        await update.message.reply_text(text)
-        # Add transcribed voice message to message store
-        sender = update.effective_user.first_name or str(
-            update.effective_user.id)
-        add_message(sender, text, is_bot=False)
-    except Exception as e:
-        logger.error(f"Transcription failed: {e}")
-        await update.message.reply_text("Извините, не удалось распознать речь.")
-        await notify_admin(
-            context, f"Transcription failed for user {update.effective_user.id}: {e}"
-        )
-    finally:
-        os.remove(temp_audio_path)
+    return transcribe_audio(temp_audio_path, gemini_provider)
 
 
 async def handle_addressed_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update) or not FEATURES['message_handling']:
         return
+    # ignore if the update is not a message (e.g., a callback, edited message, etc.) or sent by non-user (bot)
+    if not update.message or not update.effective_user or not update.effective_chat:
+        return
+
     # if the message is audio, transcribe it
     is_transcribe_text = False
     if update.message.voice:
@@ -138,86 +78,67 @@ async def handle_addressed_message(update: Update, context: ContextTypes.DEFAULT
         is_transcribe_text = True
     else:
         text = update.message.text or ""
-    sender = update.effective_user.first_name or str(update.effective_user.id)
-    try:
-        if update.message.reply_to_message:
-            # bot never speaks
-            reply_text = update.message.reply_to_message.text
-            if reply_text:
-                if get_last_message() is None:
-                    add_message('Bot', reply_text, is_bot=True)
-        add_message(sender, text, is_bot=False)
-    except Exception as e:
-        logger.error(f"Failed to store user message: {e}")
-        await update.message.reply_text("Internal error: could not store your message.")
-        return
+    sender = update.effective_user.first_name or update.effective_user.name
+
+    add_message(sender, text, is_bot=False)
+
     bot = await context.bot.get_me()
-    bot_username = bot.username
-    mentioned = f"@{bot_username}" in text
-    is_reply_to_bot = (
-        update.message.reply_to_message is not None and
-        update.message.reply_to_message.from_user is not None and
+    bot_names_and_aliases = config.BOT_ALIASES
+    if bot.username:
+        bot_names_and_aliases.append(bot.username.lower())
+    text_lower = text.lower()
+    mentioned = any(alias in text_lower for alias in bot_names_and_aliases)
+    is_reply_to_bot = mentioned or (
+        update.message.reply_to_message and
+        update.message.reply_to_message.from_user and
         update.message.reply_to_message.from_user.id == bot.id
     )
-    if not (mentioned or is_reply_to_bot):
-        return
-    await update.effective_chat.send_action(action=ChatAction.TYPING)
-    if not gemini_provider:
-        await update.message.reply_text("Gemini API key not configured.")
-        return
-    try:
-        try:
-            context_str = assemble_context(get_all_messages())
-        except Exception as e:
-            logger.error(f"Context assembly failed: {e}")
-            await update.message.reply_text("Internal error: could not assemble context.")
-            return
-        prompt = f"{PROMPT_PREFIX}\n{context_str}\n---\n{sender}: {text}"
-        try:
-            response = gemini_provider.generate(prompt)
-        except Exception as e:
-            logger.error(f"AI provider failed: {e}")
-            await update.message.reply_text("AI provider error. Please try again later.")
-            return
-        # if is_transcribe_text append a quote to the response
+    if not is_reply_to_bot:
         if is_transcribe_text:
-            response_with_transcribed_text = f">>{text}\n\n{response}"
-        await update.message.reply_text(response_with_transcribed_text if is_transcribe_text else response)
-        try:
-            add_message('Bot', response, is_bot=True)
-        except Exception as e:
-            logger.error(f"Failed to store bot reply: {e}")
-    except Exception as e:
-        logger.error(f"Unexpected error in handle_addressed_message: {e}")
-        await update.message.reply_text("Unexpected error occurred.")
+            # if the message is not addressed to the bot
+            # just send the transcribed text
+            await update.effective_chat.send_action(action=ChatAction.TYPING)
+            await update.message.reply_text(text)
+        return
+
+    await update.effective_chat.send_action(action=ChatAction.TYPING)
+    context_str = assemble_context(get_all_messages())
+    prompt = f"{PROMPT_PREFIX}\n{context_str}\n---\n{sender}: {text}"
+    response = gemini_provider.generate(prompt)
+
+    # if is_transcribe_text append a quote to the response
+    if is_transcribe_text:
+        response_with_transcribed_text = f">>{text}\n\n{response}"
+    await update.message.reply_text(response_with_transcribed_text if is_transcribe_text else response)
+    add_message('Bot', response, is_bot=True)
 
 
 async def schedule_events(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update) or not FEATURES['schedule_events']:
         return
-    
+
     if not update.message.photo:
         return
-    
+
     await update.effective_chat.send_action(action=ChatAction.TYPING)
-    
+
     try:
         # Get the largest photo
         photo = update.message.photo[-1]
         file = await context.bot.get_file(photo.file_id)
-        
+
         # Download the photo
         with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as temp_photo:
             await file.download_to_drive(temp_photo.name)
             temp_photo_path = temp_photo.name
-        
+
         try:
             # Read the image file
             with open(temp_photo_path, 'rb') as image_file:
                 image_data = image_file.read()
-            
+
             # Analyze the photo with Gemini
-            model = genai.GenerativeModel(CALENDAR_AI_PROVIDER)
+            model = genai.GenerativeModel(GEMINI_MODEL)
             response = model.generate_content([
                 "Analyze this image and extract event information. " +
                 "Provide a JSON response with the following fields: " +
@@ -314,26 +235,42 @@ async def schedule_events(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Log the error and send a telegram message to notify the developer."""
+    logger.error("Exception while handling an update:", exc_info=context.error)
+
+    if not ADMIN_CHAT_ID:
+        return
+    tb_list = traceback.format_exception(None, context.error, context.error.__traceback__)
+    tb_string = "".join(tb_list)
+    update_str = update.to_dict() if isinstance(update, Update) else str(update)
+    message = (
+        "An exception was raised while handling an update\n"
+        f"<pre>update = {html.escape(json.dumps(update_str, indent=2, ensure_ascii=False))}"
+        "</pre>\n\n"
+        f"<pre>context.chat_data = {html.escape(str(context.chat_data))}</pre>\n\n"
+        f"<pre>context.user_data = {html.escape(str(context.user_data))}</pre>\n\n"
+        f"<pre>{html.escape(tb_string)}</pre>"
+    )
+    # Finally, send the message
+    await context.bot.send_message(
+        chat_id=ADMIN_CHAT_ID, text=message, parse_mode=ParseMode.HTML
+    )
+
 if __name__ == "__main__":
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
-    
+    app.add_error_handler(error_handler)
+
     if FEATURES['commands']:
         if FEATURES['commands']['hi']:
             app.add_handler(CommandHandler("hi", start))
-        if FEATURES['commands']['ai']:
-            app.add_handler(CommandHandler("ai", gemini_command))
-    
+
     if FEATURES['schedule_events']:
         app.add_handler(MessageHandler(filters.PHOTO, schedule_events))
-    
-    if FEATURES['voice_transcription']:
-        app.add_handler(MessageHandler(
-            filters.VOICE & ~filters.REPLY, handle_voice))
-    
-        # Handle text and voice messages that mention the bot or are replies to the bot
+
+        # Handle text messages that mention the bot or are replies to the bot
     if FEATURES['message_handling']:
-        app.add_handler(MessageHandler(
-            filters.TEXT | filters.VOICE, handle_addressed_message))
-    
+        app.add_handler(MessageHandler(filters.TEXT | filters.VOICE, handle_addressed_message))
+
     logger.info("Bot started with features: %s", FEATURES)
     app.run_polling()

@@ -13,6 +13,10 @@
         "editor.formatOnSaveMode": "modifications",
     },
     "python.analysis.autoFormatStrings": true,
+    "autopep8.args": [
+        "--max-line-length",
+        "120"
+    ],
     "python.envFile": "${workspaceFolder}/dev.env",
     "python.linting.enabled": true,
     "python.linting.flake8Enabled": true,
