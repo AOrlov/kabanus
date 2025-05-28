@@ -76,3 +76,9 @@ stack.env
 
 # Whisper model cache
 whisper_cache/
+
+# Messages
+*.jsonl
+
+# Telegram session files
+*.session
