@@ -23,9 +23,13 @@ GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash").lower()
 
 # Google Calendar settings
 if FEATURES['schedule_events']:
-    GOOGLE_CALENDAR_ID = os.environ["GOOGLE_CALENDAR_ID"]
-    GOOGLE_CREDENTIALS_PATH = os.getenv("GOOGLE_CREDENTIALS_PATH")
-    GOOGLE_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON")
+    # TODO
+    print("Google Calendar integration is enabled. Ensure credentials are set up correctly.")
+
+
+GOOGLE_CALENDAR_ID = os.getenv("GOOGLE_CALENDAR_ID")
+GOOGLE_CREDENTIALS_PATH = os.getenv("GOOGLE_CREDENTIALS_PATH")
+GOOGLE_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON")
 
 # Allowed users/groups
 ALLOWED_CHAT_IDS = os.environ["ALLOWED_CHAT_IDS"].split(",")
