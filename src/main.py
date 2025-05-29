@@ -104,6 +104,12 @@ async def handle_addressed_message(update: Update, context: ContextTypes.DEFAULT
     await update.effective_chat.send_action(action=ChatAction.TYPING)
     context_str = assemble_context(get_all_messages())
     prompt = f"{PROMPT_PREFIX}\n{context_str}\n---\n{sender}: {text}"
+    if config.DEBUG_MODE:
+        # trim the promt in the middle for logging purposes
+        if len(prompt) > 1024:
+            logger.debug(f"Generated prompt: {prompt[:512] + "\n...\n" + prompt[-512:]}")
+        else:
+            logger.debug(f"Generated prompt: {prompt}")
     response = gemini_provider.generate(prompt)
 
     # if is_transcribe_text append a quote to the response

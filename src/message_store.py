@@ -17,7 +17,6 @@ def make_message(sender: str, text: str, is_bot: bool) -> Dict:
     return {
         'sender': sender.strip() if not is_bot else 'Bot',  # sender's first name or `Bot` for bot messages
         'text': text.strip(),  # message text
-        'is_bot': is_bot  # True if the message is from the bot
     }
 
 
@@ -76,7 +75,7 @@ def get_all_messages() -> List[Dict]:
 
 def estimate_token_count(text: str) -> int:
     """Estimate token count for a message (simple word count as proxy)."""
-    return len(text.split())
+    return len(text)//4
 
 
 # TODO: optimize to not assemble every time
@@ -84,10 +83,11 @@ def assemble_context(messages: list, token_limit: int = TOKEN_LIMIT) -> str:
     """Assemble most recent messages up to the token limit"""
     context_lines = []
     total_tokens = 0
+    logging.debug(f"Assembling context with token limit: {token_limit}")
     # Traverse messages in reverse (most recent first)
     for msg in reversed(messages):
-        sender = 'Bot' if msg.get('is_bot') else msg.get('sender', 'Unknown')
-        line = f"{sender}: {msg.get('text', '')}"
+        sender = msg.get('sender')
+        line = f"{sender}:{msg.get('text', '')}"
         tokens = estimate_token_count(line)
         if total_tokens + tokens > token_limit:
             break
@@ -95,4 +95,5 @@ def assemble_context(messages: list, token_limit: int = TOKEN_LIMIT) -> str:
         total_tokens += tokens
     # Reverse again to restore chronological order
     context_lines.reverse()
+    logging.debug(f"Total: messages {len(context_lines)}, tokens in context: {total_tokens}")
     return '\n'.join(context_lines)
