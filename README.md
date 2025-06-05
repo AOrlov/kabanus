@@ -1,23 +1,25 @@
 # Telegram Speech-to-Text & Event Bot
 
-A Telegram bot for fun to interact with group members. Also, the bot listens for voice messages in a Telegram group and replies with a text transcription using Google Gemini model. It can also create Google Calendar events from photo messages (if enabled). Designed for easy deployment in a Docker container and notifies an admin in case of critical errors.
+Telegram bot for group interaction, voice message transcription, and (optionally) Google Calendar event creation from event poster photos. Uses Google Gemini for speech-to-text and text generation. Designed for easy Docker deployment and notifies an admin on critical errors.
 
 ## Features
-- Listens for voice messages in a Telegram group
+- Listens for voice and text messages in Telegram groups
 - Transcribes speech to text using Gemini
 - Replies with the transcription or an error message
-- Supports Gemini for text generation
-- Can create Google Calendar events from event photo images (optional)
+- Supports Gemini for text generation and context-aware replies
+- Can create Google Calendar events from event poster photos (optional)
 - Notifies admin on critical errors
 - Logs to stdout and temporary files
+- Access control via allowed chat/user IDs
+- Configurable via environment variables
 
 ## Requirements
-- Docker (recommended)
+- Docker (recommended) or Python 3.9+
 - Telegram bot token
 - Admin Telegram chat ID (for error notifications)
 - Allowed chat/user IDs (for access control)
-- (Optional) Google Gemini API key for Gemini support
-- (Optional) Google Calendar credentials and calendar ID for event creation
+- Google Gemini API key (for Gemini features)
+- (Optional) Google Calendar credentials and calendar ID (for event creation)
 
 ## Setup
 
@@ -38,16 +40,16 @@ Create a `.env` file or set environment variables:
 TELEGRAM_BOT_TOKEN=your-telegram-bot-token
 ADMIN_CHAT_ID=your-admin-chat-id
 ALLOWED_CHAT_IDS=comma,separated,chat,ids
-GEMINI_API_KEY=your-gemini-api-key         # Optional, for Gemini support
-GEMINI_MODEL=gemini-2.5-flash              # Optional, default is gemini-2.5-flash
-ENABLE_MESSAGE_HANDLING=true                # Enable text/voice message handling (default: false)
-ENABLE_SCHEDULE_EVENTS=true                 # Enable event creation from photos (default: false)
+GEMINI_API_KEY=your-gemini-api-key         # Required for Gemini support
+GEMINI_MODEL=gemini-2.5-flash              # Optional, default is gemini-2.0-flash
+ENABLE_MESSAGE_HANDLING=true               # Enable text/voice message handling (default: false)
+ENABLE_SCHEDULE_EVENTS=true                # Enable event creation from photos (default: false)
 GOOGLE_CALENDAR_ID=your-calendar-id        # Required for event creation
 GOOGLE_CREDENTIALS_PATH=path/to/creds.json # or use GOOGLE_CREDENTIALS_JSON
-PROMPT_PREFIX=Your prompt prefix           # Optional, a prompt prefix for bot's behavior customization
+PROMPT_PREFIX=Your prompt prefix           # Optional, for bot behavior customization
 BOT_ALIASES=bot,бот,ботик                  # Optional, comma-separated aliases
-LANGUAGE=ru                                # Optional, the language for the bot to respond in (default: ru)
-TOKEN_LIMIT=10_000                         # Optional, context token limit
+LANGUAGE=ru                                # Optional, bot response language (default: ru)
+TOKEN_LIMIT=10000                          # Optional, context token limit
 CHAT_MESSAGES_STORE_PATH=messages.jsonl    # Optional, history message store file
 DEBUG_MODE=true                            # Optional, enable debug logging
 ```
@@ -69,14 +71,13 @@ python -m src.main
 ```
 
 ## Usage
-
 - If `ENABLE_SCHEDULE_EVENTS=true`, send a photo of an event poster to create a Google Calendar event (requires calendar credentials and ID).
+- If `ENABLE_MESSAGE_HANDLING=true`, send a voice or text message to interact with the bot. Mention the bot or reply to its message for a response.
 
 ## Utilities
 - `scripts/dump_chat.py`: Dump Telegram chat history to JSONL (see script for usage).
 
 ## VS Code Debugging
-
 A `.vscode/launch.json` is provided. Use the "Run Telegram Bot (src.main)" or "Debug Unit Tests" configurations from the Run & Debug panel.
 
 ## Notes
