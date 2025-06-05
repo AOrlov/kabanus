@@ -75,9 +75,11 @@ async def handle_addressed_message(update: Update, context: ContextTypes.DEFAULT
     is_transcribe_text = False
     if update.message.voice:
         text = await transcribe_voice_message(update.message.voice, context)
+        logger.debug(f"Received voice message {text} from {update.effective_user.id}")
         is_transcribe_text = True
     else:
         text = update.message.text or ""
+        logger.debug(f"Received text message '{text}' from {update.effective_user.id}")
     sender = update.effective_user.first_name or update.effective_user.name
 
     add_message(sender, text, is_bot=False)

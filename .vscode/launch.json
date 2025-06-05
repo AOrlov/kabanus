@@ -8,7 +8,8 @@
             "request": "launch",
             "module": "src.main",
             "justMyCode": true,
-            "envFile": "${workspaceFolder}/dev.env",
+            
+            "envFile": "${workspaceFolder}/dev.stack.env",
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}"
         },
