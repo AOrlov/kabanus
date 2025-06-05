@@ -1,0 +1,6 @@
+services:
+  chat-bot:
+    build: .
+    env_file:
+      - stack.env
+      - dev.stack.env

@@ -56,9 +56,6 @@ coverage.xml
 .mypy_cache/
 .dmypy.json
 
-# VS Code
-.vscode/
-
 # Environment variables
 *.env
 .env.*
@@ -79,3 +76,9 @@ stack.env
 
 # Whisper model cache
 whisper_cache/
+
+# Messages
+*.jsonl
+
+# Telegram session files
+*.session
