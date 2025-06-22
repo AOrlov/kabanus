@@ -19,8 +19,10 @@ FEATURES = {
 
 # AI Provider settings
 GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
+GOOGLE_API_KEY = GEMINI_API_KEY  # For compatibility with Google Gemini
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash").lower()
-
+THINKING_BUDGET = int(os.getenv("THINKING_BUDGET", 0))
+AI_SYSTEM_INSTRUCTIONS_PATH = os.getenv("SYSTEM_INSTRUCTIONS_PATH", "system_instructions.txt")
 # Google Calendar settings
 if FEATURES['schedule_events']:
     # TODO
@@ -33,8 +35,6 @@ GOOGLE_CREDENTIALS_JSON = os.getenv("GOOGLE_CREDENTIALS_JSON")
 
 # Allowed users/groups
 ALLOWED_CHAT_IDS = os.environ["ALLOWED_CHAT_IDS"].split(",")
-
-PROMPT_PREFIX = os.getenv("PROMPT_PREFIX", "")
 
 BOT_ALIASES = [alias.lower() for alias in os.getenv("BOT_ALIASES", "").split(",") if alias]
 LANGUAGE = os.getenv("LANGUAGE", "ru").lower()

@@ -4,20 +4,18 @@ import logging
 import os
 import tempfile
 import traceback
+from datetime import datetime
 
-import google.generativeai as genai
 import tzlocal
 from telegram import Update, Voice
 from telegram.constants import ChatAction, ParseMode
 from telegram.ext import (ApplicationBuilder, CommandHandler, ContextTypes,
                           MessageHandler, filters)
 
-import src.utils
 from src import config
 from src.calendar_provider import CalendarProvider
 from src.config import (ADMIN_CHAT_ID, ALLOWED_CHAT_IDS, DEBUG_MODE, FEATURES,
-                        GEMINI_API_KEY, GEMINI_MODEL, PROMPT_PREFIX,
-                        TELEGRAM_BOT_TOKEN)
+                        GEMINI_API_KEY, GEMINI_MODEL, TELEGRAM_BOT_TOKEN)
 from src.gemini_provider import GeminiProvider
 from src.message_store import add_message, assemble_context, get_all_messages
 from src.model_provider import ModelProvider
@@ -50,6 +48,8 @@ def is_allowed(update: Update) -> bool:
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update):
+        return
+    if update.message is None:
         return
     await update.message.reply_text("Hello! I am your speech-to-text bot.")
 
@@ -105,7 +105,7 @@ async def handle_addressed_message(update: Update, context: ContextTypes.DEFAULT
 
     await update.effective_chat.send_action(action=ChatAction.TYPING)
     context_str = assemble_context(get_all_messages())
-    prompt = f"{PROMPT_PREFIX}\n{context_str}\n---\n{sender}: {text}"
+    prompt = f"{context_str}\n---\n{sender}: {text}"
     if config.DEBUG_MODE:
         # trim the promt in the middle for logging purposes
         if len(prompt) > 1024:
@@ -125,6 +125,9 @@ async def schedule_events(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update) or not FEATURES['schedule_events']:
         return
 
+    if update.message is None or update.effective_chat is None or update.effective_user is None:
+        return
+
     if not update.message.photo:
         return
 
@@ -141,41 +144,20 @@ async def schedule_events(update: Update, context: ContextTypes.DEFAULT_TYPE):
             temp_photo_path = temp_photo.name
 
         try:
-            # Read the image file
-            with open(temp_photo_path, 'rb') as image_file:
-                image_data = image_file.read()
+            event_data = gemini_provider.parse_image_to_event(temp_photo_path)
 
-            # Analyze the photo with Gemini
-            model = genai.GenerativeModel(GEMINI_MODEL)
-            response = model.generate_content([
-                "Analyze this image and extract event information. " +
-                "Provide a JSON response with the following fields: " +
-                "title (string), date (YYYY-MM-DD), time (HH:MM), " +
-                "location (string), description (string), " +
-                "confidence (float between 0 and 1). " +
-                "If any field is unclear, set it to null." +
-                f"If there is no year, set it to current year ({datetime.now().year})",
-                {"mime_type": "image/jpeg", "data": image_data}
-            ])
-            
-            # Parse the response
-            event_data = json.loads(src.utils.strip_markdown_to_json(response.text))
-            
-            # Log the event data for debugging
-            logger.info(f"Event data from model: {event_data}")
-            
             if event_data.get('confidence', 0) < 0.5:
                 await update.message.reply_text(
                     "I'm not very confident about the event details, but I'll create it anyway."
                 )
-            
+
             # Create the event
             calendar = CalendarProvider()
-            
+
             # Validate and handle date and time
             if not event_data.get('date'):
                 raise ValueError("No date found in the event data")
-                
+
             # Handle time with proper error checking
             event_time = event_data.get('time')
             is_all_day = event_time is None
@@ -185,7 +167,7 @@ async def schedule_events(update: Update, context: ContextTypes.DEFAULT_TYPE):
             elif not isinstance(event_time, str):
                 logger.warning(f"Invalid time format: {event_time}, using default time of 00:00")
                 event_time = '00:00'
-            
+
             try:
                 naive_datetime = datetime.strptime(
                     f"{event_data['date']} {event_time}",
@@ -247,8 +229,9 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
     """Log the error and send a telegram message to notify the developer."""
     logger.error("Exception while handling an update:", exc_info=context.error)
 
-    if not ADMIN_CHAT_ID:
+    if not ADMIN_CHAT_ID or context.error is None:
         return
+
     tb_list = traceback.format_exception(None, context.error, context.error.__traceback__)
     tb_string = "".join(tb_list)
     update_str = update.to_dict() if isinstance(update, Update) else str(update)
@@ -264,6 +247,18 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
     await context.bot.send_message(
         chat_id=ADMIN_CHAT_ID, text=message, parse_mode=ParseMode.HTML
     )
+
+
+async def notify_admin(context: ContextTypes.DEFAULT_TYPE, message: str) -> None:
+    """Send a notification message to the admin chat."""
+    if not ADMIN_CHAT_ID:
+        return
+    await context.bot.send_message(
+        chat_id=ADMIN_CHAT_ID,
+        text=message,
+        parse_mode=ParseMode.HTML
+    )
+
 
 if __name__ == "__main__":
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()

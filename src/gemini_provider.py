@@ -1,27 +1,81 @@
 # gemini_provider.py
-import google.generativeai as genai
+import json
+import logging
+import os
+from datetime import datetime
 
-from src.config import LANGUAGE
+from google import genai
+from google.genai import types
+
+from src import config, utils
 
 from .model_provider import ModelProvider
 
+logger = logging.getLogger(__name__)
+
 
 class GeminiProvider(ModelProvider):
+
     def __init__(self, gemini_api_key: str, gemini_model: str):
-        genai.configure(api_key=gemini_api_key)
-        self.model = genai.GenerativeModel(model_name=gemini_model)
+        self.client = genai.Client()
+        self.system_instructions = self._load_system_instructions()
+
+    def _load_system_instructions(self):
+        path = os.path.join(os.path.dirname(__file__), config.AI_SYSTEM_INSTRUCTIONS_PATH)
+        with open(path, "r", encoding="utf-8") as f:
+            return f.read()
 
     def transcribe(self, audio_path: str) -> str:
         with open(audio_path, "rb") as f:
             audio_bytes = f.read()
-        response = self.model.generate_content(
-            [
-                {"mime_type": "audio/ogg", "data": audio_bytes},
-                f"Transcribe this audio to {LANGUAGE} text.",
-            ]
+
+        response = self.client.models.generate_content(
+            model=config.GEMINI_MODEL,
+            contents=[f"Transcribe this audio to {config.LANGUAGE} text.",
+                      types.Part.from_bytes(
+                          data=audio_bytes,
+                          mime_type="audio/ogg",
+            )],
+            config=types.GenerateContentConfig(
+                thinking_config=types.ThinkingConfig(thinking_budget=config.THINKING_BUDGET)
+            )
         )
-        return response.text.strip()
+
+        return response.text.strip() if response.text else ""
 
     def generate(self, prompt: str) -> str:
-        response = self.model.generate_content(prompt)
-        return response.text.strip()
+        response = self.client.models.generate_content(
+            model=config.GEMINI_MODEL,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                system_instruction=self.system_instructions,
+                thinking_config=types.ThinkingConfig(thinking_budget=config.THINKING_BUDGET),
+            ),
+        )
+        return response.text.strip() if response.text else ""
+
+    def parse_image_to_event(self, image_path: str) -> dict:
+        with open(image_path, "rb") as f:
+            image_data = f.read()
+
+        response = self.client.models.generate_content(
+            model='gemini-pro-vision',
+            contents=[
+                "Analyze this image and extract event information. " +
+                "Provide a JSON response with the following fields: " +
+                "title (string), date (YYYY-MM-DD), time (HH:MM), " +
+                "location (string), description (string), " +
+                "confidence (float between 0 and 1). " +
+                "If any field is unclear, set it to null." +
+                f"If there is no year, set it to current year ({datetime.now().year})",
+                {"mime_type": "image/jpeg", "data": image_data}
+            ],
+            config=types.GenerateContentConfig(
+                system_instruction=self.system_instructions,
+                thinking_config=types.ThinkingConfig(thinking_budget=config.THINKING_BUDGET),
+            ),
+        )
+        event_data = json.loads(utils.strip_markdown_to_json(response.text or ""))
+        logger.info(f"Event data from model: {event_data}")
+
+        return event_data
