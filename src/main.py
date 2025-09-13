@@ -91,7 +91,7 @@ async def handle_addressed_message(update: Update, context: ContextTypes.DEFAULT
         caption = update.message.caption or ""
         text = (caption + "\n" + extracted).strip() if caption else extracted
         logger.debug(f"Received photo -> text '{text}' from {update.effective_user.id}")
-        is_transcribe_text = True
+        is_transcribe_text = False
         is_image = True
     else:
         text = update.message.text or (update.message.caption or "")
