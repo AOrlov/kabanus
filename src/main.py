@@ -1,4 +1,5 @@
 import html
+import io
 import json
 import logging
 import os
@@ -71,14 +72,29 @@ async def handle_addressed_message(update: Update, context: ContextTypes.DEFAULT
     if not update.message or not update.effective_user or not update.effective_chat:
         return
 
-    # if the message is audio, transcribe it
+    # if the message is audio or image, transcribe/extract it
     is_transcribe_text = False
+    is_image = False
     if update.message.voice:
         text = await transcribe_voice_message(update.message.voice, context)
         logger.debug(f"Received voice message {text} from {update.effective_user.id}")
         is_transcribe_text = True
+    elif update.message.photo:
+        # Process the largest photo in-memory
+        photo = update.message.photo[-1]
+        file = await context.bot.get_file(photo.file_id)
+        bio = io.BytesIO()
+        await file.download_to_memory(bio)
+        image_bytes = bio.getvalue()
+        extracted = gemini_provider.image_to_text(image_bytes, mime_type="image/jpeg")
+        # Include caption if present
+        caption = update.message.caption or ""
+        text = (caption + "\n" + extracted).strip() if caption else extracted
+        logger.debug(f"Received photo -> text '{text}' from {update.effective_user.id}")
+        is_transcribe_text = True
+        is_image = True
     else:
-        text = update.message.text or ""
+        text = update.message.text or (update.message.caption or "")
         logger.debug(f"Received text message '{text}' from {update.effective_user.id}")
     sender = update.effective_user.first_name or update.effective_user.name
 
@@ -273,7 +289,7 @@ if __name__ == "__main__":
 
         # Handle text messages that mention the bot or are replies to the bot
     if FEATURES['message_handling']:
-        app.add_handler(MessageHandler(filters.TEXT | filters.VOICE, handle_addressed_message))
+        app.add_handler(MessageHandler(filters.TEXT | filters.VOICE | filters.PHOTO, handle_addressed_message))
 
     logger.info("Bot started with features: %s", FEATURES)
     app.run_polling()

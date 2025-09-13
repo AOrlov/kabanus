@@ -22,6 +22,7 @@ GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
 GOOGLE_API_KEY = GEMINI_API_KEY  # For compatibility with Google Gemini
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash").lower()
 THINKING_BUDGET = int(os.getenv("THINKING_BUDGET", 0))
+USE_GOOGLE_SEARCH = os.getenv("USE_GOOGLE_SEARCH", "false").lower() == 'true'
 AI_SYSTEM_INSTRUCTIONS_PATH = os.getenv("SYSTEM_INSTRUCTIONS_PATH", "system_instructions.txt")
 # Google Calendar settings
 if FEATURES['schedule_events']:

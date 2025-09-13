@@ -44,12 +44,17 @@ class GeminiProvider(ModelProvider):
         return response.text.strip() if response.text else ""
 
     def generate(self, prompt: str) -> str:
+        grounding_tool = types.Tool(
+            google_search=types.GoogleSearch()
+        )
+
         response = self.client.models.generate_content(
             model=config.GEMINI_MODEL,
             contents=prompt,
             config=types.GenerateContentConfig(
                 system_instruction=self.system_instructions,
                 thinking_config=types.ThinkingConfig(thinking_budget=config.THINKING_BUDGET),
+                tools=[grounding_tool] if config.USE_GOOGLE_SEARCH else None,
             ),
         )
         return response.text.strip() if response.text else ""
@@ -79,3 +84,22 @@ class GeminiProvider(ModelProvider):
         logger.info(f"Event data from model: {event_data}")
 
         return event_data
+
+    def image_to_text(self, image_bytes: bytes, mime_type: str = "image/jpeg") -> str:
+        """Extracts readable content from image bytes and returns plain text."""
+        response = self.client.models.generate_content(
+            model=config.GEMINI_MODEL,
+            contents=[
+                (
+                    f"Extract all visible text from the image and, if helpful, "
+                    f"briefly describe important visual content. Respond in {config.LANGUAGE}. "
+                    f"Return plain text only without any markdown or JSON."
+                ),
+                types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
+            ],
+            config=types.GenerateContentConfig(
+                system_instruction=self.system_instructions,
+                thinking_config=types.ThinkingConfig(thinking_budget=config.THINKING_BUDGET),
+            ),
+        )
+        return (response.text or "").strip()
