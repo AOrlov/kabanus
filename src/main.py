@@ -92,7 +92,47 @@ async def handle_addressed_message(update: Update, context: ContextTypes.DEFAULT
         text = (caption + "\n" + extracted).strip() if caption else extracted
         logger.debug(f"Received photo -> text '{text}' from {update.effective_user.id}")
         is_transcribe_text = False
-        is_image = True
+    elif update.message.document:
+        # Only process if the document is an image; ignore others
+        doc = update.message.document
+        mime = (doc.mime_type or "").lower()
+        name = (doc.file_name or "").lower()
+
+        def guess_mime_from_name(n: str) -> str:
+            if n.endswith((".jpg", ".jpeg")):
+                return "image/jpeg"
+            if n.endswith(".png"):
+                return "image/png"
+            if n.endswith(".webp"):
+                return "image/webp"
+            if n.endswith(".gif"):
+                return "image/gif"
+            if n.endswith((".bmp",)):
+                return "image/bmp"
+            if n.endswith((".tif", ".tiff")):
+                return "image/tiff"
+            return ""
+
+        is_image_doc = mime.startswith("image/") or guess_mime_from_name(name) != ""
+        eff_mime = mime if mime.startswith("image/") else guess_mime_from_name(name)
+
+        # Basic size guard (e.g., 15 MB)
+        if not is_image_doc:
+            logger.debug("Ignoring non-image document message")
+            return
+        if doc.file_size is not None and doc.file_size > 15 * 1024 * 1024:
+            logger.warning(f"Image document too large: {doc.file_size} bytes")
+            return
+
+        file = await context.bot.get_file(doc.file_id)
+        bio = io.BytesIO()
+        await file.download_to_memory(bio)
+        image_bytes = bio.getvalue()
+        extracted = gemini_provider.image_to_text(image_bytes, mime_type=eff_mime or "image/jpeg")
+        caption = update.message.caption or ""
+        text = (caption + "\n" + extracted).strip() if caption else extracted
+        logger.debug(f"Received image document -> text '{text}' from {update.effective_user.id}")
+        is_transcribe_text = False
     else:
         text = update.message.text or (update.message.caption or "")
         logger.debug(f"Received text message '{text}' from {update.effective_user.id}")
@@ -289,7 +329,10 @@ if __name__ == "__main__":
 
         # Handle text messages that mention the bot or are replies to the bot
     if FEATURES['message_handling']:
-        app.add_handler(MessageHandler(filters.TEXT | filters.VOICE | filters.PHOTO, handle_addressed_message))
+        app.add_handler(MessageHandler(
+            filters.TEXT | filters.VOICE | filters.PHOTO | filters.Document.IMAGE,
+            handle_addressed_message
+        ))
 
     logger.info("Bot started with features: %s", FEATURES)
     app.run_polling()
