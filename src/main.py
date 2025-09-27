@@ -173,8 +173,16 @@ async def handle_addressed_message(update: Update, context: ContextTypes.DEFAULT
     # if is_transcribe_text append a quote to the response
     if is_transcribe_text:
         response_with_transcribed_text = f">>{text}\n\n{response}"
-    await update.message.reply_text(response_with_transcribed_text if is_transcribe_text else response)
-    add_message('Bot', response, is_bot=True)
+
+    for chunk in chunk_string(response_with_transcribed_text if is_transcribe_text else response, 4000):
+        await update.message.reply_text(chunk)
+        add_message('Bot', chunk, is_bot=True)
+
+
+def chunk_string(s: str, chunk_size: int) -> list[str]:
+    if len(s) <= chunk_size:
+        return [s]
+    return [s[i:i + chunk_size] for i in range(0, len(s), chunk_size)]
 
 
 async def schedule_events(update: Update, context: ContextTypes.DEFAULT_TYPE):
