@@ -64,7 +64,7 @@ class GeminiProvider(ModelProvider):
             image_data = f.read()
 
         response = self.client.models.generate_content(
-            model='gemini-pro-vision',
+            model=config.GEMINI_MODEL,
             contents=[
                 "Analyze this image and extract event information. " +
                 "Provide a JSON response with the following fields: " +
@@ -76,7 +76,6 @@ class GeminiProvider(ModelProvider):
                 {"mime_type": "image/jpeg", "data": image_data}
             ],
             config=types.GenerateContentConfig(
-                system_instruction=self.system_instructions,
                 thinking_config=types.ThinkingConfig(thinking_budget=config.THINKING_BUDGET),
             ),
         )
