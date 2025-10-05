@@ -62,6 +62,21 @@ class GeminiProvider(ModelProvider):
         return response.text.strip() if response.text else ""
 
     def parse_image_to_event(self, image_path: str) -> dict:
+        """
+        Analyzes an image to extract event information.
+
+        Args:
+            image_path (str): Path to the image file to be analyzed.
+
+        Returns:
+            dict: A dictionary containing event fields:
+                - title (str or None)
+                - date (str in YYYY-MM-DD or None)
+                - time (str in HH:MM or None)
+                - location (str or None)
+                - description (str or None)
+                - confidence (float between 0 and 1 or None)
+        """
         with open(image_path, "rb") as f:
             image_data = f.read()
 
@@ -75,7 +90,7 @@ class GeminiProvider(ModelProvider):
                 "confidence (float between 0 and 1). " +
                 "If any field is unclear, set it to null." +
                 f"If there is no year, set it to current year ({datetime.now().year})",
-                {"mime_type": "image/jpeg", "data": image_data}
+                types.Part.from_bytes(data=image_data, mime_type="image/jpeg")
             ],
             config=types.GenerateContentConfig(
                 thinking_config=types.ThinkingConfig(thinking_budget=config.THINKING_BUDGET),
