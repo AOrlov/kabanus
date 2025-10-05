@@ -9,11 +9,3 @@ services:
       - cifs-volume:/mnt/${CONTAINER_NAME:-chat-bot}
     ports:
       - "${PORT:-8080}:8080"
-
-volumes:
-  cifs-volume:
-    driver: local
-    driver_opts:
-      type: cifs
-      o: "username=${CIFS_USERNAME},password=${CIFS_PASSWORD},rw,vers=3.0"
-      device: "${CIFS_SHARED_FOLDER_PATH}"
