@@ -1,10 +1,12 @@
+import json
+import os
+from datetime import datetime, timedelta, timezone
+
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
-from datetime import datetime, timedelta, timezone
-import tzlocal
-from src.config import GOOGLE_CALENDAR_ID, GOOGLE_CREDENTIALS_PATH, GOOGLE_CREDENTIALS_JSON
-import os
-import json
+
+from src.config import (GOOGLE_CALENDAR_ID, GOOGLE_CREDENTIALS_JSON,
+                        GOOGLE_CREDENTIALS_PATH)
 
 SCOPES = ['https://www.googleapis.com/auth/calendar.events']
 
@@ -60,26 +62,24 @@ class CalendarProvider:
                 if not end_time:
                     end_time = start_time + timedelta(hours=1)
                 
-                # Get system's local timezone
-                local_tz = tzlocal.get_localzone()
-                
-                # If the datetime is naive (no timezone info), replace its timezone
+                # Assume provided datetimes represent UTC
                 if start_time.tzinfo is None:
-                    start_time = start_time.replace(tzinfo=local_tz)
-                if end_time.tzinfo is None:
-                    end_time = end_time.replace(tzinfo=local_tz)
+                    start_time_utc = start_time.replace(tzinfo=timezone.utc)
+                else:
+                    start_time_utc = start_time.astimezone(tz=timezone.utc)
 
-                # Convert to UTC for Google Calendar API
-                start_time_utc = start_time.astimezone(tz=timezone.utc)
-                end_time_utc = end_time.astimezone(tz=timezone.utc)
+                if end_time.tzinfo is None:
+                    end_time_utc = end_time.replace(tzinfo=timezone.utc)
+                else:
+                    end_time_utc = end_time.astimezone(tz=timezone.utc)
 
                 event['start'] = {
                     'dateTime': start_time_utc.isoformat(),
-                    'timeZone': str(tzlocal.get_localzone())
+                    'timeZone': 'UTC'
                 }
                 event['end'] = {
                     'dateTime': end_time_utc.isoformat(),
-                    'timeZone': str(tzlocal.get_localzone())
+                    'timeZone': 'UTC'
                 }
 
             if location:
@@ -100,4 +100,4 @@ class CalendarProvider:
             error_msg = f"Failed to create calendar event: {str(e)}"
             if hasattr(e, 'content'):
                 error_msg += f"\nError details: {e.content}"
-            raise Exception(error_msg) 
+            raise Exception(error_msg)

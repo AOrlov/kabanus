@@ -5,9 +5,8 @@ import logging
 import os
 import tempfile
 import traceback
-from datetime import datetime
+from datetime import datetime, timezone
 
-import tzlocal
 from telegram import Update, Voice
 from telegram.constants import ChatAction, ParseMode
 from telegram.ext import (ApplicationBuilder, CommandHandler, ContextTypes,
@@ -193,6 +192,7 @@ async def schedule_events(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if not update.message.photo:
+        await update.message.reply_text("Please send a photo containing event details.")
         return
 
     await update.effective_chat.send_action(action=ChatAction.TYPING)
@@ -218,13 +218,21 @@ async def schedule_events(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # Create the event
             calendar = CalendarProvider()
 
+            title = event_data.get('title')
+            if not title:
+                await update.message.reply_text(
+                    "I couldn't find an event name in the image. Please make sure it is clearly visible and try again."
+                )
+                return
+
             # Validate and handle date and time
             if not event_data.get('date'):
                 raise ValueError("No date found in the event data")
 
             # Handle time with proper error checking
-            event_time = event_data.get('time')
-            is_all_day = event_time is None
+            event_time_raw = event_data.get('time')
+            is_all_day = event_time_raw is None
+            event_time = event_time_raw
             if event_time is None:
                 logger.warning("No time found in event data, treating as all-day event")
                 event_time = '00:00'
@@ -233,34 +241,28 @@ async def schedule_events(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 event_time = '00:00'
 
             try:
-                naive_datetime = datetime.strptime(
+                start_time = datetime.strptime(
                     f"{event_data['date']} {event_time}",
                     "%Y-%m-%d %H:%M"
-                )
+                ).replace(tzinfo=timezone.utc)
             except ValueError as e:
                 logger.error(f"Failed to parse datetime: {e}")
                 raise ValueError(f"Invalid date or time format: {event_data['date']} {event_time}")
             
-            # Get system's local timezone and set it for the datetime
-            local_tz = tzlocal.get_localzone()
-            start_time = naive_datetime.replace(tzinfo=local_tz)
-            
+            # Create the calendar event using UTC-based datetime
             event = calendar.create_event(
-                title=event_data['title'],
+                title=title,
                 is_all_day=is_all_day,
                 start_time=start_time,
                 location=event_data.get('location'),
                 description=event_data.get('description')
             )
-            
-            # Format the time for display in local timezone
-            formatted_time = start_time.strftime("%H:%M")
-            
+
             message_parts = [
                 "Event created successfully!",
-                f"Title: {event_data['title']}",
+                f"Title: {title}",
                 f"Date: {event_data['date']}",
-                f"Time: {formatted_time} ({local_tz})" if event_data['time'] else "All day event",
+                f"Time: {start_time.strftime('%H:%M')}" if event_time_raw else "All day event",
                 f"Location: {event_data.get('location', 'Not specified')}"
             ]
             
