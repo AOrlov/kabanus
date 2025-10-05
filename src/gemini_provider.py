@@ -21,6 +21,8 @@ class GeminiProvider(ModelProvider):
         self.system_instructions = self._load_system_instructions()
 
     def _load_system_instructions(self):
+        if not config.AI_SYSTEM_INSTRUCTIONS_PATH:
+            return ""
         path = os.path.join(os.path.dirname(__file__), config.AI_SYSTEM_INSTRUCTIONS_PATH)
         with open(path, "r", encoding="utf-8") as f:
             return f.read()
