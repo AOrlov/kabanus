@@ -44,7 +44,7 @@ def is_allowed(update: Update) -> bool:
             logger.warning(f"Unauthorized access attempt by user {user_id} in chat {chat_id}")
             return False
         return True
-    return False  # If no restriction set, allow all (for dev)
+    return False
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):

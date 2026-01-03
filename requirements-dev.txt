@@ -1,7 +1,7 @@
-pip-requirements -r requirements.txt
+-r requirements.txt
 
 # Development dependencies
 pytest
 black
-flake8
 mypy
+pylint
