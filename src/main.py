@@ -415,12 +415,18 @@ if __name__ == "__main__":
 
     app.add_handler(CommandHandler("hi", hi))
     app.add_handler(MessageHandler(filters.PHOTO, schedule_events))
-    app.add_handler(MessageHandler(filters.TEXT | filters.VOICE | filters.PHOTO | filters.Document.IMAGE,
-        maybe_react))
-    app.add_handler(MessageHandler(
-        filters.TEXT | filters.VOICE | filters.PHOTO | filters.Document.IMAGE,
-        handle_addressed_message
-    ))
+    app.add_handlers(
+        [
+            MessageHandler(
+                filters.TEXT | filters.VOICE | filters.PHOTO | filters.Document.IMAGE,
+                maybe_react,
+                block=False),
+            MessageHandler(
+                filters.TEXT | filters.VOICE | filters.PHOTO | filters.Document.IMAGE,
+                handle_addressed_message,
+                block=False),
+        ]
+    )
 
     '''
     app.job_queue.run_repeating(
