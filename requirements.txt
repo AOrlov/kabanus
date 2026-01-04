@@ -1,6 +1,6 @@
 python-telegram-bot == 22.1
 python-dotenv
-google-genai == 1.36.0
+google-genai == 1.56.0
 google-auth-oauthlib 
 google-auth-httplib2 
 google-api-python-client

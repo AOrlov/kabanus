@@ -15,18 +15,31 @@ from telegram.ext import (ApplicationBuilder, CommandHandler, ContextTypes,
 
 from src import config
 from src.calendar_provider import CalendarProvider
-from src.config import (ADMIN_CHAT_ID, ALLOWED_CHAT_IDS, DEBUG_MODE, FEATURES,
-                        GEMINI_API_KEY, GEMINI_MODEL, TELEGRAM_BOT_TOKEN)
 from src.gemini_provider import GeminiProvider
 from src.message_store import add_message, assemble_context, get_all_messages
 from src.model_provider import ModelProvider
 
+settings = config.get_settings()
 logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.DEBUG if DEBUG_MODE else logging.INFO
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.DEBUG if settings.debug_mode else logging.INFO,
 )
 
 logger = logging.getLogger(__name__)
-gemini_provider = GeminiProvider(GEMINI_API_KEY, GEMINI_MODEL)
+gemini_provider = GeminiProvider()
+_CURRENT_LOG_LEVEL = None
+
+
+def apply_log_level(settings: config.Settings) -> None:
+    global _CURRENT_LOG_LEVEL
+    level = logging.DEBUG if settings.debug_mode else logging.INFO
+    if _CURRENT_LOG_LEVEL == level:
+        return
+    root_logger = logging.getLogger()
+    root_logger.setLevel(level)
+    for handler in root_logger.handlers:
+        handler.setLevel(level)
+    _CURRENT_LOG_LEVEL = level
 
 
 def transcribe_audio(audio_path: str, provider: ModelProvider) -> str:
@@ -36,11 +49,12 @@ def transcribe_audio(audio_path: str, provider: ModelProvider) -> str:
 def is_allowed(update: Update) -> bool:
     if update.effective_chat is None or update.effective_user is None:
         return False
+    settings = config.get_settings()
     chat_id = str(update.effective_chat.id)
     user_id = str(update.effective_user.id)
     # Allow if chat or user is in the allowed list (if list is not empty)
-    if ALLOWED_CHAT_IDS:
-        if chat_id not in ALLOWED_CHAT_IDS and user_id not in ALLOWED_CHAT_IDS:
+    if settings.allowed_chat_ids:
+        if chat_id not in settings.allowed_chat_ids and user_id not in settings.allowed_chat_ids:
             logger.warning(f"Unauthorized access attempt by user {user_id} in chat {chat_id}")
             return False
         return True
@@ -51,6 +65,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update):
         return
     if update.message is None:
+        return
+    settings = config.get_settings()
+    if not settings.features.get("commands", {}).get("hi"):
         return
     await update.message.reply_text("Hello! I am your speech-to-text bot.")
 
@@ -66,7 +83,8 @@ async def transcribe_voice_message(voice: Voice, context: ContextTypes.DEFAULT_T
 
 
 async def handle_addressed_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_allowed(update) or not FEATURES['message_handling']:
+    settings = config.get_settings()
+    if not is_allowed(update) or not settings.features["message_handling"]:
         return
     # ignore if the update is not a message (e.g., a callback, edited message, etc.) or sent by non-user (bot)
     if not update.message or not update.effective_user or not update.effective_chat:
@@ -141,7 +159,7 @@ async def handle_addressed_message(update: Update, context: ContextTypes.DEFAULT
     add_message(sender, text, is_bot=False)
 
     bot = await context.bot.get_me()
-    bot_names_and_aliases = config.BOT_ALIASES
+    bot_names_and_aliases = list(settings.bot_aliases)
     if bot.username:
         bot_names_and_aliases.append(bot.username.lower())
     text_lower = text.lower()
@@ -162,7 +180,7 @@ async def handle_addressed_message(update: Update, context: ContextTypes.DEFAULT
     await update.effective_chat.send_action(action=ChatAction.TYPING)
     context_str = assemble_context(get_all_messages())
     prompt = f"{context_str}\n---\n{sender}: {text}"
-    if config.DEBUG_MODE:
+    if settings.debug_mode:
         # trim the promt in the middle for logging purposes
         if len(prompt) > 1024:
             logger.debug(f"Generated prompt: {prompt[:512] + "\n...\n" + prompt[-512:]}")
@@ -186,7 +204,8 @@ def chunk_string(s: str, chunk_size: int) -> list[str]:
 
 
 async def schedule_events(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_allowed(update) or not FEATURES['schedule_events']:
+    settings = config.get_settings()
+    if not is_allowed(update) or not settings.features["schedule_events"]:
         return
 
     if update.message is None or update.effective_chat is None or update.effective_user is None:
@@ -293,7 +312,8 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
     """Log the error and send a telegram message to notify the developer."""
     logger.error("Exception while handling an update:", exc_info=context.error)
 
-    if not ADMIN_CHAT_ID or context.error is None:
+    settings = config.get_settings()
+    if not settings.admin_chat_id or context.error is None:
         return
 
     tb_list = traceback.format_exception(None, context.error, context.error.__traceback__)
@@ -309,38 +329,45 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
     )
     # Finally, send the message
     await context.bot.send_message(
-        chat_id=ADMIN_CHAT_ID, text=message, parse_mode=ParseMode.HTML
+        chat_id=settings.admin_chat_id, text=message, parse_mode=ParseMode.HTML
     )
 
 
 async def notify_admin(context: ContextTypes.DEFAULT_TYPE, message: str) -> None:
     """Send a notification message to the admin chat."""
-    if not ADMIN_CHAT_ID:
+    settings = config.get_settings()
+    if not settings.admin_chat_id:
         return
     await context.bot.send_message(
-        chat_id=ADMIN_CHAT_ID,
+        chat_id=settings.admin_chat_id,
         text=message,
         parse_mode=ParseMode.HTML
     )
 
 
+async def refresh_settings_job(_: ContextTypes.DEFAULT_TYPE) -> None:
+    settings = config.get_settings(force=True)
+    apply_log_level(settings)
+
+
 if __name__ == "__main__":
-    app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
+    settings = config.get_settings()
+    app = ApplicationBuilder().token(settings.telegram_bot_token).build()
     app.add_error_handler(error_handler)
+    apply_log_level(settings)
 
-    if FEATURES['commands']:
-        if FEATURES['commands']['hi']:
-            app.add_handler(CommandHandler("hi", start))
+    app.add_handler(CommandHandler("hi", start))
+    app.add_handler(MessageHandler(filters.PHOTO, schedule_events))
+    app.add_handler(MessageHandler(
+        filters.TEXT | filters.VOICE | filters.PHOTO | filters.Document.IMAGE,
+        handle_addressed_message
+    ))
 
-    if FEATURES['schedule_events']:
-        app.add_handler(MessageHandler(filters.PHOTO, schedule_events))
+    app.job_queue.run_repeating(
+        refresh_settings_job,
+        interval=settings.settings_refresh_interval,
+        first=settings.settings_refresh_interval,
+    )
 
-        # Handle text messages that mention the bot or are replies to the bot
-    if FEATURES['message_handling']:
-        app.add_handler(MessageHandler(
-            filters.TEXT | filters.VOICE | filters.PHOTO | filters.Document.IMAGE,
-            handle_addressed_message
-        ))
-
-    logger.info("Bot started with features: %s", FEATURES)
+    logger.info("Bot started with features: %s", settings.features)
     app.run_polling()

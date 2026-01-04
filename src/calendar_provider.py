@@ -2,7 +2,7 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from datetime import datetime, timedelta, timezone
 import tzlocal
-from src.config import GOOGLE_CALENDAR_ID, GOOGLE_CREDENTIALS_PATH, GOOGLE_CREDENTIALS_JSON
+from src import config
 import os
 import json
 
@@ -15,15 +15,18 @@ class CalendarProvider:
 
     def _authenticate(self):
         try:
-            if os.getenv('GOOGLE_CREDENTIALS_PATH'):
+            settings = config.get_settings()
+            if settings.google_credentials_path:
                 credentials = service_account.Credentials.from_service_account_file(
-                    GOOGLE_CREDENTIALS_PATH, scopes=SCOPES
+                    settings.google_credentials_path, scopes=SCOPES
                 )
-            elif os.getenv('GOOGLE_CREDENTIALS_JSON'):
-                credentials_info = json.loads(GOOGLE_CREDENTIALS_JSON)
+            elif settings.google_credentials_json:
+                credentials_info = json.loads(settings.google_credentials_json)
                 credentials = service_account.Credentials.from_service_account_info(
                     credentials_info, scopes=SCOPES
                 )
+            else:
+                raise Exception("Missing Google Calendar credentials.")
             self.service = build('calendar', 'v3', credentials=credentials)
         except Exception as e:
             raise Exception(f"Failed to authenticate with Google Calendar: {str(e)}")
@@ -92,7 +95,7 @@ class CalendarProvider:
             print(json.dumps(event, indent=2))
 
             event = self.service.events().insert(
-                calendarId=GOOGLE_CALENDAR_ID,
+                calendarId=config.get_settings().google_calendar_id,
                 body=event
             ).execute()
             return event

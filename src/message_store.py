@@ -7,7 +7,7 @@ import logging
 import os
 from typing import Dict, List, Optional
 
-from src.config import CHAT_MESSAGES_STORE_PATH, TOKEN_LIMIT
+from src import config
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +22,8 @@ def make_message(sender: str, text: str, is_bot: bool) -> Dict:
 
 # File to persist messages (JSON Lines format)
 def _get_store_path():
-    path = os.path.join(os.path.dirname(__file__), CHAT_MESSAGES_STORE_PATH)
+    settings = config.get_settings()
+    path = os.path.join(os.path.dirname(__file__), settings.chat_messages_store_path)
     # Ensure the file exists
     if not os.path.exists(path):
         # Create the file and its parent directory if needed
@@ -79,8 +80,10 @@ def estimate_token_count(text: str) -> int:
 
 
 # TODO: optimize to not assemble every time
-def assemble_context(messages: list, token_limit: int = TOKEN_LIMIT) -> str:
+def assemble_context(messages: list, token_limit: Optional[int] = None) -> str:
     """Assemble most recent messages up to the token limit"""
+    if token_limit is None:
+        token_limit = config.get_settings().token_limit
     context_lines = []
     total_tokens = 0
     logging.debug(f"Assembling context with token limit: {token_limit}")
