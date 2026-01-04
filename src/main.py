@@ -77,6 +77,8 @@ def is_allowed(update: Update) -> bool:
 
 
 async def maybe_react(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logging.debug("maybe_react called")
+
     if not is_allowed(update):
         return
     del context
@@ -140,6 +142,7 @@ async def transcribe_voice_message(voice: Voice, context: ContextTypes.DEFAULT_T
 
 
 async def handle_addressed_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logging.debug("handle_addressed_message called")
     settings = config.get_settings()
     if not is_allowed(update) or not settings.features["message_handling"]:
         return
