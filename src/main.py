@@ -368,11 +368,13 @@ if __name__ == "__main__":
         handle_addressed_message
     ))
 
+    '''
     app.job_queue.run_repeating(
         refresh_settings_job,
         interval=settings.settings_refresh_interval,
         first=settings.settings_refresh_interval,
     )
-
+    '''
+    
     logger.info("Bot started with features: %s", settings.features)
     app.run_polling()
