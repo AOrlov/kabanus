@@ -105,6 +105,41 @@ class GeminiProvider(ModelProvider):
 
         return response.text.strip() if response.text else ""
 
+    def choose_reaction(self, message: str, allowed_reactions: List[str]) -> str:
+        client, settings = self._get_client()
+        system_instruction = (
+            "You are a Telegram reactions selector. "
+            "Pick a single reaction emoji that fits the user message. "
+            "Return only the emoji, nothing else."
+        )
+        prompt = f"Message: {message}\nAllowed reactions: {', '.join(allowed_reactions)}"
+        logger.debug("Choosing reaction with model: %s", settings.gemini_model)
+        for attempt in range(1, 4):
+            try:
+                response = client.models.generate_content(
+                    model=settings.gemini_model,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        system_instruction=system_instruction,
+                        thinking_config=types.ThinkingConfig(thinking_budget=settings.thinking_budget),
+                    ),
+                )
+                break
+            except errors.ClientError as e:
+                if e.status == "RESOURCE_EXHAUSTED":
+                    logger.error(
+                        "Gemini model %s quota exhausted while choosing reaction. Retry %s/3 in 5s.",
+                        settings.gemini_model,
+                        attempt,
+                    )
+                    logger.debug("ClientError details: %s", e)
+                    if attempt < 3:
+                        time.sleep(5)
+                        continue
+                raise
+
+        return response.text.strip() if response.text else ""
+
     def parse_image_to_event(self, image_path: str) -> dict:
         client, settings = self._get_client()
         system_instructions = self._get_system_instructions(settings)

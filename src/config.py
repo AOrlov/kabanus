@@ -71,6 +71,9 @@ class Settings:
     chat_messages_store_path: str
     debug_mode: bool
     settings_refresh_interval: float
+    reaction_enabled: bool
+    reaction_cooldown_secs: float
+    reaction_daily_budget: int
 
 
 def get_settings(force: bool = False) -> Settings:
@@ -118,6 +121,9 @@ def get_settings(force: bool = False) -> Settings:
         chat_messages_store_path=os.getenv("CHAT_MESSAGES_STORE_PATH", "messages.jsonl"),
         debug_mode=_env_bool("DEBUG_MODE"),
         settings_refresh_interval=float(os.getenv("SETTINGS_REFRESH_INTERVAL", "1.0")),
+        reaction_enabled=_env_bool("REACTION_ENABLED"),
+        reaction_cooldown_secs=float(os.getenv("REACTION_COOLDOWN_SECS", "600")),
+        reaction_daily_budget=int(os.getenv("REACTION_DAILY_BUDGET", "50")),
     )
     _SETTINGS_CACHE = settings
     _SETTINGS_CACHE_TS = now
@@ -146,6 +152,9 @@ def __getattr__(name: str):
         "CHAT_MESSAGES_STORE_PATH": settings.chat_messages_store_path,
         "DEBUG_MODE": settings.debug_mode,
         "SETTINGS_REFRESH_INTERVAL": settings.settings_refresh_interval,
+        "REACTION_ENABLED": settings.reaction_enabled,
+        "REACTION_COOLDOWN_SECS": settings.reaction_cooldown_secs,
+        "REACTION_DAILY_BUDGET": settings.reaction_daily_budget,
     }
     if name in mapping:
         return mapping[name]

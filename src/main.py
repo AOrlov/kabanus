@@ -5,11 +5,12 @@ import logging
 import os
 import tempfile
 import traceback
+import time
 from datetime import datetime
 
 import tzlocal
 from telegram import Update, Voice
-from telegram.constants import ChatAction, ParseMode
+from telegram.constants import ChatAction, ParseMode, ReactionEmoji
 from telegram.ext import (ApplicationBuilder, CommandHandler, ContextTypes,
                           MessageHandler, filters)
 
@@ -28,6 +29,11 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 gemini_provider = GeminiProvider()
 _CURRENT_LOG_LEVEL = None
+_REACTION_DAY = None
+_REACTION_COUNT = 0
+_REACTION_LAST_TS = 0.0
+_REACTION_ALLOWED_SET = {emoji.value for emoji in ReactionEmoji}
+_REACTION_ALLOWED_LIST = sorted(_REACTION_ALLOWED_SET)
 
 
 def apply_log_level(settings: config.Settings) -> None:
@@ -46,6 +52,14 @@ def transcribe_audio(audio_path: str, provider: ModelProvider) -> str:
     return provider.transcribe(audio_path)
 
 
+def _reset_reaction_budget_if_needed(now: datetime) -> None:
+    global _REACTION_DAY, _REACTION_COUNT
+    today = now.date()
+    if _REACTION_DAY != today:
+        _REACTION_DAY = today
+        _REACTION_COUNT = 0
+
+
 def is_allowed(update: Update) -> bool:
     if update.effective_chat is None or update.effective_user is None:
         return False
@@ -59,6 +73,43 @@ def is_allowed(update: Update) -> bool:
             return False
         return True
     return False
+
+
+async def maybe_react(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_allowed(update):
+        return
+    del context
+    global _REACTION_COUNT, _REACTION_LAST_TS
+    settings = config.get_settings()
+    if not settings.reaction_enabled:
+        return
+    if update.effective_user.is_bot:
+        return
+    if update.message.text is None:
+        return
+
+    _reset_reaction_budget_if_needed(datetime.now())
+    if settings.reaction_daily_budget <= 0 or _REACTION_COUNT >= settings.reaction_daily_budget:
+        return
+    if settings.reaction_cooldown_secs > 0:
+        if time.monotonic() - _REACTION_LAST_TS < settings.reaction_cooldown_secs:
+            return
+
+    reaction = gemini_provider.choose_reaction(update.message.text, _REACTION_ALLOWED_LIST).strip()
+    if not reaction:
+        return
+    if reaction not in _REACTION_ALLOWED_SET:
+        logger.warning("Model returned unsupported reaction: %s", reaction)
+        return
+
+    try:
+        await update.message.set_reaction(reaction)
+    except Exception as exc:
+        logger.warning("Failed to set reaction: %s", exc)
+        return
+
+    _REACTION_COUNT += 1
+    _REACTION_LAST_TS = time.monotonic()
 
 
 async def hi(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -363,6 +414,7 @@ if __name__ == "__main__":
 
     app.add_handler(CommandHandler("hi", hi))
     app.add_handler(MessageHandler(filters.PHOTO, schedule_events))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, maybe_react))
     app.add_handler(MessageHandler(
         filters.TEXT | filters.VOICE | filters.PHOTO | filters.Document.IMAGE,
         handle_addressed_message
