@@ -2,7 +2,9 @@
 import json
 import logging
 import os
+import time
 from datetime import datetime
+import re
 from typing import List
 
 from google import genai
@@ -72,21 +74,34 @@ class GeminiProvider(ModelProvider):
             google_search=types.GoogleSearch()
         )
         logger.debug("Generating content with model: %s", settings.gemini_model)
-        try:
-            response = client.models.generate_content(
-            model=settings.gemini_model,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                system_instruction=system_instructions,
-                thinking_config=types.ThinkingConfig(thinking_budget=settings.thinking_budget),
-                tools=[grounding_tool] if settings.use_google_search else None,
-            ),
-        )
-        except errors.ClientError as e:
-            if e.status == "NOT_FOUND":
-                all_models = " ,".join(f"'{m}'" for m in client.models.list())
-                logger.error("Gemini model %s not found. Available models: %s", settings.gemini_model, all_models)
-            raise
+        for attempt in range(1, 6):
+            try:
+                response = client.models.generate_content(
+                    model=settings.gemini_model,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        system_instruction=system_instructions,
+                        thinking_config=types.ThinkingConfig(thinking_budget=settings.thinking_budget),
+                        tools=[grounding_tool] if settings.use_google_search else None,
+                    ),
+                )
+                break
+            except errors.ClientError as e:
+                if e.status == "NOT_FOUND":
+                    all_models = " ,".join(f"'{m}'" for m in client.models.list())
+                    logger.error("Gemini model %s not found. Available models: %s", settings.gemini_model, all_models)
+                    raise
+                if e.status == "RESOURCE_EXHAUSTED":
+                    logger.error(
+                        "Gemini model %s quota exhausted. Retry %s/5 in 60s.",
+                        settings.gemini_model,
+                        attempt,
+                    )
+                    logger.debug("ClientError details: %s", e)
+                    if attempt < 5:
+                        time.sleep(60)
+                        continue
+                raise
 
         return response.text.strip() if response.text else ""
 
