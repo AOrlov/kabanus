@@ -72,6 +72,7 @@ def is_allowed(update: Update) -> bool:
             logger.warning(f"Unauthorized access attempt by user {user_id} in chat {chat_id}")
             return False
         return True
+    logger.info("No allowed_chat_ids configured, disallowing all users")
     return False
 
 
@@ -414,7 +415,8 @@ if __name__ == "__main__":
 
     app.add_handler(CommandHandler("hi", hi))
     app.add_handler(MessageHandler(filters.PHOTO, schedule_events))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, maybe_react))
+    app.add_handler(MessageHandler(filters.TEXT | filters.VOICE | filters.PHOTO | filters.Document.IMAGE,
+        maybe_react))
     app.add_handler(MessageHandler(
         filters.TEXT | filters.VOICE | filters.PHOTO | filters.Document.IMAGE,
         handle_addressed_message
