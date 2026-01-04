@@ -61,7 +61,7 @@ def is_allowed(update: Update) -> bool:
     return False
 
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def hi(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update):
         return
     if update.message is None:
@@ -70,6 +70,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not settings.features.get("commands", {}).get("hi"):
         return
     await update.message.reply_text("Hello! I am your speech-to-text bot.")
+    if settings.gemini_api_key and settings.gemini_model:
+        await update.message.reply_text("Currently using Gemini model: " + settings.gemini_model)
+        await update.message.reply_text("Availabble models: " + ", ".join(
+            str(m) for m in gemini_provider.list_models()
+        ))
 
 
 async def transcribe_voice_message(voice: Voice, context: ContextTypes.DEFAULT_TYPE) -> str:
@@ -356,7 +361,7 @@ if __name__ == "__main__":
     app.add_error_handler(error_handler)
     apply_log_level(settings)
 
-    app.add_handler(CommandHandler("hi", start))
+    app.add_handler(CommandHandler("hi", hi))
     app.add_handler(MessageHandler(filters.PHOTO, schedule_events))
     app.add_handler(MessageHandler(
         filters.TEXT | filters.VOICE | filters.PHOTO | filters.Document.IMAGE,

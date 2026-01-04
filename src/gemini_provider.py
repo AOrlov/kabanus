@@ -3,6 +3,7 @@ import json
 import logging
 import os
 from datetime import datetime
+from typing import List
 
 from google import genai
 from google.genai import types, errors
@@ -137,3 +138,7 @@ class GeminiProvider(ModelProvider):
             ),
         )
         return (response.text or "").strip()
+
+    def list_models(self) -> List[str]:
+        client, _ = self._get_client()
+        return [model.name for model in client.models.list() if model.name is not None]
