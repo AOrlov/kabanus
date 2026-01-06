@@ -76,20 +76,13 @@ def is_allowed(update: Update) -> bool:
     return False
 
 
-async def maybe_react(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def maybe_react(update: Update, text: str):
     logging.debug("maybe_react called")
-
-    if not is_allowed(update):
-        return
-    del context
-    global _REACTION_COUNT, _REACTION_LAST_TS
     settings = config.get_settings()
-    if not settings.reaction_enabled:
+
+    if update.message is None or not settings.reaction_enabled:
         return
-    if update.effective_user.is_bot:
-        return
-    if update.message.text is None:
-        return
+    global _REACTION_COUNT, _REACTION_LAST_TS
 
     _reset_reaction_budget_if_needed(datetime.now())
     if settings.reaction_daily_budget <= 0 or _REACTION_COUNT >= settings.reaction_daily_budget:
@@ -98,7 +91,7 @@ async def maybe_react(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if time.monotonic() - _REACTION_LAST_TS < settings.reaction_cooldown_secs:
             return
 
-    reaction = gemini_provider.choose_reaction(update.message.text, _REACTION_ALLOWED_LIST).strip()
+    reaction = gemini_provider.choose_reaction(text, _REACTION_ALLOWED_LIST).strip()
     if not reaction:
         return
     if reaction not in _REACTION_ALLOWED_SET:
@@ -148,6 +141,8 @@ async def handle_addressed_message(update: Update, context: ContextTypes.DEFAULT
         return
     # ignore if the update is not a message (e.g., a callback, edited message, etc.) or sent by non-user (bot)
     if not update.message or not update.effective_user or not update.effective_chat:
+        return
+    if update.effective_user.is_bot:
         return
 
     # if the message is audio or image, transcribe/extract it
@@ -217,6 +212,8 @@ async def handle_addressed_message(update: Update, context: ContextTypes.DEFAULT
     sender = update.effective_user.first_name or update.effective_user.name
 
     add_message(sender, text, is_bot=False)
+
+    await maybe_react(update, text)
 
     bot = await context.bot.get_me()
     bot_names_and_aliases = list(settings.bot_aliases)
@@ -421,16 +418,8 @@ if __name__ == "__main__":
     app.add_handler(
         MessageHandler(
             filters.TEXT | filters.VOICE | filters.PHOTO | filters.Document.IMAGE,
-            maybe_react,
-        ),
-        group=0,
-    )
-    app.add_handler(
-        MessageHandler(
-            filters.TEXT | filters.VOICE | filters.PHOTO | filters.Document.IMAGE,
             handle_addressed_message,
-        ),
-        group=1,
+        )
     )
 
     '''
