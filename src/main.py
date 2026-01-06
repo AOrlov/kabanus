@@ -210,8 +210,12 @@ async def handle_addressed_message(update: Update, context: ContextTypes.DEFAULT
         text = update.message.text or (update.message.caption or "")
         logger.debug(f"Received text message '{text}' from {update.effective_user.id}")
     sender = update.effective_user.first_name or update.effective_user.name
+    if update.effective_chat.type == "private":
+        storage_id = str(update.effective_user.id)
+    else:
+        storage_id = str(update.effective_chat.id)
 
-    add_message(sender, text, is_bot=False)
+    add_message(sender, text, is_bot=False, chat_id=storage_id)
 
     await maybe_react(update, text)
 
@@ -235,7 +239,7 @@ async def handle_addressed_message(update: Update, context: ContextTypes.DEFAULT
         return
 
     await update.effective_chat.send_action(action=ChatAction.TYPING)
-    context_str = assemble_context(get_all_messages())
+    context_str = assemble_context(get_all_messages(chat_id=storage_id))
     prompt = f"{context_str}\n---\n{sender}: {text}"
     if settings.debug_mode:
         # trim the promt in the middle for logging purposes
@@ -251,8 +255,7 @@ async def handle_addressed_message(update: Update, context: ContextTypes.DEFAULT
 
     for chunk in chunk_string(response_with_transcribed_text if is_transcribe_text else response, 4000):
         await update.message.reply_text(chunk)
-        add_message('Bot', chunk, is_bot=True)
-
+        add_message('Bot', chunk, chat_id=storage_id, is_bot=True)
 
 def chunk_string(s: str, chunk_size: int) -> list[str]:
     if len(s) <= chunk_size:

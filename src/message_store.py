@@ -21,20 +21,30 @@ def make_message(sender: str, text: str, is_bot: bool) -> Dict:
 
 
 # File to persist messages (JSON Lines format)
-def _get_store_path():
+def _get_store_path(chat_id: str) -> str:
     settings = config.get_settings()
-    path = os.path.join(os.path.dirname(__file__), settings.chat_messages_store_path)
+    if os.path.isabs(settings.chat_messages_store_path):
+        base_path = settings.chat_messages_store_path
+    else:
+        base_path = os.path.join(os.path.dirname(__file__), settings.chat_messages_store_path)
+    if not chat_id:
+        raise ValueError("chat_id is required for message storage")
+    base_dir = base_path
+    stem = "messages"
+    ext = ".jsonl"
+    safe_chat_id = str(chat_id).strip()
+    path = os.path.join(base_dir, f"{stem}_{safe_chat_id}{ext}")
     # Ensure the file exists
     if not os.path.exists(path):
         # Create the file and its parent directory if needed
-        os.makedirs(os.path.dirname(path), exist_ok=True)
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
         with open(path, 'a', encoding='utf-8'):
             pass
     return path
 
 
-def _load_messages():
-    path = _get_store_path()
+def _load_messages(chat_id: str):
+    path = _get_store_path(chat_id)
     logger.debug(f"Loading messages from file {path}")
 
     messages = []
@@ -45,33 +55,44 @@ def _load_messages():
     return messages
 
 
-def _append_message(msg: Dict):
-    path = _get_store_path()
+def _append_message(msg: Dict, chat_id: str):
+    path = _get_store_path(chat_id)
     with open(path, 'a', encoding='utf-8') as f:
         f.write(json.dumps(msg, ensure_ascii=False) + '\n')
 
 
-# In-memory list for message storage
-_message_store: List[Dict] = _load_messages()
+# In-memory list for message storage, keyed by chat id
+_message_store_by_chat: Dict[str, List[Dict]] = {}
 
 
-def get_last_message() -> Optional[Dict]:
+def _ensure_loaded(chat_id: str) -> List[Dict]:
+    if not chat_id:
+        raise ValueError("chat_id is required for message storage")
+    if chat_id not in _message_store_by_chat:
+        _message_store_by_chat[chat_id] = _load_messages(chat_id)
+    return _message_store_by_chat[chat_id]
+
+
+def get_last_message(chat_id: str) -> Optional[Dict]:
     """Retrieve the last message from the in-memory store."""
-    if _message_store:
-        return _message_store[-1]
+    messages = _ensure_loaded(chat_id)
+    if messages:
+        return messages[-1]
     return None
 
 
-def add_message(sender: str, text: str, is_bot: bool = False):
+def add_message(sender: str, text: str, chat_id: str, is_bot: bool = False):
     """Add a message to the in-memory store and append to file."""
     msg = make_message(sender, text, is_bot)
-    _message_store.append(msg)
-    _append_message(msg)
+    messages = _ensure_loaded(chat_id)
+    messages.append(msg)
+    _append_message(msg, chat_id)
 
 
-def get_all_messages() -> List[Dict]:
+def get_all_messages(chat_id: str) -> List[Dict]:
     """Retrieve all stored messages."""
-    return list(_message_store)
+    messages = _ensure_loaded(chat_id)
+    return list(messages)
 
 
 def estimate_token_count(text: str) -> int:
