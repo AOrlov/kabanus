@@ -34,6 +34,7 @@ _REACTION_COUNT = 0
 _REACTION_LAST_TS = 0.0
 _REACTION_ALLOWED_SET = {emoji.value for emoji in ReactionEmoji}
 _REACTION_ALLOWED_LIST = sorted(_REACTION_ALLOWED_SET)
+_MESSAGES_SINCE_LAST_REACTION = 0
 
 
 def apply_log_level(settings: config.Settings) -> None:
@@ -82,7 +83,8 @@ async def maybe_react(update: Update, text: str):
 
     if update.message is None or not settings.reaction_enabled:
         return
-    global _REACTION_COUNT, _REACTION_LAST_TS
+    global _REACTION_COUNT, _REACTION_LAST_TS, _MESSAGES_SINCE_LAST_REACTION
+    _MESSAGES_SINCE_LAST_REACTION += 1
 
     _reset_reaction_budget_if_needed(datetime.now())
     if settings.reaction_daily_budget <= 0 or _REACTION_COUNT >= settings.reaction_daily_budget:
@@ -90,6 +92,8 @@ async def maybe_react(update: Update, text: str):
     if settings.reaction_cooldown_secs > 0:
         if time.monotonic() - _REACTION_LAST_TS < settings.reaction_cooldown_secs:
             return
+    if _MESSAGES_SINCE_LAST_REACTION < settings.reaction_messages_threshold:
+        return
 
     reaction = gemini_provider.choose_reaction(text, _REACTION_ALLOWED_LIST).strip()
     if not reaction:
@@ -106,6 +110,7 @@ async def maybe_react(update: Update, text: str):
 
     _REACTION_COUNT += 1
     _REACTION_LAST_TS = time.monotonic()
+    _MESSAGES_SINCE_LAST_REACTION = 0
 
 
 async def hi(update: Update, context: ContextTypes.DEFAULT_TYPE):

@@ -74,6 +74,7 @@ class Settings:
     reaction_enabled: bool
     reaction_cooldown_secs: float
     reaction_daily_budget: int
+    reaction_messages_threshold: int
 
 
 def get_settings(force: bool = False) -> Settings:
@@ -124,6 +125,7 @@ def get_settings(force: bool = False) -> Settings:
         reaction_enabled=_env_bool("REACTION_ENABLED"),
         reaction_cooldown_secs=float(os.getenv("REACTION_COOLDOWN_SECS", "600")),
         reaction_daily_budget=int(os.getenv("REACTION_DAILY_BUDGET", "50")),
+        reaction_messages_threshold=int(os.getenv("REACTION_MESSAGES_THRESHOLD", "10"))
     )
     _SETTINGS_CACHE = settings
     _SETTINGS_CACHE_TS = now
@@ -155,6 +157,7 @@ def __getattr__(name: str):
         "REACTION_ENABLED": settings.reaction_enabled,
         "REACTION_COOLDOWN_SECS": settings.reaction_cooldown_secs,
         "REACTION_DAILY_BUDGET": settings.reaction_daily_budget,
+        "REACTION_MESSAGES_THRESHOLD": settings.reaction_messages_threshold,
     }
     if name in mapping:
         return mapping[name]
