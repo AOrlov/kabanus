@@ -113,11 +113,11 @@ class GeminiProvider(ModelProvider):
             "Return only the emoji, nothing else."
         )
         prompt = f"Message: {message}\nAllowed reactions: {', '.join(allowed_reactions)}"
-        logger.debug("Choosing reaction with model: %s", settings.gemini_model)
+        logger.debug("Choosing reaction with model: %s", settings.reaction_gemini_model)
         for attempt in range(1, 4):
             try:
                 response = client.models.generate_content(
-                    model=settings.gemini_model,
+                    model=settings.reaction_gemini_model,
                     contents=prompt,
                     config=types.GenerateContentConfig(
                         system_instruction=system_instruction,
@@ -129,7 +129,7 @@ class GeminiProvider(ModelProvider):
                 if e.status == "RESOURCE_EXHAUSTED":
                     logger.error(
                         "Gemini model %s quota exhausted while choosing reaction. Retry %s/3 in 5s.",
-                        settings.gemini_model,
+                        settings.reaction_gemini_model,
                         attempt,
                     )
                     logger.debug("ClientError details: %s", e)

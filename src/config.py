@@ -75,6 +75,7 @@ class Settings:
     reaction_cooldown_secs: float
     reaction_daily_budget: int
     reaction_messages_threshold: int
+    reaction_gemini_model: str
 
 
 def get_settings(force: bool = False) -> Settings:
@@ -102,13 +103,15 @@ def get_settings(force: bool = False) -> Settings:
         "schedule_events": _env_bool("ENABLE_SCHEDULE_EVENTS"),
     }
 
+    gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.0-flash").lower()
+
     settings = Settings(
         telegram_bot_token=telegram_bot_token,
         admin_chat_id=os.getenv("ADMIN_CHAT_ID"),
         features=features,
         gemini_api_key=gemini_api_key,
         google_api_key=google_api_key,
-        gemini_model=os.getenv("GEMINI_MODEL", "gemini-2.0-flash").lower(),
+        gemini_model=gemini_model,
         thinking_budget=int(os.getenv("THINKING_BUDGET", 0)),
         use_google_search=_env_bool("USE_GOOGLE_SEARCH"),
         ai_system_instructions_path=os.getenv("SYSTEM_INSTRUCTIONS_PATH", "system_instructions.txt"),
@@ -125,7 +128,8 @@ def get_settings(force: bool = False) -> Settings:
         reaction_enabled=_env_bool("REACTION_ENABLED"),
         reaction_cooldown_secs=float(os.getenv("REACTION_COOLDOWN_SECS", "600")),
         reaction_daily_budget=int(os.getenv("REACTION_DAILY_BUDGET", "50")),
-        reaction_messages_threshold=int(os.getenv("REACTION_MESSAGES_THRESHOLD", "10"))
+        reaction_messages_threshold=int(os.getenv("REACTION_MESSAGES_THRESHOLD", "10")),
+        reaction_gemini_model=os.getenv("REACTION_GEMINI_MODEL", gemini_model).lower(),
     )
     _SETTINGS_CACHE = settings
     _SETTINGS_CACHE_TS = now
@@ -158,6 +162,7 @@ def __getattr__(name: str):
         "REACTION_COOLDOWN_SECS": settings.reaction_cooldown_secs,
         "REACTION_DAILY_BUDGET": settings.reaction_daily_budget,
         "REACTION_MESSAGES_THRESHOLD": settings.reaction_messages_threshold,
+        "REACTION_GEMINI_MODEL": settings.reaction_gemini_model,
     }
     if name in mapping:
         return mapping[name]
