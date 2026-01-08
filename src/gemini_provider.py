@@ -5,16 +5,79 @@ import os
 import time
 from datetime import datetime
 import re
-from typing import List
+import functools
+from typing import Dict, List, Optional
 
 from google import genai
 from google.genai import types, errors
 
-from src import config, utils
+from src import config, retry_utils, utils
 
 from .model_provider import ModelProvider
 
 logger = logging.getLogger(__name__)
+
+
+class _ModelUsage:
+    def __init__(self) -> None:
+        self.minute_window_start = 0.0
+        self.minute_count = 0
+        self.day = None
+        self.day_count = 0
+        self.cooldown_until = 0.0
+
+    def _reset_minute_if_needed(self, now: float) -> None:
+        if now - self.minute_window_start >= 60:
+            self.minute_window_start = now
+            self.minute_count = 0
+
+    def _reset_day_if_needed(self, today) -> None:
+        if self.day != today:
+            self.day = today
+            self.day_count = 0
+
+    def can_use(self, spec: config.ModelSpec, now: float, today) -> bool:
+        self._reset_minute_if_needed(now)
+        self._reset_day_if_needed(today)
+        if self.cooldown_until and now < self.cooldown_until:
+            return False
+        if spec.rpm is not None and self.minute_count >= spec.rpm:
+            return False
+        if spec.rpd is not None and self.day_count >= spec.rpd:
+            return False
+        return True
+
+    def record_request(self, now: float, today) -> None:
+        self._reset_minute_if_needed(now)
+        self._reset_day_if_needed(today)
+        self.minute_count += 1
+        self.day_count += 1
+
+    def mark_exhausted(self, now: float, cooldown_secs: float = 60.0) -> None:
+        self.cooldown_until = max(self.cooldown_until, now + cooldown_secs)
+
+
+class _ModelRouter:
+    def __init__(self) -> None:
+        self._usage_by_model: Dict[str, _ModelUsage] = {}
+
+    def pick_model(self, specs: List[config.ModelSpec]) -> Optional[config.ModelSpec]:
+        now = time.monotonic()
+        today = datetime.now().date()
+        for spec in specs:
+            usage = self._usage_by_model.setdefault(spec.name, _ModelUsage())
+            if usage.can_use(spec, now, today):
+                return spec
+        logger.error("All configured models exhausted for RPM/RPD limits.")
+        return None
+
+    def record_request(self, spec: config.ModelSpec) -> None:
+        usage = self._usage_by_model.setdefault(spec.name, _ModelUsage())
+        usage.record_request(time.monotonic(), datetime.now().date())
+
+    def mark_exhausted(self, spec: config.ModelSpec) -> None:
+        usage = self._usage_by_model.setdefault(spec.name, _ModelUsage())
+        usage.mark_exhausted(time.monotonic())
 
 
 class GeminiProvider(ModelProvider):
@@ -25,6 +88,40 @@ class GeminiProvider(ModelProvider):
         self._system_instructions = ""
         self._system_instructions_path = None
         self._system_instructions_mtime = None
+        self._model_router = _ModelRouter()
+
+
+    def _on_generate_error(
+        self,
+        client: genai.Client,
+        spec: config.ModelSpec,
+        attempt: int,
+        max_attempts: int,
+        exc: Exception,
+    ) -> bool:
+        """
+        Handles errors during content generation.
+        Returns True to retry with another model, False to stop retrying.
+        """
+        if not isinstance(exc, errors.ClientError):
+            return False
+        if exc.status == "NOT_FOUND":
+            all_models = " ,".join(f"'{m}'" for m in client.models.list())
+            logger.error("Gemini model %s not found. Available models: %s", spec.name, all_models)
+            raise exc
+        if exc.status != "RESOURCE_EXHAUSTED":
+            return False
+        logger.error(
+            "Gemini model %s quota exhausted. Retry %s/%s with next model.",
+            spec.name,
+            attempt,
+            max_attempts,
+        )
+        logger.debug("ClientError details: %s", exc)
+        if attempt < max_attempts:
+            return True
+        self._model_router.mark_exhausted(spec)
+        return False
 
     def _get_client(self):
         settings = config.get_settings()
@@ -50,11 +147,15 @@ class GeminiProvider(ModelProvider):
 
     def transcribe(self, audio_path: str) -> str:
         client, settings = self._get_client()
+        spec = self._model_router.pick_model(settings.gemini_models)
+        if spec is None:
+            return ""
         with open(audio_path, "rb") as f:
             audio_bytes = f.read()
 
+        self._model_router.record_request(spec)
         response = client.models.generate_content(
-            model=settings.gemini_model,
+            model=spec.name,
             contents=[f"Transcribe this audio to {settings.language} text.",
                       types.Part.from_bytes(
                           data=audio_bytes,
@@ -73,35 +174,28 @@ class GeminiProvider(ModelProvider):
         grounding_tool = types.Tool(
             google_search=types.GoogleSearch()
         )
-        logger.debug("Generating content with model: %s", settings.gemini_model)
-        for attempt in range(1, 6):
-            try:
-                response = client.models.generate_content(
-                    model=settings.gemini_model,
-                    contents=prompt,
-                    config=types.GenerateContentConfig(
-                        system_instruction=system_instructions,
-                        thinking_config=types.ThinkingConfig(thinking_budget=settings.thinking_budget),
-                        tools=[grounding_tool] if settings.use_google_search else None,
-                    ),
-                )
-                break
-            except errors.ClientError as e:
-                if e.status == "NOT_FOUND":
-                    all_models = " ,".join(f"'{m}'" for m in client.models.list())
-                    logger.error("Gemini model %s not found. Available models: %s", settings.gemini_model, all_models)
-                    raise
-                if e.status == "RESOURCE_EXHAUSTED":
-                    logger.error(
-                        "Gemini model %s quota exhausted. Retry %s/5 in 60s.",
-                        settings.gemini_model,
-                        attempt,
-                    )
-                    logger.debug("ClientError details: %s", e)
-                    if attempt < 5:
-                        time.sleep(60)
-                        continue
-                raise
+
+        def run_request(spec: config.ModelSpec):
+            logger.debug("Generating content with model: %s", spec.name)
+            self._model_router.record_request(spec)
+            return client.models.generate_content(
+                model=spec.name,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    system_instruction=system_instructions,
+                    thinking_config=types.ThinkingConfig(thinking_budget=settings.thinking_budget),
+                    tools=[grounding_tool] if settings.use_google_search else None,
+                ),
+            )
+
+        response = retry_utils.retry_with_item(
+            max_attempts=5,
+            pick_item=lambda: self._model_router.pick_model(settings.gemini_models),
+            run=run_request,
+            on_error=functools.partial(self._on_generate_error, client),
+        )
+        if response is None:
+            return ""
 
         return response.text.strip() if response.text else ""
 
@@ -113,41 +207,42 @@ class GeminiProvider(ModelProvider):
             "Return only the emoji, nothing else."
         )
         prompt = f"Message: {message}\nAllowed reactions: {', '.join(allowed_reactions)}"
-        logger.debug("Choosing reaction with model: %s", settings.reaction_gemini_model)
-        for attempt in range(1, 4):
-            try:
-                response = client.models.generate_content(
-                    model=settings.reaction_gemini_model,
-                    contents=prompt,
-                    config=types.GenerateContentConfig(
-                        system_instruction=system_instruction,
-                        thinking_config=types.ThinkingConfig(thinking_budget=settings.thinking_budget),
-                    ),
-                )
-                break
-            except errors.ClientError as e:
-                if e.status == "RESOURCE_EXHAUSTED":
-                    logger.error(
-                        "Gemini model %s quota exhausted while choosing reaction. Retry %s/3 in 5s.",
-                        settings.reaction_gemini_model,
-                        attempt,
-                    )
-                    logger.debug("ClientError details: %s", e)
-                    if attempt < 3:
-                        time.sleep(5)
-                        continue
-                raise
+
+        def run_request(spec: config.ModelSpec):
+            logger.debug("Choosing reaction with model: %s", spec.name)
+            self._model_router.record_request(spec)
+            return client.models.generate_content(
+                model=spec.name,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    system_instruction=system_instruction,
+                    thinking_config=types.ThinkingConfig(thinking_budget=settings.thinking_budget),
+                ),
+            )
+
+        response = retry_utils.retry_with_item(
+            max_attempts=3,
+            pick_item=lambda: self._model_router.pick_model(settings.gemini_models),
+            run=run_request,
+            on_error=functools.partial(self._on_generate_error, client),
+        )
+        if response is None:
+            return ""
 
         return response.text.strip() if response.text else ""
 
     def parse_image_to_event(self, image_path: str) -> dict:
         client, settings = self._get_client()
         system_instructions = self._get_system_instructions(settings)
+        spec = self._model_router.pick_model(settings.gemini_models)
+        if spec is None:
+            return {}
         with open(image_path, "rb") as f:
             image_data = f.read()
 
+        self._model_router.record_request(spec)
         response = client.models.generate_content(
-            model='gemini-pro-vision',
+            model=spec.name,
             contents=[
                 "Analyze this image and extract event information. " +
                 "Provide a JSON response with the following fields: " +
@@ -172,8 +267,12 @@ class GeminiProvider(ModelProvider):
         """Extracts readable content from image bytes and returns plain text."""
         client, settings = self._get_client()
         system_instructions = self._get_system_instructions(settings)
+        spec = self._model_router.pick_model(settings.gemini_models)
+        if spec is None:
+            return ""
+        self._model_router.record_request(spec)
         response = client.models.generate_content(
-            model=settings.gemini_model,
+            model=spec.name,
             contents=[
                 (
                     f"Extract all visible text from the image and, if helpful, "

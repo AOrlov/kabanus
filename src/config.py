@@ -9,6 +9,8 @@ Tuning:
 - SETTINGS_CACHE_TTL controls the in-process cache window (seconds, default 1.0).
 - SETTINGS_REFRESH_INTERVAL is used by the app's periodic refresh job (seconds, default 1.0).
 """
+import json
+import logging
 import os
 import time
 from dataclasses import dataclass
@@ -51,6 +53,13 @@ def _require_env(name: str) -> str:
 
 
 @dataclass(frozen=True)
+class ModelSpec:
+    name: str
+    rpm: Optional[int]
+    rpd: Optional[int]
+
+
+@dataclass(frozen=True)
 class Settings:
     telegram_bot_token: str
     admin_chat_id: Optional[str]
@@ -58,6 +67,7 @@ class Settings:
     gemini_api_key: str
     google_api_key: str
     gemini_model: str
+    gemini_models: List[ModelSpec]
     thinking_budget: int
     use_google_search: bool
     ai_system_instructions_path: str
@@ -105,6 +115,32 @@ def get_settings(force: bool = False) -> Settings:
 
     gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.0-flash").lower()
 
+    gemini_models_raw = os.getenv("GEMINI_MODELS", "").strip()
+    gemini_models: List[ModelSpec] = []
+    if gemini_models_raw:
+        try:
+            parsed = json.loads(gemini_models_raw)
+            if not isinstance(parsed, list):
+                raise ValueError("GEMINI_MODELS must be a JSON list")
+            for item in parsed:
+                if not isinstance(item, dict):
+                    raise ValueError("Each GEMINI_MODELS item must be an object")
+                name = str(item.get("name", "")).strip().lower()
+                if not name:
+                    raise ValueError("Each GEMINI_MODELS item requires a name")
+                rpm = item.get("rpm")
+                rpd = item.get("rpd")
+                gemini_models.append(ModelSpec(
+                    name=name,
+                    rpm=int(rpm) if rpm is not None else None,
+                    rpd=int(rpd) if rpd is not None else None,
+                ))
+        except (ValueError, json.JSONDecodeError) as exc:
+            logging.error("Failed to parse GEMINI_MODELS: %s", exc)
+            gemini_models = []
+    if not gemini_models:
+        gemini_models = [ModelSpec(name=gemini_model, rpm=None, rpd=None)]
+
     settings = Settings(
         telegram_bot_token=telegram_bot_token,
         admin_chat_id=os.getenv("ADMIN_CHAT_ID"),
@@ -112,6 +148,7 @@ def get_settings(force: bool = False) -> Settings:
         gemini_api_key=gemini_api_key,
         google_api_key=google_api_key,
         gemini_model=gemini_model,
+        gemini_models=gemini_models,
         thinking_budget=int(os.getenv("THINKING_BUDGET", 0)),
         use_google_search=_env_bool("USE_GOOGLE_SEARCH"),
         ai_system_instructions_path=os.getenv("SYSTEM_INSTRUCTIONS_PATH", "system_instructions.txt"),
@@ -145,6 +182,7 @@ def __getattr__(name: str):
         "GEMINI_API_KEY": settings.gemini_api_key,
         "GOOGLE_API_KEY": settings.google_api_key,
         "GEMINI_MODEL": settings.gemini_model,
+        "GEMINI_MODELS": settings.gemini_models,
         "THINKING_BUDGET": settings.thinking_budget,
         "USE_GOOGLE_SEARCH": settings.use_google_search,
         "AI_SYSTEM_INSTRUCTIONS_PATH": settings.ai_system_instructions_path,

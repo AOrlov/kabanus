@@ -7,6 +7,7 @@ import tempfile
 import traceback
 import time
 from datetime import datetime
+from typing import Optional
 
 import tzlocal
 from telegram import Update, Voice
@@ -122,11 +123,16 @@ async def hi(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not settings.features.get("commands", {}).get("hi"):
         return
     await update.message.reply_text("Hello! I am your speech-to-text bot.")
-    if settings.gemini_api_key and settings.gemini_model:
-        await update.message.reply_text("Currently using Gemini model: " + settings.gemini_model)
-        await update.message.reply_text("Availabble models: " + ", ".join(
-            str(m) for m in gemini_provider.list_models()
-        ))
+    if settings.gemini_api_key and settings.gemini_models:
+        preferred = settings.gemini_models[0].name
+        def fmt_limit(value: Optional[int]) -> str:
+            return "unlimited" if value is None else str(value)
+        formatted = ", ".join(
+            f"{model.name} (rpm={fmt_limit(model.rpm)}, rpd={fmt_limit(model.rpd)})"
+            for model in settings.gemini_models
+        )
+        await update.message.reply_text("Configured Gemini model priority: " + preferred)
+        await update.message.reply_text("Configured Gemini models: " + formatted)
 
 
 async def transcribe_voice_message(voice: Voice, context: ContextTypes.DEFAULT_TYPE) -> str:
