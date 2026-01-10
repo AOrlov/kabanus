@@ -8,8 +8,10 @@
             "request": "launch",
             "module": "src.main",
             "justMyCode": true,
-            
             "envFile": "${workspaceFolder}/dev.stack.env",
+            "env": {
+                "DOTENV_PATH": "${workspaceFolder}/dev.stack.env"
+            },
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}"
         },
@@ -20,6 +22,9 @@
             "module": "src.main",
             "justMyCode": true,
             "envFile": "${workspaceFolder}/dev.calendar.planner.env",
+            "env": {
+                "DOTENV_PATH": "${workspaceFolder}/dev.calendar.planner.env"
+            },
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}"
         },

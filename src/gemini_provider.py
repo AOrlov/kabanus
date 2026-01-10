@@ -90,6 +90,56 @@ class GeminiProvider(ModelProvider):
         self._system_instructions_mtime = None
         self._model_router = _ModelRouter()
 
+    def _supports_system_instruction(self, model_name: str) -> bool:
+        return "gemma" not in model_name.lower()
+
+    def _supports_tools(self, model_name: str) -> bool:
+        return "gemma" not in model_name.lower()
+
+    def _supports_thinking_config(self, model_name: str) -> bool:
+        return "gemma" not in model_name.lower()
+
+    def _prepare_contents(
+        self,
+        spec: config.ModelSpec,
+        contents,
+        system_instruction: str,
+    ):
+        if not system_instruction:
+            return contents, None
+        if self._supports_system_instruction(spec.name):
+            return contents, system_instruction
+        if isinstance(contents, str):
+            return f"{system_instruction}\n\n{contents}", None
+        if isinstance(contents, list) and contents:
+            if isinstance(contents[0], str):
+                contents = [f"{system_instruction}\n\n{contents[0]}"] + contents[1:]
+            else:
+                contents = [system_instruction] + contents
+        return contents, None
+
+    def _prepare_config(
+        self,
+        spec: config.ModelSpec,
+        *,
+        system_instruction: Optional[str],
+        thinking_budget: int,
+        tools=None,
+    ) -> types.GenerateContentConfig:
+        if not self._supports_thinking_config(spec.name):
+            thinking_budget = 0
+        if not self._supports_tools(spec.name):
+            tools = None
+        if thinking_budget > 0:
+            thinking_config = types.ThinkingConfig(thinking_budget=thinking_budget)
+        else:
+            thinking_config = None
+        return types.GenerateContentConfig(
+            system_instruction=system_instruction,
+            thinking_config=thinking_config,
+            tools=tools,
+        )
+
 
     def _on_generate_error(
         self,
@@ -133,6 +183,9 @@ class GeminiProvider(ModelProvider):
         return self._client, settings
 
     def _get_system_instructions(self, settings):
+        if settings.ai_system_instructions_path == "":
+            logger.warning("AI system instructions path is not set.")
+            return ""
         path = os.path.join(os.path.dirname(__file__), settings.ai_system_instructions_path)
         try:
             mtime = os.path.getmtime(path)
@@ -161,9 +214,11 @@ class GeminiProvider(ModelProvider):
                           data=audio_bytes,
                           mime_type="audio/ogg",
             )],
-            config=types.GenerateContentConfig(
-                thinking_config=types.ThinkingConfig(thinking_budget=settings.thinking_budget)
-            )
+            config=self._prepare_config(
+                spec,
+                system_instruction=None,
+                thinking_budget=settings.thinking_budget,
+            ),
         )
 
         return response.text.strip() if response.text else ""
@@ -178,12 +233,18 @@ class GeminiProvider(ModelProvider):
         def run_request(spec: config.ModelSpec):
             logger.debug("Generating content with model: %s", spec.name)
             self._model_router.record_request(spec)
+            contents, system_instruction = self._prepare_contents(
+                spec,
+                prompt,
+                system_instructions,
+            )
             return client.models.generate_content(
                 model=spec.name,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    system_instruction=system_instructions,
-                    thinking_config=types.ThinkingConfig(thinking_budget=settings.thinking_budget),
+                contents=contents,
+                config=self._prepare_config(
+                    spec,
+                    system_instruction=system_instruction,
+                    thinking_budget=settings.thinking_budget,
                     tools=[grounding_tool] if settings.use_google_search else None,
                 ),
             )
@@ -211,12 +272,18 @@ class GeminiProvider(ModelProvider):
         def run_request(spec: config.ModelSpec):
             logger.debug("Choosing reaction with model: %s", spec.name)
             self._model_router.record_request(spec)
+            contents, instruction = self._prepare_contents(
+                spec,
+                prompt,
+                system_instruction,
+            )
             return client.models.generate_content(
                 model=spec.name,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    system_instruction=system_instruction,
-                    thinking_config=types.ThinkingConfig(thinking_budget=settings.thinking_budget),
+                contents=contents,
+                config=self._prepare_config(
+                    spec,
+                    system_instruction=instruction,
+                    thinking_budget=settings.thinking_budget,
                 ),
             )
 
@@ -241,9 +308,9 @@ class GeminiProvider(ModelProvider):
             image_data = f.read()
 
         self._model_router.record_request(spec)
-        response = client.models.generate_content(
-            model=spec.name,
-            contents=[
+        contents, system_instruction = self._prepare_contents(
+            spec,
+            [
                 "Analyze this image and extract event information. " +
                 "Provide a JSON response with the following fields: " +
                 "title (string), date (YYYY-MM-DD), time (HH:MM), " +
@@ -253,9 +320,15 @@ class GeminiProvider(ModelProvider):
                 f"If there is no year, set it to current year ({datetime.now().year})",
                 {"mime_type": "image/jpeg", "data": image_data}
             ],
-            config=types.GenerateContentConfig(
-                system_instruction=system_instructions,
-                thinking_config=types.ThinkingConfig(thinking_budget=settings.thinking_budget),
+            system_instructions,
+        )
+        response = client.models.generate_content(
+            model=spec.name,
+            contents=contents,
+            config=self._prepare_config(
+                spec,
+                system_instruction=system_instruction,
+                thinking_budget=settings.thinking_budget,
             ),
         )
         event_data = json.loads(utils.strip_markdown_to_json(response.text or ""))
@@ -271,9 +344,9 @@ class GeminiProvider(ModelProvider):
         if spec is None:
             return ""
         self._model_router.record_request(spec)
-        response = client.models.generate_content(
-            model=spec.name,
-            contents=[
+        contents, system_instruction = self._prepare_contents(
+            spec,
+            [
                 (
                     f"Extract all visible text from the image and, if helpful, "
                     f"briefly describe important visual content. Respond in {settings.language}. "
@@ -281,9 +354,15 @@ class GeminiProvider(ModelProvider):
                 ),
                 types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
             ],
-            config=types.GenerateContentConfig(
-                system_instruction=system_instructions,
-                thinking_config=types.ThinkingConfig(thinking_budget=settings.thinking_budget),
+            system_instructions,
+        )
+        response = client.models.generate_content(
+            model=spec.name,
+            contents=contents,
+            config=self._prepare_config(
+                spec,
+                system_instruction=system_instruction,
+                thinking_budget=settings.thinking_budget,
             ),
         )
         return (response.text or "").strip()
