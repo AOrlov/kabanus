@@ -99,6 +99,9 @@ class GeminiProvider(ModelProvider):
     def _supports_thinking_config(self, model_name: str) -> bool:
         return "gemma" not in model_name.lower()
 
+    def _prefer_gemma_first(self, specs: List[config.ModelSpec]) -> List[config.ModelSpec]:
+        return sorted(specs, key=lambda spec: "gemma" not in spec.name.lower())
+
     def _prepare_contents(
         self,
         spec: config.ModelSpec,
@@ -268,6 +271,7 @@ class GeminiProvider(ModelProvider):
             "Return only the emoji, nothing else."
         )
         prompt = f"Message: {message}\nAllowed reactions: {', '.join(allowed_reactions)}"
+        reaction_specs = self._prefer_gemma_first(settings.gemini_models)
 
         def run_request(spec: config.ModelSpec):
             logger.debug("Choosing reaction with model: %s", spec.name)
@@ -289,7 +293,7 @@ class GeminiProvider(ModelProvider):
 
         response = retry_utils.retry_with_item(
             max_attempts=3,
-            pick_item=lambda: self._model_router.pick_model(settings.gemini_models),
+            pick_item=lambda: self._model_router.pick_model(reaction_specs),
             run=run_request,
             on_error=functools.partial(self._on_generate_error, client),
         )
