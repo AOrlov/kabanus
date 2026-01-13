@@ -207,26 +207,35 @@ class GeminiProvider(ModelProvider):
 
     def transcribe(self, audio_path: str) -> str:
         client, settings = self._get_client()
-        spec = self._model_router.pick_model(settings.gemini_models)
-        if spec is None:
-            return ""
         with open(audio_path, "rb") as f:
             audio_bytes = f.read()
 
-        self._model_router.record_request(spec)
-        response = client.models.generate_content(
-            model=spec.name,
-            contents=[f"Transcribe this audio to {settings.language} text.",
-                      types.Part.from_bytes(
-                          data=audio_bytes,
-                          mime_type="audio/ogg",
-            )],
-            config=self._prepare_config(
-                spec,
-                system_instruction=None,
-                thinking_budget=settings.thinking_budget,
-            ),
+        def run_request(spec: config.ModelSpec):
+            self._model_router.record_request(spec)
+            return client.models.generate_content(
+                model=spec.name,
+                contents=[
+                    f"Transcribe this audio to {settings.language} text.",
+                    types.Part.from_bytes(
+                        data=audio_bytes,
+                        mime_type="audio/ogg",
+                    ),
+                ],
+                config=self._prepare_config(
+                    spec,
+                    system_instruction=None,
+                    thinking_budget=settings.thinking_budget,
+                ),
+            )
+
+        response = retry_utils.retry_with_item(
+            max_attempts=5,
+            pick_item=lambda: self._model_router.pick_model(settings.gemini_models),
+            run=run_request,
+            on_error=functools.partial(self._on_generate_error, client),
         )
+        if response is None:
+            return ""
 
         return response.text.strip() if response.text else ""
 
@@ -309,36 +318,43 @@ class GeminiProvider(ModelProvider):
     def parse_image_to_event(self, image_path: str) -> dict:
         client, settings = self._get_client()
         system_instructions = self._get_system_instructions(settings)
-        spec = self._model_router.pick_model(settings.gemini_models)
-        if spec is None:
-            return {}
         with open(image_path, "rb") as f:
             image_data = f.read()
 
-        self._model_router.record_request(spec)
-        contents, system_instruction = self._prepare_contents(
-            spec,
-            [
-                "Analyze this image and extract event information. " +
-                "Provide a JSON response with the following fields: " +
-                "title (string), date (YYYY-MM-DD), time (HH:MM), " +
-                "location (string), description (string), " +
-                "confidence (float between 0 and 1). " +
-                "If any field is unclear, set it to null." +
-                f"If there is no year, set it to current year ({datetime.now().year})",
-                {"mime_type": "image/jpeg", "data": image_data}
-            ],
-            system_instructions,
-        )
-        response = client.models.generate_content(
-            model=spec.name,
-            contents=contents,
-            config=self._prepare_config(
+        def run_request(spec: config.ModelSpec):
+            self._model_router.record_request(spec)
+            contents, system_instruction = self._prepare_contents(
                 spec,
-                system_instruction=system_instruction,
-                thinking_budget=settings.thinking_budget,
-            ),
+                [
+                    "Analyze this image and extract event information. " +
+                    "Provide a JSON response with the following fields: " +
+                    "title (string), date (YYYY-MM-DD), time (HH:MM), " +
+                    "location (string), description (string), " +
+                    "confidence (float between 0 and 1). " +
+                    "If any field is unclear, set it to null." +
+                    f"If there is no year, set it to current year ({datetime.now().year})",
+                    {"mime_type": "image/jpeg", "data": image_data}
+                ],
+                system_instructions,
+            )
+            return client.models.generate_content(
+                model=spec.name,
+                contents=contents,
+                config=self._prepare_config(
+                    spec,
+                    system_instruction=system_instruction,
+                    thinking_budget=settings.thinking_budget,
+                ),
+            )
+
+        response = retry_utils.retry_with_item(
+            max_attempts=5,
+            pick_item=lambda: self._model_router.pick_model(settings.gemini_models),
+            run=run_request,
+            on_error=functools.partial(self._on_generate_error, client),
         )
+        if response is None:
+            return {}
         event_data = json.loads(utils.strip_markdown_to_json(response.text or ""))
         logger.info(f"Event data from model: {event_data}")
 
@@ -348,31 +364,38 @@ class GeminiProvider(ModelProvider):
         """Extracts readable content from image bytes and returns plain text."""
         client, settings = self._get_client()
         system_instructions = self._get_system_instructions(settings)
-        spec = self._model_router.pick_model(settings.gemini_models)
-        if spec is None:
-            return ""
-        self._model_router.record_request(spec)
-        contents, system_instruction = self._prepare_contents(
-            spec,
-            [
-                (
-                    f"Extract all visible text from the image and, if helpful, "
-                    f"briefly describe important visual content. Respond in {settings.language}. "
-                    f"Return plain text only without any markdown or JSON."
-                ),
-                types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
-            ],
-            system_instructions,
-        )
-        response = client.models.generate_content(
-            model=spec.name,
-            contents=contents,
-            config=self._prepare_config(
+        def run_request(spec: config.ModelSpec):
+            self._model_router.record_request(spec)
+            contents, system_instruction = self._prepare_contents(
                 spec,
-                system_instruction=system_instruction,
-                thinking_budget=settings.thinking_budget,
-            ),
+                [
+                    (
+                        f"Extract all visible text from the image and, if helpful, "
+                        f"briefly describe important visual content. Respond in {settings.language}. "
+                        f"Return plain text only without any markdown or JSON."
+                    ),
+                    types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
+                ],
+                system_instructions,
+            )
+            return client.models.generate_content(
+                model=spec.name,
+                contents=contents,
+                config=self._prepare_config(
+                    spec,
+                    system_instruction=system_instruction,
+                    thinking_budget=settings.thinking_budget,
+                ),
+            )
+
+        response = retry_utils.retry_with_item(
+            max_attempts=5,
+            pick_item=lambda: self._model_router.pick_model(settings.gemini_models),
+            run=run_request,
+            on_error=functools.partial(self._on_generate_error, client),
         )
+        if response is None:
+            return ""
         return (response.text or "").strip()
 
     def list_models(self) -> List[str]:
