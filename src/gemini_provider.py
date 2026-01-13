@@ -25,6 +25,7 @@ class _ModelUsage:
         self.day = None
         self.day_count = 0
         self.cooldown_until = 0.0
+        self.exhausted_until_day = None
 
     def _reset_minute_if_needed(self, now: float) -> None:
         if now - self.minute_window_start >= 60:
@@ -35,11 +36,14 @@ class _ModelUsage:
         if self.day != today:
             self.day = today
             self.day_count = 0
+            self.exhausted_until_day = None
 
     def can_use(self, spec: config.ModelSpec, now: float, today) -> bool:
         self._reset_minute_if_needed(now)
         self._reset_day_if_needed(today)
         if self.cooldown_until and now < self.cooldown_until:
+            return False
+        if self.exhausted_until_day == today:
             return False
         if spec.rpm is not None and self.minute_count >= spec.rpm:
             return False
@@ -53,8 +57,8 @@ class _ModelUsage:
         self.minute_count += 1
         self.day_count += 1
 
-    def mark_exhausted(self, now: float, cooldown_secs: float = 60.0) -> None:
-        self.cooldown_until = max(self.cooldown_until, now + cooldown_secs)
+    def mark_exhausted(self, today) -> None:
+        self.exhausted_until_day = today
 
 
 class _ModelRouter:
@@ -77,7 +81,7 @@ class _ModelRouter:
 
     def mark_exhausted(self, spec: config.ModelSpec) -> None:
         usage = self._usage_by_model.setdefault(spec.name, _ModelUsage())
-        usage.mark_exhausted(time.monotonic())
+        usage.mark_exhausted(datetime.now().date())
 
 
 class GeminiProvider(ModelProvider):
@@ -171,9 +175,9 @@ class GeminiProvider(ModelProvider):
             max_attempts,
         )
         logger.debug("ClientError details: %s", exc)
+        self._model_router.mark_exhausted(spec)
         if attempt < max_attempts:
             return True
-        self._model_router.mark_exhausted(spec)
         return False
 
     def _get_client(self):
