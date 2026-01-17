@@ -15,17 +15,15 @@ from telegram.constants import ChatAction, ParseMode, ReactionEmoji
 from telegram.ext import (ApplicationBuilder, CommandHandler, ContextTypes,
                           MessageHandler, filters)
 
-from src import config
+from src import config, logging_utils
 from src.calendar_provider import CalendarProvider
 from src.gemini_provider import GeminiProvider
 from src.message_store import add_message, assemble_context, get_all_messages
 from src.model_provider import ModelProvider
 
+logging_utils.configure_bootstrap()
 settings = config.get_settings()
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.DEBUG if settings.debug_mode else logging.INFO,
-)
+logging_utils.configure_logging(settings)
 
 logger = logging.getLogger(__name__)
 gemini_provider = GeminiProvider()
@@ -38,15 +36,25 @@ _REACTION_ALLOWED_LIST = sorted(_REACTION_ALLOWED_SET)
 _MESSAGES_SINCE_LAST_REACTION = 0
 
 
+def _log_context(update: Optional[Update]) -> dict:
+    if update is None:
+        return {}
+    context = {}
+    if update.effective_user is not None:
+        context["user_id"] = update.effective_user.id
+    if update.effective_chat is not None:
+        context["chat_id"] = update.effective_chat.id
+    if update.update_id is not None:
+        context["update_id"] = update.update_id
+    return context
+
+
 def apply_log_level(settings: config.Settings) -> None:
     global _CURRENT_LOG_LEVEL
     level = logging.DEBUG if settings.debug_mode else logging.INFO
     if _CURRENT_LOG_LEVEL == level:
         return
-    root_logger = logging.getLogger()
-    root_logger.setLevel(level)
-    for handler in root_logger.handlers:
-        handler.setLevel(level)
+    logging_utils.update_log_level(level)
     _CURRENT_LOG_LEVEL = level
 
 
@@ -71,15 +79,18 @@ def is_allowed(update: Update) -> bool:
     # Allow if chat or user is in the allowed list (if list is not empty)
     if settings.allowed_chat_ids:
         if chat_id not in settings.allowed_chat_ids and user_id not in settings.allowed_chat_ids:
-            logger.warning(f"Unauthorized access attempt by user {user_id} in chat {chat_id}")
+            logger.warning(
+                "Unauthorized access attempt",
+                extra={"user_id": user_id, "chat_id": chat_id},
+            )
             return False
         return True
-    logger.info("No allowed_chat_ids configured, disallowing all users")
+    logger.info("No allowed_chat_ids configured, disallowing all users", extra=_log_context(update))
     return False
 
 
 async def maybe_react(update: Update, text: str):
-    logging.debug("maybe_react called")
+    logger.debug("maybe_react called", extra=_log_context(update))
     settings = config.get_settings()
 
     if update.message is None or not settings.reaction_enabled:
@@ -146,7 +157,7 @@ async def transcribe_voice_message(voice: Voice, context: ContextTypes.DEFAULT_T
 
 
 async def handle_addressed_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    logging.debug("handle_addressed_message called")
+    logger.debug("handle_addressed_message called", extra=_log_context(update))
     settings = config.get_settings()
     if not is_allowed(update) or not settings.features["message_handling"]:
         return
@@ -161,7 +172,10 @@ async def handle_addressed_message(update: Update, context: ContextTypes.DEFAULT
     is_image = False
     if update.message.voice:
         text = await transcribe_voice_message(update.message.voice, context)
-        logger.debug(f"Received voice message {text} from {update.effective_user.id}")
+        logger.debug(
+            "Received voice message",
+            extra={**_log_context(update), "message_preview": text[:256]},
+        )
         is_transcribe_text = True
     elif update.message.photo:
         # Process the largest photo in-memory
@@ -174,7 +188,10 @@ async def handle_addressed_message(update: Update, context: ContextTypes.DEFAULT
         # Include caption if present
         caption = update.message.caption or ""
         text = (caption + "\n" + extracted).strip() if caption else extracted
-        logger.debug(f"Received photo -> text '{text}' from {update.effective_user.id}")
+        logger.debug(
+            "Received photo message",
+            extra={**_log_context(update), "message_preview": text[:256]},
+        )
         is_transcribe_text = False
     elif update.message.document:
         # Only process if the document is an image; ignore others
@@ -202,10 +219,13 @@ async def handle_addressed_message(update: Update, context: ContextTypes.DEFAULT
 
         # Basic size guard (e.g., 15 MB)
         if not is_image_doc:
-            logger.debug("Ignoring non-image document message")
+            logger.debug("Ignoring non-image document message", extra=_log_context(update))
             return
         if doc.file_size is not None and doc.file_size > 15 * 1024 * 1024:
-            logger.warning(f"Image document too large: {doc.file_size} bytes")
+            logger.warning(
+                "Image document too large",
+                extra={**_log_context(update), "file_size": doc.file_size},
+            )
             return
 
         file = await context.bot.get_file(doc.file_id)
@@ -215,11 +235,17 @@ async def handle_addressed_message(update: Update, context: ContextTypes.DEFAULT
         extracted = gemini_provider.image_to_text(image_bytes, mime_type=eff_mime or "image/jpeg")
         caption = update.message.caption or ""
         text = (caption + "\n" + extracted).strip() if caption else extracted
-        logger.debug(f"Received image document -> text '{text}' from {update.effective_user.id}")
+        logger.debug(
+            "Received image document",
+            extra={**_log_context(update), "message_preview": text[:256]},
+        )
         is_transcribe_text = False
     else:
         text = update.message.text or (update.message.caption or "")
-        logger.debug(f"Received text message '{text}' from {update.effective_user.id}")
+        logger.debug(
+            "Received text message",
+            extra={**_log_context(update), "message_preview": text[:256]},
+        )
     sender = update.effective_user.first_name or update.effective_user.name
     if update.effective_chat.type == "private":
         storage_id = str(update.effective_user.id)
@@ -255,9 +281,15 @@ async def handle_addressed_message(update: Update, context: ContextTypes.DEFAULT
     if settings.debug_mode:
         # trim the promt in the middle for logging purposes
         if len(prompt) > 1024:
-            logger.debug(f"Generated prompt: {prompt[:512] + "\n...\n" + prompt[-512:]}")
+            logger.debug(
+                "Generated prompt (trimmed)",
+                extra={**_log_context(update), "prompt": prompt[:512] + "\n...\n" + prompt[-512:]},
+            )
         else:
-            logger.debug(f"Generated prompt: {prompt}")
+            logger.debug(
+                "Generated prompt",
+                extra={**_log_context(update), "prompt": prompt},
+            )
     response = gemini_provider.generate(prompt)
 
     # if is_transcribe_text append a quote to the response
@@ -316,10 +348,16 @@ async def schedule_events(update: Update, context: ContextTypes.DEFAULT_TYPE):
             event_time = event_data.get('time')
             is_all_day = event_time is None
             if event_time is None:
-                logger.warning("No time found in event data, treating as all-day event")
+                logger.warning(
+                    "No time found in event data, treating as all-day event",
+                    extra=_log_context(update),
+                )
                 event_time = '00:00'
             elif not isinstance(event_time, str):
-                logger.warning(f"Invalid time format: {event_time}, using default time of 00:00")
+                logger.warning(
+                    "Invalid time format, using default time of 00:00",
+                    extra={**_log_context(update), "event_time": event_time},
+                )
                 event_time = '00:00'
 
             try:
@@ -328,7 +366,10 @@ async def schedule_events(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     "%Y-%m-%d %H:%M"
                 )
             except ValueError as e:
-                logger.error(f"Failed to parse datetime: {e}")
+                logger.error(
+                    "Failed to parse datetime",
+                    extra={**_log_context(update), "error": str(e)},
+                )
                 raise ValueError(f"Invalid date or time format: {event_data['date']} {event_time}")
             
             # Get system's local timezone and set it for the datetime
@@ -357,7 +398,10 @@ async def schedule_events(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("\n".join(message_parts))
             
         except Exception as e:
-            logger.error(f"Failed to process photo: {e}")
+            logger.error(
+                "Failed to process photo",
+                extra={**_log_context(update), "error": str(e)},
+            )
             await update.message.reply_text(
                 "Sorry, I couldn't process the photo. Please make sure it contains clear event information."
             )
@@ -369,7 +413,10 @@ async def schedule_events(update: Update, context: ContextTypes.DEFAULT_TYPE):
             os.remove(temp_photo_path)
             
     except Exception as e:
-        logger.error(f"Failed to handle photo message: {e}")
+        logger.error(
+            "Failed to handle photo message",
+            extra={**_log_context(update), "error": str(e)},
+        )
         await update.message.reply_text(
             "Sorry, something went wrong while processing your photo."
         )
@@ -381,7 +428,11 @@ async def schedule_events(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Log the error and send a telegram message to notify the developer."""
-    logger.error("Exception while handling an update:", exc_info=context.error)
+    logger.error(
+        "Exception while handling an update",
+        exc_info=context.error,
+        extra=_log_context(update if isinstance(update, Update) else None),
+    )
 
     settings = config.get_settings()
     if not settings.admin_chat_id or context.error is None:

@@ -45,13 +45,13 @@ def _get_store_path(chat_id: str) -> str:
 
 def _load_messages(chat_id: str):
     path = _get_store_path(chat_id)
-    logger.debug(f"Loading messages from file {path}")
+    logger.debug("Loading messages from file", extra={"chat_id": chat_id, "path": path})
 
     messages = []
     with open(path, 'r', encoding='utf-8') as f:
         for line in f:
             messages.append(json.loads(line))
-    logger.debug(f"Loaded {len(messages)} messages.")
+    logger.debug("Loaded messages", extra={"chat_id": chat_id, "count": len(messages)})
     return messages
 
 
@@ -107,7 +107,7 @@ def assemble_context(messages: list, token_limit: Optional[int] = None) -> str:
         token_limit = config.get_settings().token_limit
     context_lines = []
     total_tokens = 0
-    logging.debug(f"Assembling context with token limit: {token_limit}")
+    logger.debug("Assembling context with token limit", extra={"token_limit": token_limit})
     # Traverse messages in reverse (most recent first)
     for msg in reversed(messages):
         sender = msg.get('sender')
@@ -119,5 +119,8 @@ def assemble_context(messages: list, token_limit: Optional[int] = None) -> str:
         total_tokens += tokens
     # Reverse again to restore chronological order
     context_lines.reverse()
-    logging.debug(f"Total: messages {len(context_lines)}, tokens in context: {total_tokens}")
+    logger.debug(
+        "Assembled context",
+        extra={"message_count": len(context_lines), "token_count": total_tokens},
+    )
     return '\n'.join(context_lines)

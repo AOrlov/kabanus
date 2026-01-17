@@ -72,7 +72,7 @@ class _ModelRouter:
             usage = self._usage_by_model.setdefault(spec.name, _ModelUsage())
             if usage.can_use(spec, now, today):
                 return spec
-        logger.error("All configured models exhausted for RPM/RPD limits.")
+        logger.error("All configured models exhausted for RPM/RPD limits.", extra={"event": "model_exhausted"})
         return None
 
     def record_request(self, spec: config.ModelSpec) -> None:
@@ -164,17 +164,18 @@ class GeminiProvider(ModelProvider):
             return False
         if exc.status == "NOT_FOUND":
             all_models = " ,".join(f"'{m}'" for m in client.models.list())
-            logger.error("Gemini model %s not found. Available models: %s", spec.name, all_models)
+            logger.error(
+                "Gemini model not found",
+                extra={"model": spec.name, "available_models": all_models},
+            )
             raise exc
         if exc.status != "RESOURCE_EXHAUSTED":
             return False
         logger.error(
-            "Gemini model %s quota exhausted. Retry %s/%s with next model.",
-            spec.name,
-            attempt,
-            max_attempts,
+            "Gemini model quota exhausted. Retry with next model.",
+            extra={"model": spec.name, "attempt": attempt, "max_attempts": max_attempts},
         )
-        logger.debug("ClientError details: %s", exc)
+        logger.debug("ClientError details", extra={"model": spec.name, "error": exc})
         self._model_router.mark_exhausted(spec)
         if attempt < max_attempts:
             return True
@@ -191,7 +192,7 @@ class GeminiProvider(ModelProvider):
 
     def _get_system_instructions(self, settings):
         if settings.ai_system_instructions_path == "":
-            logger.warning("AI system instructions path is not set.")
+            logger.warning("AI system instructions path is not set.", extra={"event": "missing_system_instructions"})
             return ""
         path = os.path.join(os.path.dirname(__file__), settings.ai_system_instructions_path)
         try:
@@ -247,7 +248,7 @@ class GeminiProvider(ModelProvider):
         )
 
         def run_request(spec: config.ModelSpec):
-            logger.debug("Generating content with model: %s", spec.name)
+            logger.debug("Generating content with model", extra={"model": spec.name})
             self._model_router.record_request(spec)
             contents, system_instruction = self._prepare_contents(
                 spec,
@@ -287,7 +288,7 @@ class GeminiProvider(ModelProvider):
         reaction_specs = self._prefer_gemma_first(settings.gemini_models)
 
         def run_request(spec: config.ModelSpec):
-            logger.debug("Choosing reaction with model: %s", spec.name)
+            logger.debug("Choosing reaction with model", extra={"model": spec.name})
             self._model_router.record_request(spec)
             contents, instruction = self._prepare_contents(
                 spec,
@@ -356,7 +357,7 @@ class GeminiProvider(ModelProvider):
         if response is None:
             return {}
         event_data = json.loads(utils.strip_markdown_to_json(response.text or ""))
-        logger.info(f"Event data from model: {event_data}")
+        logger.info("Event data from model", extra={"event_data": event_data})
 
         return event_data
 
