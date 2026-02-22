@@ -79,6 +79,14 @@ class Settings:
     language: str
     token_limit: int
     chat_messages_store_path: str
+    memory_enabled: bool
+    memory_recent_turns: int
+    memory_recent_budget_ratio: float
+    memory_summary_enabled: bool
+    memory_summary_budget_ratio: float
+    memory_summary_chunk_size: int
+    memory_summary_max_items: int
+    memory_summary_max_chunks_per_run: int
     debug_mode: bool
     settings_refresh_interval: float
     reaction_enabled: bool
@@ -160,6 +168,14 @@ def get_settings(force: bool = False) -> Settings:
         language=os.getenv("LANGUAGE", "ru").lower(),
         token_limit=int(os.getenv("TOKEN_LIMIT", 500_000)),
         chat_messages_store_path=os.getenv("CHAT_MESSAGES_STORE_PATH", "messages.jsonl"),
+        memory_enabled=_env_bool("MEMORY_ENABLED", "true"),
+        memory_recent_turns=max(1, int(os.getenv("MEMORY_RECENT_TURNS", "20"))),
+        memory_recent_budget_ratio=min(1.0, max(0.0, float(os.getenv("MEMORY_RECENT_BUDGET_RATIO", "0.85")))),
+        memory_summary_enabled=_env_bool("MEMORY_SUMMARY_ENABLED"),
+        memory_summary_budget_ratio=min(1.0, max(0.0, float(os.getenv("MEMORY_SUMMARY_BUDGET_RATIO", "0.15")))),
+        memory_summary_chunk_size=max(2, int(os.getenv("MEMORY_SUMMARY_CHUNK_SIZE", "16"))),
+        memory_summary_max_items=max(0, int(os.getenv("MEMORY_SUMMARY_MAX_ITEMS", "4"))),
+        memory_summary_max_chunks_per_run=max(1, int(os.getenv("MEMORY_SUMMARY_MAX_CHUNKS_PER_RUN", "1"))),
         debug_mode=_env_bool("DEBUG_MODE"),
         settings_refresh_interval=float(os.getenv("SETTINGS_REFRESH_INTERVAL", "1.0")),
         reaction_enabled=_env_bool("REACTION_ENABLED"),
@@ -194,6 +210,14 @@ def __getattr__(name: str):
         "LANGUAGE": settings.language,
         "TOKEN_LIMIT": settings.token_limit,
         "CHAT_MESSAGES_STORE_PATH": settings.chat_messages_store_path,
+        "MEMORY_ENABLED": settings.memory_enabled,
+        "MEMORY_RECENT_TURNS": settings.memory_recent_turns,
+        "MEMORY_RECENT_BUDGET_RATIO": settings.memory_recent_budget_ratio,
+        "MEMORY_SUMMARY_ENABLED": settings.memory_summary_enabled,
+        "MEMORY_SUMMARY_BUDGET_RATIO": settings.memory_summary_budget_ratio,
+        "MEMORY_SUMMARY_CHUNK_SIZE": settings.memory_summary_chunk_size,
+        "MEMORY_SUMMARY_MAX_ITEMS": settings.memory_summary_max_items,
+        "MEMORY_SUMMARY_MAX_CHUNKS_PER_RUN": settings.memory_summary_max_chunks_per_run,
         "DEBUG_MODE": settings.debug_mode,
         "SETTINGS_REFRESH_INTERVAL": settings.settings_refresh_interval,
         "REACTION_ENABLED": settings.reaction_enabled,

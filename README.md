@@ -7,6 +7,7 @@ Telegram bot for group interaction, voice message transcription, and (optionally
 - Transcribes speech to text using Gemini
 - Replies with the transcription or an error message
 - Supports Gemini for text generation and context-aware replies
+- Supports context memory optimization with recent-window + optional long-term summaries
 - Can auto-react to messages using Gemini (optional)
 - Optional multi-model Gemini routing with per-model RPM/RPD limits
 - Can create Google Calendar events from event poster photos (optional)
@@ -73,6 +74,16 @@ GOOGLE_CREDENTIALS_JSON='{"type": "..."}'  # Optional, inlined credentials JSON
 BOT_ALIASES=bot,бот,ботик                  # Optional, comma-separated aliases
 CHAT_MESSAGES_STORE_PATH=messages.jsonl    # Optional, history message store file
 
+# Memory/context optimization
+MEMORY_ENABLED=true                        # Optional, enable structured context builder
+MEMORY_RECENT_TURNS=20                     # Optional, keep last N messages in recent section
+MEMORY_RECENT_BUDGET_RATIO=0.85            # Optional, token budget share for recent dialogue
+MEMORY_SUMMARY_ENABLED=false               # Optional, enable long-term summary section
+MEMORY_SUMMARY_BUDGET_RATIO=0.15           # Optional, token budget share for summaries
+MEMORY_SUMMARY_CHUNK_SIZE=16               # Optional, messages per summary chunk
+MEMORY_SUMMARY_MAX_ITEMS=4                 # Optional, max summary items injected per request
+MEMORY_SUMMARY_MAX_CHUNKS_PER_RUN=1        # Optional, new chunks summarized per runtime call
+
 # Runtime and debugging
 DEBUG_MODE=true                            # Optional, enable debug logging
 DOTENV_PATH=path/to/.env                   # Optional, override .env location
@@ -104,6 +115,49 @@ python -m src.main
 
 ## Utilities
 - `scripts/dump_chat.py`: Dump Telegram chat history to JSONL (see script for usage).
+- `scripts/backfill_summaries.py`: Backfill `*.summary.json` from existing JSONL history.
+- `scripts/view_summary.py`: Inspect summary files quickly from CLI.
+- `scripts/README.md`: Detailed script usage and examples.
+
+## Memory and Backfill
+
+The bot stores raw messages as JSONL and can optionally use long-term compressed summaries:
+
+- Raw history file pattern: `messages_<chat_id>.jsonl`
+- Summary file pattern: `messages_<chat_id>.summary.json`
+
+When `MEMORY_SUMMARY_ENABLED=true`, context assembly can include both:
+
+- recent dialogue window (verbatim)
+- relevant long-term summary chunks
+
+### Backfill existing history
+
+Use backfill when you already have large history and want summary files immediately.
+
+Example with local Ollama:
+
+```bash
+. .venv/bin/activate
+set -a && source dev.stack.env && set +a
+MEMORY_SUMMARY_ENABLED=true PYTHONPATH=. python3 -m scripts.backfill_summaries \
+  --chat-id=-{chat_id} \
+  --source-jsonl src/data/messages_-{chat_id}.jsonl \
+  --provider ollama \
+  --ollama-url http://127.0.0.1:11434/api/generate \
+  --ollama-model gemma3:4b
+```
+
+For a quick experiment on first chunks only:
+
+```bash
+MEMORY_SUMMARY_ENABLED=true PYTHONPATH=. python3 -m scripts.backfill_summaries \
+  --chat-id=-{chat_id} \
+  --source-jsonl src/data/messages_-{chat_id}.jsonl \
+  --force-rebuild \
+  --provider ollama \
+  --max-chunks 20
+```
 
 ## VS Code Debugging
 A `.vscode/launch.json` is provided. Use the "Run Telegram Bot (src.main)" or "Debug Unit Tests" configurations from the Run & Debug panel.

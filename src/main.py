@@ -18,7 +18,7 @@ from telegram.ext import (ApplicationBuilder, CommandHandler, ContextTypes,
 from src import config, logging_utils
 from src.calendar_provider import CalendarProvider
 from src.gemini_provider import GeminiProvider
-from src.message_store import add_message, assemble_context, get_all_messages
+from src.message_store import add_message, build_context
 from src.model_provider import ModelProvider
 
 logging_utils.configure_bootstrap()
@@ -276,7 +276,11 @@ async def handle_addressed_message(update: Update, context: ContextTypes.DEFAULT
         return
 
     await update.effective_chat.send_action(action=ChatAction.TYPING)
-    context_str = assemble_context(get_all_messages(chat_id=storage_id))
+    context_str = build_context(
+        chat_id=storage_id,
+        latest_user_text=text,
+        summarize_fn=gemini_provider.generate_low_cost,
+    )
     prompt = f"{context_str}\n---\n{sender}: {text}"
     if settings.debug_mode:
         # trim the promt in the middle for logging purposes

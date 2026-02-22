@@ -83,3 +83,5 @@ whisper_cache/
 # Telegram session files
 *.session
 system_instructions.txt
+
+/src/data/*

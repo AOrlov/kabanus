@@ -106,6 +106,10 @@ class GeminiProvider(ModelProvider):
     def _prefer_gemma_first(self, specs: List[config.ModelSpec]) -> List[config.ModelSpec]:
         return sorted(specs, key=lambda spec: "gemma" not in spec.name.lower())
 
+    def _prefer_low_cost_first(self, specs: List[config.ModelSpec]) -> List[config.ModelSpec]:
+        # GEMINI_MODELS is ordered from most powerful/expensive to cheapest.
+        return list(reversed(specs))
+
     def _prepare_contents(
         self,
         spec: config.ModelSpec,
@@ -240,7 +244,14 @@ class GeminiProvider(ModelProvider):
 
         return response.text.strip() if response.text else ""
 
-    def generate(self, prompt: str) -> str:
+    def _generate_with_specs(
+        self,
+        prompt: str,
+        specs: List[config.ModelSpec],
+        *,
+        use_google_search: bool,
+        thinking_budget: int,
+    ) -> str:
         client, settings = self._get_client()
         system_instructions = self._get_system_instructions(settings)
         grounding_tool = types.Tool(
@@ -261,14 +272,14 @@ class GeminiProvider(ModelProvider):
                 config=self._prepare_config(
                     spec,
                     system_instruction=system_instruction,
-                    thinking_budget=settings.thinking_budget,
-                    tools=[grounding_tool] if settings.use_google_search else None,
+                    thinking_budget=thinking_budget,
+                    tools=[grounding_tool] if use_google_search else None,
                 ),
             )
 
         response = retry_utils.retry_with_item(
             max_attempts=5,
-            pick_item=lambda: self._model_router.pick_model(settings.gemini_models),
+            pick_item=lambda: self._model_router.pick_model(specs),
             run=run_request,
             on_error=functools.partial(self._on_generate_error, client),
         )
@@ -276,6 +287,26 @@ class GeminiProvider(ModelProvider):
             return ""
 
         return response.text.strip() if response.text else ""
+
+    def generate(self, prompt: str) -> str:
+        _, settings = self._get_client()
+        return self._generate_with_specs(
+            prompt=prompt,
+            specs=settings.gemini_models,
+            use_google_search=settings.use_google_search,
+            thinking_budget=settings.thinking_budget,
+        )
+
+    def generate_low_cost(self, prompt: str) -> str:
+        """Generate using the lowest-cost model first (reverse GEMINI_MODELS order)."""
+        _, settings = self._get_client()
+        low_cost_specs = self._prefer_low_cost_first(settings.gemini_models)
+        return self._generate_with_specs(
+            prompt=prompt,
+            specs=low_cost_specs,
+            use_google_search=settings.use_google_search,
+            thinking_budget=settings.thinking_budget,
+        )
 
     def choose_reaction(self, message: str, allowed_reactions: List[str]) -> str:
         client, settings = self._get_client()
