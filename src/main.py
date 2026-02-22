@@ -1,3 +1,4 @@
+import asyncio
 import html
 import io
 import json
@@ -294,17 +295,37 @@ async def handle_addressed_message(update: Update, context: ContextTypes.DEFAULT
                 "Generated prompt",
                 extra={**_log_context(update), "prompt": prompt},
             )
-    response = gemini_provider.generate(prompt)
+    response = ""
+    max_empty_retries = 3
+    for attempt in range(1, max_empty_retries + 1):
+        response = (gemini_provider.generate(prompt) or "").strip()
+        if response:
+            break
+        logger.warning(
+            "Model returned empty response",
+            extra={**_log_context(update), "attempt": attempt, "max_attempts": max_empty_retries},
+        )
+        if attempt < max_empty_retries:
+            await asyncio.sleep(0.5)
 
-    # if is_transcribe_text append a quote to the response
+    if not response:
+        logger.warning(
+            "Ignoring message due to empty model response after retries",
+            extra=_log_context(update),
+        )
+        return
+
+    outgoing_text = response
     if is_transcribe_text:
-        response_with_transcribed_text = f">>{text}\n\n{response}"
+        outgoing_text = f">>{text}\n\n{response}".strip()
 
-    for chunk in chunk_string(response_with_transcribed_text if is_transcribe_text else response, 4000):
+    for chunk in [chunk for chunk in chunk_string(outgoing_text, 4000) if chunk.strip()]:
         await update.message.reply_text(chunk)
         add_message('Bot', chunk, chat_id=storage_id, is_bot=True)
 
 def chunk_string(s: str, chunk_size: int) -> list[str]:
+    if not s:
+        return []
     if len(s) <= chunk_size:
         return [s]
     return [s[i:i + chunk_size] for i in range(0, len(s), chunk_size)]
