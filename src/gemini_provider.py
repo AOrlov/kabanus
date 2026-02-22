@@ -110,6 +110,48 @@ class GeminiProvider(ModelProvider):
         # GEMINI_MODELS is ordered from most powerful/expensive to cheapest.
         return list(reversed(specs))
 
+    def _log_empty_generation_response(self, model_name: str, response) -> None:
+        candidates = getattr(response, "candidates", None) or []
+        finish_reasons = []
+        safety_ratings = []
+        for candidate in candidates:
+            finish_reasons.append(str(getattr(candidate, "finish_reason", "")))
+            rating_items = []
+            for rating in getattr(candidate, "safety_ratings", None) or []:
+                category = str(getattr(rating, "category", ""))
+                prob = str(getattr(rating, "probability", ""))
+                blocked = str(getattr(rating, "blocked", ""))
+                rating_items.append(
+                    {"category": category, "probability": prob, "blocked": blocked}
+                )
+            safety_ratings.append(rating_items)
+
+        prompt_feedback = getattr(response, "prompt_feedback", None)
+        block_reason = ""
+        prompt_safety_ratings = []
+        if prompt_feedback is not None:
+            block_reason = str(getattr(prompt_feedback, "block_reason", ""))
+            for rating in getattr(prompt_feedback, "safety_ratings", None) or []:
+                prompt_safety_ratings.append(
+                    {
+                        "category": str(getattr(rating, "category", "")),
+                        "probability": str(getattr(rating, "probability", "")),
+                        "blocked": str(getattr(rating, "blocked", "")),
+                    }
+                )
+
+        logger.warning(
+            "Gemini returned empty text response",
+            extra={
+                "model": model_name,
+                "candidate_count": len(candidates),
+                "finish_reasons": finish_reasons,
+                "prompt_block_reason": block_reason,
+                "prompt_safety_ratings": prompt_safety_ratings,
+                "candidate_safety_ratings": safety_ratings,
+            },
+        )
+
     def _prepare_contents(
         self,
         spec: config.ModelSpec,
@@ -257,8 +299,11 @@ class GeminiProvider(ModelProvider):
         grounding_tool = types.Tool(
             google_search=types.GoogleSearch()
         )
+        selected_model = ""
 
         def run_request(spec: config.ModelSpec):
+            nonlocal selected_model
+            selected_model = spec.name
             logger.debug("Generating content with model", extra={"model": spec.name})
             self._model_router.record_request(spec)
             contents, system_instruction = self._prepare_contents(
@@ -286,7 +331,10 @@ class GeminiProvider(ModelProvider):
         if response is None:
             return ""
 
-        return response.text.strip() if response.text else ""
+        text = (response.text or "").strip() if response.text else ""
+        if not text:
+            self._log_empty_generation_response(selected_model, response)
+        return text
 
     def generate(self, prompt: str) -> str:
         _, settings = self._get_client()
