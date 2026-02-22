@@ -86,6 +86,7 @@ MEMORY_SUMMARY_MAX_CHUNKS_PER_RUN=1        # Optional, new chunks summarized per
 
 # Runtime and debugging
 DEBUG_MODE=true                            # Optional, enable debug logging
+THIRD_PARTY_LOG_LEVEL=WARNING              # Optional, external libs log level (httpx/httpcore/telegram/google_genai)
 DOTENV_PATH=path/to/.env                   # Optional, override .env location
 SETTINGS_CACHE_TTL=1.0                     # Optional, settings cache TTL in seconds
 SETTINGS_REFRESH_INTERVAL=1.0              # Optional, refresh interval (used if job enabled)
@@ -168,6 +169,8 @@ A `.vscode/launch.json` is provided. Use the "Run Telegram Bot (src.main)" or "D
 - Gemini support requires a valid API key from Google AI Studio.
 - Google Calendar event creation requires a valid calendar ID and service account credentials.
 - `ALLOWED_CHAT_IDS` is required; if empty, the bot denies all users.
+- `DEBUG_MODE` controls your app debug logs (`src.*`, `__main__`).
+- Use `THIRD_PARTY_LOG_LEVEL` to reduce dependency noise (default: `WARNING`).
 
 ## License
 MIT

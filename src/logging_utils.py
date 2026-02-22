@@ -27,6 +27,15 @@ _RESERVED_LOG_RECORD_ATTRS = {
     "processName",
 }
 
+_THIRD_PARTY_LOGGERS = (
+    "httpx",
+    "httpcore",
+    "telegram",
+    "google_genai",
+    "urllib3",
+    "asyncio",
+)
+
 
 def _coerce_json_value(value: Any) -> Any:
     try:
@@ -66,7 +75,8 @@ class JsonFormatter(logging.Formatter):
 
 def _configure_logging(level: int, log_format: str) -> None:
     root_logger = logging.getLogger()
-    root_logger.setLevel(level)
+    # Keep root conservative; app loggers are configured explicitly.
+    root_logger.setLevel(logging.INFO)
     for handler in list(root_logger.handlers):
         root_logger.removeHandler(handler)
 
@@ -77,8 +87,22 @@ def _configure_logging(level: int, log_format: str) -> None:
         handler.setFormatter(
             logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
         )
-    handler.setLevel(level)
+    handler.setLevel(logging.DEBUG)
     root_logger.addHandler(handler)
+    _configure_scoped_logger_levels(level)
+
+
+def _configure_scoped_logger_levels(app_level: int) -> None:
+    # App logs follow DEBUG_MODE; third-party logs default to WARNING.
+    for logger_name in ("src", "__main__"):
+        logger = logging.getLogger(logger_name)
+        logger.setLevel(app_level)
+
+    third_party_level_name = os.getenv("THIRD_PARTY_LOG_LEVEL", "WARNING").upper()
+    third_party_level = getattr(logging, third_party_level_name, logging.WARNING)
+    for logger_name in _THIRD_PARTY_LOGGERS:
+        logger = logging.getLogger(logger_name)
+        logger.setLevel(third_party_level)
 
 
 def configure_bootstrap() -> None:
@@ -96,6 +120,7 @@ def configure_logging(settings) -> None:
 
 def update_log_level(level: int) -> None:
     root_logger = logging.getLogger()
-    root_logger.setLevel(level)
+    root_logger.setLevel(logging.INFO)
     for handler in root_logger.handlers:
-        handler.setLevel(level)
+        handler.setLevel(logging.DEBUG)
+    _configure_scoped_logger_levels(level)
