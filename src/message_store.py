@@ -169,6 +169,89 @@ def _save_summary_state(chat_id: str, state: Dict) -> None:
         json.dump(state, f, ensure_ascii=False)
 
 
+def _summary_chunk_to_text(index: int, chunk: Dict) -> str:
+    summary = str(chunk.get("summary", ""))
+    facts = _clean_string_list(chunk.get("facts"))
+    decisions = _clean_string_list(chunk.get("decisions"))
+    open_items = _clean_string_list(chunk.get("open_items"))
+    source_ids = chunk.get("source_message_ids", [])
+    lines = [
+        f"[{index}] {chunk.get('id', '')}",
+        f"summary: {summary}",
+        f"facts({len(facts)}): {facts}",
+        f"decisions({len(decisions)}): {decisions}",
+        f"open_items({len(open_items)}): {open_items}",
+    ]
+    if isinstance(source_ids, list) and source_ids:
+        lines.append(f"source_message_ids: {source_ids[0]} .. {source_ids[-1]} ({len(source_ids)})")
+    return "\n".join(lines)
+
+
+def get_summary_view_text(
+    chat_id: str,
+    head: int = 0,
+    tail: int = 0,
+    index: Optional[int] = None,
+    grep: str = "",
+) -> str:
+    """Render summary state similarly to scripts/view_summary.py output."""
+    state = _load_summary_state(chat_id)
+    chunks = state.get("chunks", [])
+    if not isinstance(chunks, list):
+        raise RuntimeError("'chunks' must be a list")
+
+    summary_path = _get_summary_store_path(chat_id)
+    lines = [
+        "Summary file:",
+        f"- path: {summary_path}",
+        f"- version: {state.get('version')}",
+        f"- last_message_count: {state.get('last_message_count')}",
+        f"- chunks: {len(chunks)}",
+    ]
+
+    if index is not None:
+        if index < 0 or index >= len(chunks):
+            raise RuntimeError(f"index out of range: {index}")
+        lines.append("")
+        lines.append(_summary_chunk_to_text(index, chunks[index]))
+        return "\n".join(lines)
+
+    selected: List[Tuple[int, Dict]] = list(enumerate(chunks))
+    if grep:
+        needle = grep.lower()
+        filtered: List[Tuple[int, Dict]] = []
+        for idx, chunk in selected:
+            payload = " ".join(
+                [
+                    str(chunk.get("summary", "")),
+                    " ".join(_clean_string_list(chunk.get("facts"))),
+                    " ".join(_clean_string_list(chunk.get("decisions"))),
+                    " ".join(_clean_string_list(chunk.get("open_items"))),
+                ]
+            ).lower()
+            if needle in payload:
+                filtered.append((idx, chunk))
+        selected = filtered
+        lines.append(f"- grep_matches: {len(selected)}")
+
+    to_show: List[Tuple[int, Dict]] = []
+    if head > 0:
+        to_show.extend(selected[:head])
+    if tail > 0:
+        tail_items = selected[-tail:]
+        existing = {idx for idx, _ in to_show}
+        to_show.extend([(idx, chunk) for idx, chunk in tail_items if idx not in existing])
+
+    if not to_show:
+        lines.append("No chunks selected. Use --head/--tail/--index and optional --grep.")
+        return "\n".join(lines)
+
+    for idx, chunk in to_show:
+        lines.append("")
+        lines.append(_summary_chunk_to_text(idx, chunk))
+    return "\n".join(lines)
+
+
 def _message_id(msg: Dict, fallback_index: int) -> str:
     value = msg.get('id')
     if value:

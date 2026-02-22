@@ -8,7 +8,7 @@ import tempfile
 import traceback
 import time
 from datetime import datetime
-from typing import Optional
+from typing import Dict, Optional, Tuple
 
 import tzlocal
 from telegram import Update, Voice
@@ -19,7 +19,7 @@ from telegram.ext import (ApplicationBuilder, CommandHandler, ContextTypes,
 from src import config, logging_utils
 from src.calendar_provider import CalendarProvider
 from src.gemini_provider import GeminiProvider
-from src.message_store import add_message, build_context
+from src.message_store import add_message, build_context, get_summary_view_text
 from src.model_provider import ModelProvider
 
 logging_utils.configure_bootstrap()
@@ -145,6 +145,140 @@ async def hi(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         await update.message.reply_text("Configured Gemini model priority: " + preferred)
         await update.message.reply_text("Configured Gemini models: " + formatted)
+
+
+def _parse_summary_command_args(args: list[str]) -> Tuple[Optional[Dict], Optional[str]]:
+    parsed: Dict = {"head": 0, "tail": 0, "index": None, "grep": "", "show_help": False}
+    if not args:
+        parsed["head"] = 3
+        return parsed, None
+
+    lowered = [arg.lower() for arg in args]
+    if len(args) == 1 and lowered[0] in {"help", "--help", "-help", "?"}:
+        parsed["show_help"] = True
+        return parsed, None
+
+    def parse_int(raw: str, name: str, allow_zero: bool = False) -> Tuple[Optional[int], Optional[str]]:
+        try:
+            value = int(raw)
+        except ValueError:
+            return None, f"Invalid integer for {name}: {raw}"
+        min_allowed = 0 if allow_zero else 1
+        if value < min_allowed:
+            return None, f"{name} must be >= {min_allowed}"
+        return value, None
+
+    # Friendly forms:
+    # /summary 5
+    # /summary tail 5
+    # /summary index 10
+    # /summary keyword phrase
+    if args[0].lstrip("-").isdigit():
+        value, err = parse_int(args[0], "head")
+        if err:
+            return None, err
+        parsed["head"] = value
+        if len(args) > 1:
+            parsed["grep"] = " ".join(args[1:]).strip()
+        return parsed, None
+    if lowered[0] in {"head", "tail", "index"}:
+        if len(args) < 2:
+            return None, f"Missing value for {args[0]}"
+        value, err = parse_int(args[1], lowered[0], allow_zero=(lowered[0] == "index"))
+        if err:
+            return None, err
+        parsed[lowered[0]] = value
+        if len(args) > 2:
+            parsed["grep"] = " ".join(args[2:]).strip()
+        return parsed, None
+    if not args[0].startswith("--"):
+        parsed["grep"] = " ".join(args).strip()
+        parsed["head"] = 5
+        return parsed, None
+
+    # Advanced flag form kept for compatibility.
+    flags = {"--head", "--tail", "--index", "--grep"}
+    idx = 0
+    while idx < len(args):
+        token = args[idx]
+        if token not in flags:
+            return None, f"Unknown argument: {token}"
+        if token in {"--head", "--tail", "--index"}:
+            if idx + 1 >= len(args):
+                return None, f"Missing value for {token}"
+            key = token[2:]
+            value, err = parse_int(args[idx + 1], key, allow_zero=(key == "index"))
+            if err:
+                return None, err
+            parsed[key] = value
+            idx += 2
+            continue
+        if idx + 1 >= len(args):
+            return None, "Missing value for --grep"
+        grep_tokens = []
+        idx += 1
+        while idx < len(args):
+            if args[idx].startswith("--") and args[idx] in flags:
+                break
+            grep_tokens.append(args[idx])
+            idx += 1
+        if not grep_tokens:
+            return None, "Missing value for --grep"
+        parsed["grep"] = " ".join(grep_tokens)
+
+    # When only grep is set, show first matches by default.
+    if parsed["head"] == 0 and parsed["tail"] == 0 and parsed["index"] is None:
+        parsed["head"] = 5
+    return parsed, None
+
+
+def _summary_command_usage() -> str:
+    return (
+        "Summary command examples:\n"
+        "/summary               -> first 3 chunks\n"
+        "/summary 5             -> first 5 chunks\n"
+        "/summary tail 5        -> last 5 chunks\n"
+        "/summary index 12      -> chunk #12\n"
+        "/summary budget api    -> search text in summary/facts/decisions/open_items\n"
+        "/summary --head 10 --grep budget\n"
+        "Alias: /view_summary"
+    )
+
+
+async def view_summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_allowed(update):
+        return
+    if update.message is None or update.effective_chat is None or update.effective_user is None:
+        return
+
+    parsed, err = _parse_summary_command_args(context.args or [])
+    if err:
+        await update.message.reply_text(f"{err}\n\n{_summary_command_usage()}")
+        return
+    if parsed.get("show_help"):
+        await update.message.reply_text(_summary_command_usage())
+        return
+
+    if update.effective_chat.type == "private":
+        storage_id = str(update.effective_user.id)
+    else:
+        storage_id = str(update.effective_chat.id)
+
+    try:
+        output = get_summary_view_text(
+            chat_id=storage_id,
+            head=int(parsed["head"]),
+            tail=int(parsed["tail"]),
+            index=parsed["index"],
+            grep=str(parsed["grep"]),
+        )
+    except RuntimeError as exc:
+        await update.message.reply_text(f"Failed to read summary: {exc}")
+        return
+
+    for chunk in chunk_string(output, 4000):
+        if chunk.strip():
+            await update.message.reply_text(chunk)
 
 
 async def transcribe_voice_message(voice: Voice, context: ContextTypes.DEFAULT_TYPE) -> str:
@@ -504,10 +638,11 @@ if __name__ == "__main__":
     apply_log_level(settings)
 
     app.add_handler(CommandHandler("hi", hi))
+    app.add_handler(CommandHandler(["summary", "view_summary"], view_summary))
     app.add_handler(MessageHandler(filters.PHOTO, schedule_events))
     app.add_handler(
         MessageHandler(
-            filters.TEXT | filters.VOICE | filters.PHOTO | filters.Document.IMAGE,
+            (filters.TEXT & ~filters.COMMAND) | filters.VOICE | filters.PHOTO | filters.Document.IMAGE,
             handle_addressed_message,
         )
     )
