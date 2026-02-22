@@ -4,6 +4,7 @@ import io
 import json
 import logging
 import os
+import re
 import tempfile
 import traceback
 import time
@@ -245,13 +246,29 @@ def _summary_command_usage() -> str:
     )
 
 
+def _command_args_from_message_text(text: str) -> list[str]:
+    raw = (text or "").strip()
+    if not raw:
+        return []
+    parts = raw.split(maxsplit=1)
+    if len(parts) < 2:
+        return []
+    payload = parts[1].strip()
+    if not payload:
+        return []
+    return [token for token in re.split(r"\s+", payload) if token]
+
+
 async def view_summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update):
         return
     if update.message is None or update.effective_chat is None or update.effective_user is None:
         return
 
-    parsed, err = _parse_summary_command_args(context.args or [])
+    args = _command_args_from_message_text(update.message.text or "")
+    if not args:
+        args = context.args or []
+    parsed, err = _parse_summary_command_args(args)
     if err:
         await update.message.reply_text(f"{err}\n\n{_summary_command_usage()}")
         return
