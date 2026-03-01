@@ -85,3 +85,4 @@ whisper_cache/
 system_instructions.txt
 
 /src/data/*
+/.secrets/

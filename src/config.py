@@ -64,10 +64,23 @@ class Settings:
     telegram_bot_token: str
     admin_chat_id: Optional[str]
     features: dict
+    model_provider: str
     gemini_api_key: str
     google_api_key: str
     gemini_model: str
     gemini_models: List[ModelSpec]
+    openai_api_key: str
+    openai_auth_json_path: str
+    openai_refresh_url: str
+    openai_refresh_client_id: str
+    openai_refresh_grant_type: str
+    openai_auth_leeway_secs: int
+    openai_auth_timeout_secs: float
+    openai_codex_base_url: str
+    openai_codex_default_model: str
+    openai_model: str
+    openai_low_cost_model: str
+    openai_reaction_model: str
     thinking_budget: int
     use_google_search: bool
     ai_system_instructions_path: str
@@ -106,9 +119,41 @@ def get_settings(force: bool = False) -> Settings:
         _CACHE_TTL = float(os.getenv("SETTINGS_CACHE_TTL", "1.0"))
 
     telegram_bot_token = _require_env("TELEGRAM_BOT_TOKEN")
-    gemini_api_key = _require_env("GEMINI_API_KEY")
+    gemini_api_key = os.getenv("GEMINI_API_KEY", "").strip()
+    model_provider = os.getenv("MODEL_PROVIDER", "openai").strip().lower()
+    if model_provider not in {"openai", "gemini"}:
+        raise RuntimeError("MODEL_PROVIDER must be either 'openai' or 'gemini'")
+    if model_provider == "gemini" and not gemini_api_key:
+        raise RuntimeError("Missing required environment variable: GEMINI_API_KEY")
+    openai_api_key = os.getenv("OPENAI_API_KEY", "").strip()
+    openai_auth_json_path = os.getenv("OPENAI_AUTH_JSON_PATH", "").strip()
+    openai_refresh_url = os.getenv("OPENAI_REFRESH_URL", "https://auth.openai.com/oauth/token").strip()
+    openai_refresh_client_id = os.getenv("OPENAI_REFRESH_CLIENT_ID", "").strip()
+    openai_refresh_grant_type = os.getenv("OPENAI_REFRESH_GRANT_TYPE", "refresh_token").strip() or "refresh_token"
+    openai_auth_leeway_secs = int(os.getenv("OPENAI_AUTH_LEEWAY_SECS", "60"))
+    openai_auth_timeout_secs = float(os.getenv("OPENAI_AUTH_TIMEOUT_SECS", "20"))
+    openai_codex_base_url = os.getenv("OPENAI_CODEX_BASE_URL", "https://chatgpt.com/backend-api").strip()
+    openai_codex_default_model = os.getenv("OPENAI_CODEX_DEFAULT_MODEL", "gpt-5.3-codex").strip() or "gpt-5.3-codex"
+    openai_model_env = os.getenv("OPENAI_MODEL")
+    openai_low_cost_model_env = os.getenv("OPENAI_LOW_COST_MODEL")
+    openai_reaction_model_env = os.getenv("OPENAI_REACTION_MODEL")
+    openai_model = (openai_model_env or "gpt-5.3-codex").strip()
+    openai_low_cost_model = (openai_low_cost_model_env or openai_model).strip()
+    openai_reaction_model = (openai_reaction_model_env or openai_low_cost_model).strip()
+    if openai_auth_json_path:
+        # For Codex OAuth tokens, default to Codex model unless user explicitly overrides.
+        if openai_model_env is None:
+            openai_model = openai_codex_default_model
+        if openai_low_cost_model_env is None:
+            openai_low_cost_model = openai_model
+        if openai_reaction_model_env is None:
+            openai_reaction_model = openai_low_cost_model
+    if model_provider == "openai" and not openai_api_key and not openai_auth_json_path:
+        raise RuntimeError("OpenAI mode requires OPENAI_API_KEY or OPENAI_AUTH_JSON_PATH")
+
     google_api_key = os.getenv("GOOGLE_API_KEY") or gemini_api_key
-    os.environ["GOOGLE_API_KEY"] = google_api_key
+    if google_api_key:
+        os.environ["GOOGLE_API_KEY"] = google_api_key
 
     allowed_chat_ids_raw = _require_env("ALLOWED_CHAT_IDS")
     allowed_chat_ids = [item for item in allowed_chat_ids_raw.split(",") if item]
@@ -153,10 +198,23 @@ def get_settings(force: bool = False) -> Settings:
         telegram_bot_token=telegram_bot_token,
         admin_chat_id=os.getenv("ADMIN_CHAT_ID"),
         features=features,
+        model_provider=model_provider,
         gemini_api_key=gemini_api_key,
         google_api_key=google_api_key,
         gemini_model=gemini_model,
         gemini_models=gemini_models,
+        openai_api_key=openai_api_key,
+        openai_auth_json_path=openai_auth_json_path,
+        openai_refresh_url=openai_refresh_url,
+        openai_refresh_client_id=openai_refresh_client_id,
+        openai_refresh_grant_type=openai_refresh_grant_type,
+        openai_auth_leeway_secs=openai_auth_leeway_secs,
+        openai_auth_timeout_secs=openai_auth_timeout_secs,
+        openai_codex_base_url=openai_codex_base_url,
+        openai_codex_default_model=openai_codex_default_model,
+        openai_model=openai_model,
+        openai_low_cost_model=openai_low_cost_model,
+        openai_reaction_model=openai_reaction_model,
         thinking_budget=int(os.getenv("THINKING_BUDGET", 0)),
         use_google_search=_env_bool("USE_GOOGLE_SEARCH"),
         ai_system_instructions_path=os.getenv("SYSTEM_INSTRUCTIONS_PATH", ""),
@@ -195,10 +253,23 @@ def __getattr__(name: str):
         "TELEGRAM_BOT_TOKEN": settings.telegram_bot_token,
         "ADMIN_CHAT_ID": settings.admin_chat_id,
         "FEATURES": settings.features,
+        "MODEL_PROVIDER": settings.model_provider,
         "GEMINI_API_KEY": settings.gemini_api_key,
         "GOOGLE_API_KEY": settings.google_api_key,
         "GEMINI_MODEL": settings.gemini_model,
         "GEMINI_MODELS": settings.gemini_models,
+        "OPENAI_API_KEY": settings.openai_api_key,
+        "OPENAI_AUTH_JSON_PATH": settings.openai_auth_json_path,
+        "OPENAI_REFRESH_URL": settings.openai_refresh_url,
+        "OPENAI_REFRESH_CLIENT_ID": settings.openai_refresh_client_id,
+        "OPENAI_REFRESH_GRANT_TYPE": settings.openai_refresh_grant_type,
+        "OPENAI_AUTH_LEEWAY_SECS": settings.openai_auth_leeway_secs,
+        "OPENAI_AUTH_TIMEOUT_SECS": settings.openai_auth_timeout_secs,
+        "OPENAI_CODEX_BASE_URL": settings.openai_codex_base_url,
+        "OPENAI_CODEX_DEFAULT_MODEL": settings.openai_codex_default_model,
+        "OPENAI_MODEL": settings.openai_model,
+        "OPENAI_LOW_COST_MODEL": settings.openai_low_cost_model,
+        "OPENAI_REACTION_MODEL": settings.openai_reaction_model,
         "THINKING_BUDGET": settings.thinking_budget,
         "USE_GOOGLE_SEARCH": settings.use_google_search,
         "AI_SYSTEM_INSTRUCTIONS_PATH": settings.ai_system_instructions_path,
