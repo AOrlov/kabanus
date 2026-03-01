@@ -1,15 +1,16 @@
 # Telegram Speech-to-Text & Event Bot
 
-Telegram bot for group interaction, voice message transcription, and (optionally) Google Calendar event creation from event poster photos. Uses Google Gemini for speech-to-text and text generation. Designed for easy Docker deployment and notifies an admin on critical errors.
+Telegram bot for group interaction, voice message transcription, and (optionally) Google Calendar event creation from event poster photos. Supports OpenAI and Gemini model providers with runtime switching. Designed for easy Docker deployment and notifies an admin on critical errors.
 
 ## Features
 - Listens for voice and text messages in Telegram groups
 - Transcribes speech to text using Gemini
 - Replies with the transcription or an error message
-- Supports Gemini for text generation and context-aware replies
+- Supports OpenAI/Gemini for text generation and context-aware replies
 - Supports context memory optimization with recent-window + optional long-term summaries
 - Can auto-react to messages using Gemini (optional)
 - Optional multi-model Gemini routing with per-model RPM/RPD limits
+- Provider fallback: when OpenAI is selected, Gemini is used as fallback and for transcription
 - Can create Google Calendar events from event poster photos (optional)
 - Notifies admin on critical errors
 - Logs to stdout and temporary files
@@ -20,7 +21,8 @@ Telegram bot for group interaction, voice message transcription, and (optionally
 - Docker (recommended) or Python 3.9+
 - Telegram bot token
 - Allowed chat/user IDs (for access control)
-- Google Gemini API key (for Gemini features)
+- OpenAI API key (for OpenAI provider)
+- Google Gemini API key (optional; required only for Gemini provider/fallback and transcription)
 - (Optional) Admin Telegram chat ID (for error notifications)
 - (Optional) Google Calendar credentials and calendar ID (for event creation)
 
@@ -44,6 +46,21 @@ Create a `.env` file or set environment variables:
 TELEGRAM_BOT_TOKEN=your-telegram-bot-token
 ALLOWED_CHAT_IDS=comma,separated,chat,ids
 ADMIN_CHAT_ID=your-admin-chat-id           # Optional, for error notifications
+
+# Provider selection
+MODEL_PROVIDER=openai                       # Optional, openai|gemini (default: openai)
+OPENAI_API_KEY=your-openai-api-key         # Required when MODEL_PROVIDER=openai
+OPENAI_AUTH_JSON_PATH=path/to/auth.json    # Optional alternative to OPENAI_API_KEY (refresh-token flow)
+OPENAI_REFRESH_URL=https://auth.openai.com/oauth/token # Optional token refresh endpoint for OPENAI_AUTH_JSON_PATH
+OPENAI_REFRESH_CLIENT_ID=                  # Optional refresh client_id override
+OPENAI_REFRESH_GRANT_TYPE=refresh_token    # Optional refresh grant type
+OPENAI_AUTH_LEEWAY_SECS=60                 # Optional pre-expiry refresh window
+OPENAI_AUTH_TIMEOUT_SECS=20                # Optional refresh HTTP timeout
+OPENAI_CODEX_BASE_URL=https://chatgpt.com/backend-api # Optional Codex backend base URL for auth.json tokens
+OPENAI_CODEX_DEFAULT_MODEL=gpt-5.3-codex   # Optional default model used for auth.json Codex sessions
+OPENAI_MODEL=gpt-5.3-codex                 # Optional. For auth.json flow, defaults to OPENAI_CODEX_DEFAULT_MODEL when unset
+OPENAI_LOW_COST_MODEL=gpt-5.3-codex        # Optional. Defaults to OPENAI_MODEL (or Codex default in auth.json flow)
+OPENAI_REACTION_MODEL=gpt-5.3-codex        # Optional. Defaults to OPENAI_LOW_COST_MODEL
 
 # Gemini and AI behavior
 GEMINI_API_KEY=your-gemini-api-key         # Required for Gemini support
@@ -98,7 +115,66 @@ docker build -t kabanus .
 docker run --env-file .env kabanus
 ```
 
-### 5. Run Locally (for development)
+### 5. OpenAI Onboarding Wizard (Optional)
+
+Generate `scripts/openai.auth.json` and validate your OpenAI key with a live smoke test:
+
+```bash
+PYTHONPATH=. python3 -m scripts.onboard_openai
+```
+
+The wizard prints `export ...` lines for runtime. Apply them before starting the bot.
+Use `--open-browser` to open the OpenAI API keys page automatically.
+
+For OpenAI Codex OAuth flow (local callback on `http://localhost:1455/auth/callback`):
+
+```bash
+PYTHONPATH=. python3 -m scripts.openai_codex_oauth
+```
+
+For remote/VPS sessions (manual redirect paste):
+
+```bash
+PYTHONPATH=. python3 -m scripts.openai_codex_oauth --remote
+```
+
+Supported OpenAI models in this setup:
+
+1. `gpt-5.3-codex` (current) - Latest frontier agentic coding model.
+2. `gpt-5.2-codex` - Frontier agentic coding model.
+3. `gpt-5.1-codex-max` - Codex-optimized flagship for deep and fast reasoning.
+4. `gpt-5.2` - Frontier model with improvements across knowledge, reasoning, and coding.
+5. `gpt-5.1-codex-mini` - Optimized for Codex, cheaper and faster.
+
+### 5.1 OpenAI `auth.json` Refresh Behavior
+
+When `OPENAI_AUTH_JSON_PATH` is set, runtime auth uses access+refresh tokens from `auth.json`
+instead of `OPENAI_API_KEY`.
+
+- Token is read for each request and refreshed lazily (on demand), not in a background job.
+- Refresh triggers when token is missing, expiring soon (`OPENAI_AUTH_LEEWAY_SECS`), or when
+  an auth error requires forced refresh.
+- Refresh request is `application/x-www-form-urlencoded` to `OPENAI_REFRESH_URL`
+  (default `https://auth.openai.com/oauth/token`) with `grant_type`, `refresh_token`,
+  and optional `client_id`.
+- Refreshed tokens are written back into the same `auth.json`.
+
+Supported shapes include top-level keys and `tokens.*` keys. Minimal recommended shape:
+
+```json
+{
+  "tokens": {
+    "access_token": "eyJ...",
+    "refresh_token": "def...",
+    "expires_at": 1762000000,
+    "token_url": "https://auth.openai.com/oauth/token",
+    "client_id": "app_...",
+    "grant_type": "refresh_token"
+  }
+}
+```
+
+### 6. Run Locally (for development)
 Install dependencies:
 ```
 pip install -r requirements.txt
@@ -123,6 +199,8 @@ python -m src.main
 - `scripts/dump_chat.py`: Dump Telegram chat history to JSONL (see script for usage).
 - `scripts/backfill_summaries.py`: Backfill `*.summary.json` from existing JSONL history.
 - `scripts/view_summary.py`: Inspect summary files quickly from CLI.
+- `scripts/onboard_openai.py`: Interactive OpenAI onboarding and auth JSON generation.
+- `scripts/openai_codex_oauth.py`: OpenAI Codex OAuth login and auth.json writer.
 - `scripts/README.md`: Detailed script usage and examples.
 
 ## Memory and Backfill
@@ -171,6 +249,11 @@ A `.vscode/launch.json` is provided. Use the "Run Telegram Bot (src.main)" or "D
 ## Notes
 - All imports in `src/` use relative imports (e.g., `from .config import ...`).
 - Do not run files in `src/` directly; always use the `-m` module syntax from the project root.
+- OpenAI provider uses `OPENAI_API_KEY` (official API key auth).
+- Optional `OPENAI_AUTH_JSON_PATH` can be used to load/refresh bearer tokens from `auth.json` (refresh token required).
+- In `OPENAI_AUTH_JSON_PATH` mode, runtime automatically uses Codex-compatible request flags
+  (`instructions`, `store=false`, streaming) and defaults models to `OPENAI_CODEX_DEFAULT_MODEL`
+  when `OPENAI_MODEL` is not explicitly set.
 - Gemini support requires a valid API key from Google AI Studio.
 - Google Calendar event creation requires a valid calendar ID and service account credentials.
 - `ALLOWED_CHAT_IDS` is required; if empty, the bot denies all users.

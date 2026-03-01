@@ -19,16 +19,16 @@ from telegram.ext import (ApplicationBuilder, CommandHandler, ContextTypes,
 
 from src import config, logging_utils
 from src.calendar_provider import CalendarProvider
-from src.gemini_provider import GeminiProvider
 from src.message_store import add_message, build_context, get_summary_view_text
 from src.model_provider import ModelProvider
+from src.provider_factory import build_provider
 
 logging_utils.configure_bootstrap()
 settings = config.get_settings()
 logging_utils.configure_logging(settings)
 
 logger = logging.getLogger(__name__)
-gemini_provider = GeminiProvider()
+model_provider = build_provider()
 _CURRENT_LOG_LEVEL = None
 _REACTION_DAY = None
 _REACTION_COUNT = 0
@@ -60,8 +60,8 @@ def apply_log_level(settings: config.Settings) -> None:
     _CURRENT_LOG_LEVEL = level
 
 
-def transcribe_audio(audio_path: str, provider: ModelProvider) -> str:
-    return provider.transcribe(audio_path)
+def transcribe_audio(audio_path: str, active_provider: ModelProvider) -> str:
+    return active_provider.transcribe(audio_path)
 
 
 def _reset_reaction_budget_if_needed(now: datetime) -> None:
@@ -109,7 +109,7 @@ async def maybe_react(update: Update, text: str):
     if _MESSAGES_SINCE_LAST_REACTION < settings.reaction_messages_threshold:
         return
 
-    reaction = gemini_provider.choose_reaction(text, _REACTION_ALLOWED_LIST).strip()
+    reaction = model_provider.choose_reaction(text, _REACTION_ALLOWED_LIST).strip()
     if not reaction:
         return
     if reaction not in _REACTION_ALLOWED_SET:
@@ -136,7 +136,10 @@ async def hi(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not settings.features.get("commands", {}).get("hi"):
         return
     await update.message.reply_text("Hello! I am your speech-to-text bot.")
-    if settings.gemini_api_key and settings.gemini_models:
+    await update.message.reply_text(f"Configured model provider: {settings.model_provider}")
+    if settings.model_provider == "openai":
+        await update.message.reply_text(f"Configured OpenAI model: {settings.openai_model}")
+    elif settings.gemini_api_key and settings.gemini_models:
         preferred = settings.gemini_models[0].name
         def fmt_limit(value: Optional[int]) -> str:
             return "unlimited" if value is None else str(value)
@@ -305,7 +308,7 @@ async def transcribe_voice_message(voice: Voice, context: ContextTypes.DEFAULT_T
         file = await context.bot.get_file(voice.file_id)
         await file.download_to_drive(temp_audio.name)
         temp_audio_path = temp_audio.name
-    return transcribe_audio(temp_audio_path, gemini_provider)
+    return transcribe_audio(temp_audio_path, model_provider)
 
 
 async def handle_addressed_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -336,7 +339,7 @@ async def handle_addressed_message(update: Update, context: ContextTypes.DEFAULT
         bio = io.BytesIO()
         await file.download_to_memory(bio)
         image_bytes = bio.getvalue()
-        extracted = gemini_provider.image_to_text(image_bytes, mime_type="image/jpeg")
+        extracted = model_provider.image_to_text(image_bytes, mime_type="image/jpeg")
         # Include caption if present
         caption = update.message.caption or ""
         text = (caption + "\n" + extracted).strip() if caption else extracted
@@ -384,7 +387,7 @@ async def handle_addressed_message(update: Update, context: ContextTypes.DEFAULT
         bio = io.BytesIO()
         await file.download_to_memory(bio)
         image_bytes = bio.getvalue()
-        extracted = gemini_provider.image_to_text(image_bytes, mime_type=eff_mime or "image/jpeg")
+        extracted = model_provider.image_to_text(image_bytes, mime_type=eff_mime or "image/jpeg")
         caption = update.message.caption or ""
         text = (caption + "\n" + extracted).strip() if caption else extracted
         logger.debug(
@@ -431,7 +434,7 @@ async def handle_addressed_message(update: Update, context: ContextTypes.DEFAULT
     context_str = build_context(
         chat_id=storage_id,
         latest_user_text=text,
-        summarize_fn=gemini_provider.generate_low_cost,
+        summarize_fn=model_provider.generate_low_cost,
     )
     prompt = f"{context_str}\n---\n{sender}: {text}"
     if settings.debug_mode:
@@ -449,7 +452,7 @@ async def handle_addressed_message(update: Update, context: ContextTypes.DEFAULT
     response = ""
     max_empty_retries = 3
     for attempt in range(1, max_empty_retries + 1):
-        response = (gemini_provider.generate(prompt) or "").strip()
+        response = (model_provider.generate(prompt) or "").strip()
         if response:
             break
         logger.warning(
@@ -506,7 +509,7 @@ async def schedule_events(update: Update, context: ContextTypes.DEFAULT_TYPE):
             temp_photo_path = temp_photo.name
 
         try:
-            event_data = gemini_provider.parse_image_to_event(temp_photo_path)
+            event_data = model_provider.parse_image_to_event(temp_photo_path)
 
             if event_data.get('confidence', 0) < 0.5:
                 await update.message.reply_text(
@@ -625,9 +628,17 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
         f"<pre>context.user_data = {html.escape(str(context.user_data))}</pre>\n\n"
         f"<pre>{html.escape(tb_string)}</pre>"
     )
-    # Finally, send the message
+    max_len = 3500
+    if len(message) <= max_len:
+        await context.bot.send_message(
+            chat_id=settings.admin_chat_id, text=message, parse_mode=ParseMode.HTML
+        )
+        return
+    head = message[: max_len - 64]
+    tail = message[-512:]
+    compact = f"{head}\n\n<pre>...truncated...</pre>\n\n{tail}"
     await context.bot.send_message(
-        chat_id=settings.admin_chat_id, text=message, parse_mode=ParseMode.HTML
+        chat_id=settings.admin_chat_id, text=compact, parse_mode=ParseMode.HTML
     )
 
 

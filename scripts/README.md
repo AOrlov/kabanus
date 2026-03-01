@@ -112,6 +112,31 @@ PYTHONPATH=. python3 -m scripts.view_summary src/messages_-{chat_id}.summary.jso
 PYTHONPATH=. python3 -m scripts.view_summary src/messages_-{chat_id}.summary.json --grep budget --head 10
 ```
 
+## `onboard_openai.py`
+
+Interactive wizard for OpenAI API key onboarding.
+
+```bash
+PYTHONPATH=. python3 -m scripts.onboard_openai
+```
+
+## `openai_codex_oauth.py`
+
+OpenAI Codex OAuth login flow (OpenClaw-style) that writes/updates `auth.json`
+for refresh-token based runtime auth.
+
+Local callback mode (`http://localhost:1455/auth/callback`):
+
+```bash
+PYTHONPATH=. python3 -m scripts.openai_codex_oauth
+```
+
+Remote/VPS mode (open URL on local machine and paste redirect URL):
+
+```bash
+PYTHONPATH=. python3 -m scripts.openai_codex_oauth --remote
+```
+
 ## Notes
 
 - `backfill_summaries.py` writes summary state once per run, not per chunk.
