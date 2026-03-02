@@ -154,7 +154,7 @@ async def hi(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def _parse_summary_command_args(args: list[str]) -> Tuple[Optional[Dict], Optional[str]]:
     parsed: Dict = {"head": 0, "tail": 0, "index": None, "grep": "", "show_help": False}
     if not args:
-        parsed["head"] = 3
+        parsed["tail"] = 1
         return parsed, None
 
     lowered = [arg.lower() for arg in args]
@@ -174,18 +174,17 @@ def _parse_summary_command_args(args: list[str]) -> Tuple[Optional[Dict], Option
 
     # Friendly forms:
     # /summary 5
-    # /summary tail 5
     # /summary index 10
     # /summary keyword phrase
     if args[0].lstrip("-").isdigit():
-        value, err = parse_int(args[0], "head")
+        value, err = parse_int(args[0], "tail")
         if err:
             return None, err
-        parsed["head"] = value
+        parsed["tail"] = value
         if len(args) > 1:
             parsed["grep"] = " ".join(args[1:]).strip()
         return parsed, None
-    if lowered[0] in {"head", "tail", "index"}:
+    if lowered[0] in {"head", "index"}:
         if len(args) < 2:
             return None, f"Missing value for {args[0]}"
         value, err = parse_int(args[1], lowered[0], allow_zero=(lowered[0] == "index"))
@@ -201,13 +200,13 @@ def _parse_summary_command_args(args: list[str]) -> Tuple[Optional[Dict], Option
         return parsed, None
 
     # Advanced flag form kept for compatibility.
-    flags = {"--head", "--tail", "--index", "--grep"}
+    flags = {"--head", "--index", "--grep"}
     idx = 0
     while idx < len(args):
         token = args[idx]
         if token not in flags:
             return None, f"Unknown argument: {token}"
-        if token in {"--head", "--tail", "--index"}:
+        if token in {"--head", "--index"}:
             if idx + 1 >= len(args):
                 return None, f"Missing value for {token}"
             key = token[2:]
@@ -239,13 +238,12 @@ def _parse_summary_command_args(args: list[str]) -> Tuple[Optional[Dict], Option
 def _summary_command_usage() -> str:
     return (
         "Summary command examples:\n"
-        "/summary               -> first 3 chunks\n"
-        "/summary 5             -> first 5 chunks\n"
-        "/summary tail 5        -> last 5 chunks\n"
+        "/summary               -> last chunk\n"
+        "/summary 5             -> last 5 chunks\n"
         "/summary index 12      -> chunk #12\n"
         "/summary budget api    -> search text in summary/facts/decisions/open_items\n"
         "/summary --head 10 --grep budget\n"
-        "Alias: /view_summary"
+        "Alias: /tldr"
     )
 
 
@@ -666,7 +664,7 @@ if __name__ == "__main__":
     apply_log_level(settings)
 
     app.add_handler(CommandHandler("hi", hi))
-    app.add_handler(CommandHandler(["summary", "view_summary"], view_summary))
+    app.add_handler(CommandHandler(["summary", "tldr"], view_summary))
     app.add_handler(MessageHandler(filters.PHOTO, schedule_events))
     app.add_handler(
         MessageHandler(
