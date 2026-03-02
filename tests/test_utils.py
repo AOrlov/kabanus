@@ -59,3 +59,11 @@ def test_prepare_telegram_html_keeps_html_and_markdown() -> None:
     html_text = utils.prepare_telegram_html(raw)
     assert "<b>there</b>" in html_text
     assert "<b>friend</b>" in html_text
+
+
+def test_prepare_telegram_html_converts_markdown_headings() -> None:
+    raw = "### Main title\n#### Section\n- item"
+    html_text = utils.prepare_telegram_html(raw)
+    assert "<b>Main title</b>" in html_text
+    assert "<b>Section</b>" in html_text
+    assert "- item" in html_text
