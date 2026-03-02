@@ -107,6 +107,7 @@ class Settings:
     reaction_daily_budget: int
     reaction_messages_threshold: int
     reaction_gemini_model: str
+    telegram_format_ai_replies: bool
 
 
 def get_settings(force: bool = False) -> Settings:
@@ -241,6 +242,7 @@ def get_settings(force: bool = False) -> Settings:
         reaction_daily_budget=int(os.getenv("REACTION_DAILY_BUDGET", "50")),
         reaction_messages_threshold=int(os.getenv("REACTION_MESSAGES_THRESHOLD", "10")),
         reaction_gemini_model=os.getenv("REACTION_GEMINI_MODEL", gemini_model).lower(),
+        telegram_format_ai_replies=_env_bool("TELEGRAM_FORMAT_AI_REPLIES", "true"),
     )
     _SETTINGS_CACHE = settings
     _SETTINGS_CACHE_TS = now
@@ -296,6 +298,7 @@ def __getattr__(name: str):
         "REACTION_DAILY_BUDGET": settings.reaction_daily_budget,
         "REACTION_MESSAGES_THRESHOLD": settings.reaction_messages_threshold,
         "REACTION_GEMINI_MODEL": settings.reaction_gemini_model,
+        "TELEGRAM_FORMAT_AI_REPLIES": settings.telegram_format_ai_replies,
     }
     if name in mapping:
         return mapping[name]

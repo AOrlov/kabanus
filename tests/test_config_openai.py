@@ -60,3 +60,29 @@ def test_openai_provider_accepts_auth_json_without_api_key(monkeypatch, tmp_path
     assert settings.openai_model == "gpt-5.3-codex"
     assert settings.openai_low_cost_model == "gpt-5.3-codex"
     assert settings.openai_reaction_model == "gpt-5.3-codex"
+
+
+def test_telegram_format_ai_replies_default_true(monkeypatch) -> None:
+    monkeypatch.setattr(config, "_reload_env", lambda: None)
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "t")
+    monkeypatch.setenv("ALLOWED_CHAT_IDS", "1")
+    monkeypatch.setenv("MODEL_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "k")
+    monkeypatch.delenv("TELEGRAM_FORMAT_AI_REPLIES", raising=False)
+    _reset_settings_cache()
+
+    settings = config.get_settings(force=True)
+    assert settings.telegram_format_ai_replies is True
+
+
+def test_telegram_format_ai_replies_can_be_disabled(monkeypatch) -> None:
+    monkeypatch.setattr(config, "_reload_env", lambda: None)
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "t")
+    monkeypatch.setenv("ALLOWED_CHAT_IDS", "1")
+    monkeypatch.setenv("MODEL_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "k")
+    monkeypatch.setenv("TELEGRAM_FORMAT_AI_REPLIES", "false")
+    _reset_settings_cache()
+
+    settings = config.get_settings(force=True)
+    assert settings.telegram_format_ai_replies is False

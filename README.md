@@ -89,6 +89,7 @@ GOOGLE_CREDENTIALS_JSON='{"type": "..."}'  # Optional, inlined credentials JSON
 
 # Bot behavior
 BOT_ALIASES=bot,бот,ботик                  # Optional, comma-separated aliases
+TELEGRAM_FORMAT_AI_REPLIES=true            # Optional, send AI replies as Telegram HTML (default: true)
 CHAT_MESSAGES_STORE_PATH=messages.jsonl    # Optional, history message store file
 
 # Memory/context optimization
