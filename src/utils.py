@@ -33,6 +33,7 @@ _BOLD_RE = re.compile(r"\*\*(.+?)\*\*|__(.+?)__", re.DOTALL)
 _STRIKE_RE = re.compile(r"~~(.+?)~~", re.DOTALL)
 _ITALIC_STAR_RE = re.compile(r"(?<!\*)\*(?!\s)(.+?)(?<!\s)\*(?!\*)", re.DOTALL)
 _ITALIC_UNDERSCORE_RE = re.compile(r"(?<!_)_(?!\s)(.+?)(?<!\s)_(?!_)", re.DOTALL)
+_HEADING_RE = re.compile(r"(?m)^[ \t]{0,3}#{1,6}[ \t]+(.+?)\s*$")
 _PLACEHOLDER_RE = re.compile(r"@@TGBLOCK\d+@@")
 
 
@@ -170,6 +171,7 @@ def markdownish_to_html(text: str) -> str:
     converted = _FENCED_CODE_RE.sub(replace_fenced_code, text)
     converted = _INLINE_CODE_RE.sub(replace_inline_code, converted)
     converted = _LINK_RE.sub(replace_link, converted)
+    converted = _HEADING_RE.sub(r"<b>\1</b>", converted)
     converted = _BOLD_RE.sub(lambda m: f"<b>{m.group(1) or m.group(2) or ''}</b>", converted)
     converted = _STRIKE_RE.sub(r"<s>\1</s>", converted)
     converted = _ITALIC_STAR_RE.sub(r"<i>\1</i>", converted)
