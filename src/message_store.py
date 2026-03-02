@@ -249,7 +249,7 @@ def get_summary_view_text(
 
     if not to_show:
         lines.append(
-            "No chunks selected. Try /summary, /summary tail 5, /summary index 12, "
+            "No chunks selected. Try /summary, /summary 5, /summary index 12, "
             "or add search text like /summary budget."
         )
         return "\n".join(lines)
