@@ -14,10 +14,11 @@ from typing import Dict, Optional, Tuple
 import tzlocal
 from telegram import Update, Voice
 from telegram.constants import ChatAction, ParseMode, ReactionEmoji
+from telegram.error import BadRequest
 from telegram.ext import (ApplicationBuilder, CommandHandler, ContextTypes,
                           MessageHandler, filters)
 
-from src import config, logging_utils
+from src import config, logging_utils, utils
 from src.calendar_provider import CalendarProvider
 from src.message_store import add_message, build_context, get_summary_view_text
 from src.model_provider import ModelProvider
@@ -471,9 +472,7 @@ async def handle_addressed_message(update: Update, context: ContextTypes.DEFAULT
     if is_transcribe_text:
         outgoing_text = f">>{text}\n\n{response}".strip()
 
-    for chunk in [chunk for chunk in chunk_string(outgoing_text, 4000) if chunk.strip()]:
-        await update.message.reply_text(chunk)
-        add_message('Bot', chunk, chat_id=storage_id, is_bot=True)
+    await send_ai_response(update, outgoing_text, storage_id)
 
 def chunk_string(s: str, chunk_size: int) -> list[str]:
     if not s:
@@ -481,6 +480,37 @@ def chunk_string(s: str, chunk_size: int) -> list[str]:
     if len(s) <= chunk_size:
         return [s]
     return [s[i:i + chunk_size] for i in range(0, len(s), chunk_size)]
+
+
+async def send_ai_response(update: Update, outgoing_text: str, storage_id: str) -> None:
+    message = update.message
+    if message is None:
+        return
+
+    settings = config.get_settings()
+    if not settings.telegram_format_ai_replies:
+        for chunk in [chunk for chunk in chunk_string(outgoing_text, 4000) if chunk.strip()]:
+            await message.reply_text(chunk)
+            add_message('Bot', chunk, chat_id=storage_id, is_bot=True)
+        return
+
+    html_chunks = [
+        chunk for chunk in utils.build_telegram_html_chunks(outgoing_text, 4000) if chunk.strip()
+    ]
+    for chunk in html_chunks:
+        plain_chunk = utils.telegram_html_to_plain_text(chunk).strip()
+        try:
+            await message.reply_text(chunk, parse_mode=ParseMode.HTML)
+            if plain_chunk:
+                add_message('Bot', plain_chunk, chat_id=storage_id, is_bot=True)
+        except BadRequest as exc:
+            logger.warning(
+                "Failed to send formatted response chunk, falling back to plain text",
+                extra={**_log_context(update), "error": str(exc), "chunk_preview": chunk[:256]},
+            )
+            fallback_chunk = plain_chunk or chunk
+            await message.reply_text(fallback_chunk)
+            add_message('Bot', fallback_chunk, chat_id=storage_id, is_bot=True)
 
 
 async def schedule_events(update: Update, context: ContextTypes.DEFAULT_TYPE):
