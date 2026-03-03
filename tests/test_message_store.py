@@ -61,3 +61,47 @@ def test_build_context_falls_back_when_memory_disabled(monkeypatch) -> None:
     context = message_store.build_context(chat_id="c3", latest_user_text="world", messages=messages, token_limit=200)
 
     assert context == "Alice: hello\nBob: world"
+
+
+def test_add_message_stores_telegram_message_ids(monkeypatch, tmp_path) -> None:
+    store_path = tmp_path / "messages.jsonl"
+    monkeypatch.setattr(
+        message_store.config,
+        "get_settings",
+        lambda: _settings(chat_messages_store_path=str(store_path)),
+    )
+    message_store._message_store_by_chat.clear()
+
+    message_store.add_message(
+        "Alice",
+        "hello",
+        chat_id="chat1",
+        telegram_message_id=1001,
+        reply_to_telegram_message_id=999,
+    )
+    last_message = message_store.get_last_message("chat1")
+
+    assert last_message is not None
+    assert last_message["telegram_message_id"] == 1001
+    assert last_message["reply_to_telegram_message_id"] == 999
+
+
+def test_get_message_by_telegram_message_id(monkeypatch, tmp_path) -> None:
+    store_path = tmp_path / "messages.jsonl"
+    monkeypatch.setattr(
+        message_store.config,
+        "get_settings",
+        lambda: _settings(chat_messages_store_path=str(store_path)),
+    )
+    message_store._message_store_by_chat.clear()
+
+    message_store.add_message("Alice", "first", chat_id="chat2", telegram_message_id=10)
+    message_store.add_message("Bob", "second", chat_id="chat2", telegram_message_id=11)
+
+    found = message_store.get_message_by_telegram_message_id("chat2", 10)
+    missing = message_store.get_message_by_telegram_message_id("chat2", 999)
+
+    assert found is not None
+    assert found["sender"] == "Alice"
+    assert found["text"] == "first"
+    assert missing is None

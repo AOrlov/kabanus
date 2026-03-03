@@ -9,6 +9,7 @@ Tuning:
 - SETTINGS_CACHE_TTL controls the in-process cache window (seconds, default 1.0).
 - SETTINGS_REFRESH_INTERVAL is used by the app's periodic refresh job (seconds, default 1.0).
 """
+
 import json
 import logging
 import os
@@ -43,6 +44,16 @@ def _reload_env() -> None:
 
 def _env_bool(name: str, default: str = "false") -> bool:
     return os.getenv(name, default).lower() == "true"
+
+
+def _csv_list(raw_value: str, *, lowercase: bool = False) -> List[str]:
+    items: List[str] = []
+    for raw_item in raw_value.split(","):
+        item = raw_item.strip()
+        if not item:
+            continue
+        items.append(item.lower() if lowercase else item)
+    return items
 
 
 def _require_env(name: str) -> str:
@@ -128,13 +139,23 @@ def get_settings(force: bool = False) -> Settings:
         raise RuntimeError("Missing required environment variable: GEMINI_API_KEY")
     openai_api_key = os.getenv("OPENAI_API_KEY", "").strip()
     openai_auth_json_path = os.getenv("OPENAI_AUTH_JSON_PATH", "").strip()
-    openai_refresh_url = os.getenv("OPENAI_REFRESH_URL", "https://auth.openai.com/oauth/token").strip()
+    openai_refresh_url = os.getenv(
+        "OPENAI_REFRESH_URL", "https://auth.openai.com/oauth/token"
+    ).strip()
     openai_refresh_client_id = os.getenv("OPENAI_REFRESH_CLIENT_ID", "").strip()
-    openai_refresh_grant_type = os.getenv("OPENAI_REFRESH_GRANT_TYPE", "refresh_token").strip() or "refresh_token"
+    openai_refresh_grant_type = (
+        os.getenv("OPENAI_REFRESH_GRANT_TYPE", "refresh_token").strip()
+        or "refresh_token"
+    )
     openai_auth_leeway_secs = int(os.getenv("OPENAI_AUTH_LEEWAY_SECS", "60"))
     openai_auth_timeout_secs = float(os.getenv("OPENAI_AUTH_TIMEOUT_SECS", "20"))
-    openai_codex_base_url = os.getenv("OPENAI_CODEX_BASE_URL", "https://chatgpt.com/backend-api").strip()
-    openai_codex_default_model = os.getenv("OPENAI_CODEX_DEFAULT_MODEL", "gpt-5.3-codex").strip() or "gpt-5.3-codex"
+    openai_codex_base_url = os.getenv(
+        "OPENAI_CODEX_BASE_URL", "https://chatgpt.com/backend-api"
+    ).strip()
+    openai_codex_default_model = (
+        os.getenv("OPENAI_CODEX_DEFAULT_MODEL", "gpt-5.3-codex").strip()
+        or "gpt-5.3-codex"
+    )
     openai_model_env = os.getenv("OPENAI_MODEL")
     openai_low_cost_model_env = os.getenv("OPENAI_LOW_COST_MODEL")
     openai_reaction_model_env = os.getenv("OPENAI_REACTION_MODEL")
@@ -150,14 +171,16 @@ def get_settings(force: bool = False) -> Settings:
         if openai_reaction_model_env is None:
             openai_reaction_model = openai_low_cost_model
     if model_provider == "openai" and not openai_api_key and not openai_auth_json_path:
-        raise RuntimeError("OpenAI mode requires OPENAI_API_KEY or OPENAI_AUTH_JSON_PATH")
+        raise RuntimeError(
+            "OpenAI mode requires OPENAI_API_KEY or OPENAI_AUTH_JSON_PATH"
+        )
 
     google_api_key = os.getenv("GOOGLE_API_KEY") or gemini_api_key
     if google_api_key:
         os.environ["GOOGLE_API_KEY"] = google_api_key
 
     allowed_chat_ids_raw = _require_env("ALLOWED_CHAT_IDS")
-    allowed_chat_ids = [item for item in allowed_chat_ids_raw.split(",") if item]
+    allowed_chat_ids = _csv_list(allowed_chat_ids_raw)
 
     features = {
         "commands": {
@@ -166,6 +189,10 @@ def get_settings(force: bool = False) -> Settings:
         "message_handling": _env_bool("ENABLE_MESSAGE_HANDLING"),
         "schedule_events": _env_bool("ENABLE_SCHEDULE_EVENTS"),
     }
+    if features["message_handling"] and features["schedule_events"]:
+        raise RuntimeError(
+            "ENABLE_MESSAGE_HANDLING and ENABLE_SCHEDULE_EVENTS are mutually exclusive; enable only one."
+        )
 
     gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.0-flash").lower()
 
@@ -184,11 +211,13 @@ def get_settings(force: bool = False) -> Settings:
                     raise ValueError("Each GEMINI_MODELS item requires a name")
                 rpm = item.get("rpm")
                 rpd = item.get("rpd")
-                gemini_models.append(ModelSpec(
-                    name=name,
-                    rpm=int(rpm) if rpm is not None else None,
-                    rpd=int(rpd) if rpd is not None else None,
-                ))
+                gemini_models.append(
+                    ModelSpec(
+                        name=name,
+                        rpm=int(rpm) if rpm is not None else None,
+                        rpd=int(rpd) if rpd is not None else None,
+                    )
+                )
         except (ValueError, json.JSONDecodeError) as exc:
             logging.error("Failed to parse GEMINI_MODELS: %s", exc)
             gemini_models = []
@@ -223,18 +252,30 @@ def get_settings(force: bool = False) -> Settings:
         google_credentials_path=os.getenv("GOOGLE_CREDENTIALS_PATH"),
         google_credentials_json=os.getenv("GOOGLE_CREDENTIALS_JSON"),
         allowed_chat_ids=allowed_chat_ids,
-        bot_aliases=[alias.lower() for alias in os.getenv("BOT_ALIASES", "").split(",") if alias],
+        bot_aliases=_csv_list(os.getenv("BOT_ALIASES", ""), lowercase=True),
         language=os.getenv("LANGUAGE", "ru").lower(),
         token_limit=int(os.getenv("TOKEN_LIMIT", 500_000)),
-        chat_messages_store_path=os.getenv("CHAT_MESSAGES_STORE_PATH", "messages.jsonl"),
+        chat_messages_store_path=os.getenv(
+            "CHAT_MESSAGES_STORE_PATH", "messages.jsonl"
+        ),
         memory_enabled=_env_bool("MEMORY_ENABLED", "true"),
         memory_recent_turns=max(1, int(os.getenv("MEMORY_RECENT_TURNS", "20"))),
-        memory_recent_budget_ratio=min(1.0, max(0.0, float(os.getenv("MEMORY_RECENT_BUDGET_RATIO", "0.85")))),
+        memory_recent_budget_ratio=min(
+            1.0, max(0.0, float(os.getenv("MEMORY_RECENT_BUDGET_RATIO", "0.85")))
+        ),
         memory_summary_enabled=_env_bool("MEMORY_SUMMARY_ENABLED"),
-        memory_summary_budget_ratio=min(1.0, max(0.0, float(os.getenv("MEMORY_SUMMARY_BUDGET_RATIO", "0.15")))),
-        memory_summary_chunk_size=max(2, int(os.getenv("MEMORY_SUMMARY_CHUNK_SIZE", "16"))),
-        memory_summary_max_items=max(0, int(os.getenv("MEMORY_SUMMARY_MAX_ITEMS", "4"))),
-        memory_summary_max_chunks_per_run=max(1, int(os.getenv("MEMORY_SUMMARY_MAX_CHUNKS_PER_RUN", "1"))),
+        memory_summary_budget_ratio=min(
+            1.0, max(0.0, float(os.getenv("MEMORY_SUMMARY_BUDGET_RATIO", "0.15")))
+        ),
+        memory_summary_chunk_size=max(
+            2, int(os.getenv("MEMORY_SUMMARY_CHUNK_SIZE", "16"))
+        ),
+        memory_summary_max_items=max(
+            0, int(os.getenv("MEMORY_SUMMARY_MAX_ITEMS", "4"))
+        ),
+        memory_summary_max_chunks_per_run=max(
+            1, int(os.getenv("MEMORY_SUMMARY_MAX_CHUNKS_PER_RUN", "1"))
+        ),
         debug_mode=_env_bool("DEBUG_MODE"),
         settings_refresh_interval=float(os.getenv("SETTINGS_REFRESH_INTERVAL", "1.0")),
         reaction_enabled=_env_bool("REACTION_ENABLED"),
