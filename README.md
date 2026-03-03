@@ -75,7 +75,8 @@ TOKEN_LIMIT=500000                         # Optional, context token limit
 
 # Features
 ENABLE_MESSAGE_HANDLING=true               # Enable text/voice message handling (default: false)
-ENABLE_SCHEDULE_EVENTS=true                # Enable event creation from photos (default: false)
+ENABLE_SCHEDULE_EVENTS=false               # Enable event creation from photos (default: false)
+                                           # NOTE: ENABLE_MESSAGE_HANDLING and ENABLE_SCHEDULE_EVENTS are mutually exclusive
 REACTION_ENABLED=false                     # Optional, enable auto-reactions
 REACTION_COOLDOWN_SECS=600                 # Optional, seconds between reactions
 REACTION_DAILY_BUDGET=50                   # Optional, max reactions per day

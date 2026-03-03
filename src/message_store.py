@@ -17,14 +17,36 @@ logger = logging.getLogger(__name__)
 
 
 # Message object schema
-def make_message(sender: str, text: str, is_bot: bool) -> Dict:
-    return {
+def _safe_int(value) -> Optional[int]:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def make_message(
+    sender: str,
+    text: str,
+    is_bot: bool,
+    telegram_message_id: Optional[int] = None,
+    reply_to_telegram_message_id: Optional[int] = None,
+) -> Dict:
+    message = {
         'id': f"{int(time.time() * 1000)}-{os.getpid()}",
         'ts': int(time.time()),
         'kind': 'bot' if is_bot else 'user',
         'sender': sender.strip() if not is_bot else 'Bot',  # sender's first name or `Bot` for bot messages
         'text': text.strip(),  # message text
     }
+    safe_message_id = _safe_int(telegram_message_id)
+    if safe_message_id is not None:
+        message["telegram_message_id"] = safe_message_id
+    safe_reply_to_message_id = _safe_int(reply_to_telegram_message_id)
+    if safe_reply_to_message_id is not None:
+        message["reply_to_telegram_message_id"] = safe_reply_to_message_id
+    return message
 
 
 # File to persist messages (JSON Lines format)
@@ -94,9 +116,22 @@ def get_last_message(chat_id: str) -> Optional[Dict]:
     return None
 
 
-def add_message(sender: str, text: str, chat_id: str, is_bot: bool = False):
+def add_message(
+    sender: str,
+    text: str,
+    chat_id: str,
+    is_bot: bool = False,
+    telegram_message_id: Optional[int] = None,
+    reply_to_telegram_message_id: Optional[int] = None,
+):
     """Add a message to the in-memory store and append to file."""
-    msg = make_message(sender, text, is_bot)
+    msg = make_message(
+        sender,
+        text,
+        is_bot,
+        telegram_message_id=telegram_message_id,
+        reply_to_telegram_message_id=reply_to_telegram_message_id,
+    )
     messages = _ensure_loaded(chat_id)
     messages.append(msg)
     _append_message(msg, chat_id)
@@ -106,6 +141,19 @@ def get_all_messages(chat_id: str) -> List[Dict]:
     """Retrieve all stored messages."""
     messages = _ensure_loaded(chat_id)
     return list(messages)
+
+
+def get_message_by_telegram_message_id(chat_id: str, telegram_message_id: int) -> Optional[Dict]:
+    """Retrieve a message from store by Telegram message ID."""
+    target_id = _safe_int(telegram_message_id)
+    if target_id is None:
+        return None
+    messages = _ensure_loaded(chat_id)
+    for msg in reversed(messages):
+        current_id = _safe_int(msg.get("telegram_message_id"))
+        if current_id == target_id:
+            return msg
+    return None
 
 
 def estimate_token_count(text: str) -> int:

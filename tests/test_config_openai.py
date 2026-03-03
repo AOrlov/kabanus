@@ -17,7 +17,9 @@ def test_openai_provider_requires_openai_api_key(monkeypatch) -> None:
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     _reset_settings_cache()
 
-    with pytest.raises(RuntimeError, match="OPENAI_API_KEY|OPENAI_AUTH_JSON_PATH|OpenAI mode requires"):
+    with pytest.raises(
+        RuntimeError, match="OPENAI_API_KEY|OPENAI_AUTH_JSON_PATH|OpenAI mode requires"
+    ):
         config.get_settings(force=True)
 
 
@@ -43,7 +45,9 @@ def test_openai_provider_defaults(monkeypatch) -> None:
     assert settings.openai_codex_default_model == "gpt-5.3-codex"
 
 
-def test_openai_provider_accepts_auth_json_without_api_key(monkeypatch, tmp_path) -> None:
+def test_openai_provider_accepts_auth_json_without_api_key(
+    monkeypatch, tmp_path
+) -> None:
     auth_file = tmp_path / "auth.json"
     auth_file.write_text('{"refresh_token":"r1"}', encoding="utf-8")
     monkeypatch.setattr(config, "_reload_env", lambda: None)
@@ -86,3 +90,33 @@ def test_telegram_format_ai_replies_can_be_disabled(monkeypatch) -> None:
 
     settings = config.get_settings(force=True)
     assert settings.telegram_format_ai_replies is False
+
+
+def test_csv_env_values_are_trimmed(monkeypatch) -> None:
+    monkeypatch.setattr(config, "_reload_env", lambda: None)
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "t")
+    monkeypatch.setenv("ALLOWED_CHAT_IDS", " 1, 2 ,,3 ")
+    monkeypatch.setenv("BOT_ALIASES", " BotName, Helper ,")
+    monkeypatch.setenv("MODEL_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "k")
+    _reset_settings_cache()
+
+    settings = config.get_settings(force=True)
+    assert settings.allowed_chat_ids == ["1", "2", "3"]
+    assert settings.bot_aliases == ["botname", "helper"]
+
+
+def test_message_handling_and_schedule_events_are_mutually_exclusive(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(config, "_reload_env", lambda: None)
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "t")
+    monkeypatch.setenv("ALLOWED_CHAT_IDS", "1")
+    monkeypatch.setenv("MODEL_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "k")
+    monkeypatch.setenv("ENABLE_MESSAGE_HANDLING", "true")
+    monkeypatch.setenv("ENABLE_SCHEDULE_EVENTS", "true")
+    _reset_settings_cache()
+
+    with pytest.raises(RuntimeError, match="mutually exclusive"):
+        config.get_settings(force=True)

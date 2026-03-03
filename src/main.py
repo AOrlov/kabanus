@@ -9,18 +9,28 @@ import tempfile
 import traceback
 import time
 from datetime import datetime
-from typing import Dict, Optional, Tuple
+from typing import Any, Dict, Iterable, Optional, Tuple
 
 import tzlocal
 from telegram import Update, Voice
 from telegram.constants import ChatAction, ParseMode, ReactionEmoji
 from telegram.error import BadRequest
-from telegram.ext import (ApplicationBuilder, CommandHandler, ContextTypes,
-                          MessageHandler, filters)
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    ContextTypes,
+    MessageHandler,
+    filters,
+)
 
 from src import config, logging_utils, utils
 from src.calendar_provider import CalendarProvider
-from src.message_store import add_message, build_context, get_summary_view_text
+from src.message_store import (
+    add_message,
+    build_context,
+    get_message_by_telegram_message_id,
+    get_summary_view_text,
+)
 from src.model_provider import ModelProvider
 from src.provider_factory import build_provider
 
@@ -37,6 +47,8 @@ _REACTION_LAST_TS = 0.0
 _REACTION_ALLOWED_SET = {emoji.value for emoji in ReactionEmoji}
 _REACTION_ALLOWED_LIST = sorted(_REACTION_ALLOWED_SET)
 _MESSAGES_SINCE_LAST_REACTION = 0
+_NON_TEXT_REPLY_PLACEHOLDER = "[non-text message]"
+_IMAGE_MAX_BYTES = 15 * 1024 * 1024
 
 
 def _log_context(update: Optional[Update]) -> dict:
@@ -52,6 +64,14 @@ def _log_context(update: Optional[Update]) -> dict:
     return context
 
 
+def _storage_id(update: Update) -> Optional[str]:
+    if update.effective_user is None or update.effective_chat is None:
+        return None
+    if update.effective_chat.type == "private":
+        return str(update.effective_user.id)
+    return str(update.effective_chat.id)
+
+
 def apply_log_level(settings: config.Settings) -> None:
     global _CURRENT_LOG_LEVEL
     level = logging.DEBUG if settings.debug_mode else logging.INFO
@@ -63,6 +83,274 @@ def apply_log_level(settings: config.Settings) -> None:
 
 def transcribe_audio(audio_path: str, active_provider: ModelProvider) -> str:
     return active_provider.transcribe(audio_path)
+
+
+def _entity_type_value(entity: Any) -> str:
+    entity_type = getattr(entity, "type", "")
+    if hasattr(entity_type, "value"):
+        return str(entity_type.value).lower()
+    return str(entity_type).lower()
+
+
+def _iter_message_entity_blocks(message: Any) -> Iterable[Tuple[str, Iterable[Any]]]:
+    text = getattr(message, "text", "") or ""
+    if text:
+        yield text, getattr(message, "entities", []) or []
+    caption = getattr(message, "caption", "") or ""
+    if caption:
+        yield caption, getattr(message, "caption_entities", []) or []
+
+
+def _normalized_aliases(aliases: Iterable[str]) -> set[str]:
+    normalized = set()
+    for alias in aliases:
+        value = str(alias or "").strip().lower().lstrip("@")
+        if value:
+            normalized.add(value)
+    return normalized
+
+
+def _contains_alias_token(text: str, aliases: Iterable[str]) -> bool:
+    text_lower = str(text or "").lower()
+    if not text_lower:
+        return False
+    for alias in _normalized_aliases(aliases):
+        if re.search(rf"(?<!\w){re.escape(alias)}(?!\w)", text_lower):
+            return True
+    return False
+
+
+def _is_bot_mentioned(
+    message: Any,
+    *,
+    bot_username: str,
+    bot_id: int,
+    aliases: list[str],
+    fallback_text: str = "",
+) -> bool:
+    normalized_aliases = _normalized_aliases(aliases)
+    normalized_username = str(bot_username or "").strip().lower().lstrip("@")
+    if normalized_username:
+        normalized_aliases.add(normalized_username)
+
+    for source_text, entities in _iter_message_entity_blocks(message):
+        for entity in entities:
+            entity_type = _entity_type_value(entity)
+            if entity_type == "mention":
+                try:
+                    offset = int(getattr(entity, "offset", 0))
+                    length = int(getattr(entity, "length", 0))
+                except (TypeError, ValueError):
+                    continue
+                if offset < 0 or length <= 0 or offset + length > len(source_text):
+                    continue
+                mention = source_text[offset : offset + length].strip().lower().lstrip("@")
+                if mention and mention in normalized_aliases:
+                    return True
+            elif entity_type == "text_mention":
+                user = getattr(entity, "user", None)
+                user_id = getattr(user, "id", None)
+                if user_id == bot_id:
+                    return True
+
+    authored_text = "\n".join([text for text, _ in _iter_message_entity_blocks(message)])
+    if _contains_alias_token(authored_text, normalized_aliases):
+        return True
+    if fallback_text and _contains_alias_token(fallback_text, normalized_aliases):
+        return True
+    return False
+
+
+def _should_respond_to_message(
+    *,
+    mentioned_bot: bool,
+    replied_to_bot: bool,
+    replied_to_other_user: bool,
+) -> bool:
+    if replied_to_other_user:
+        return mentioned_bot
+    return mentioned_bot or replied_to_bot
+
+
+def _guess_mime_from_name(name: str) -> str:
+    lowered = str(name or "").lower()
+    if lowered.endswith((".jpg", ".jpeg")):
+        return "image/jpeg"
+    if lowered.endswith(".png"):
+        return "image/png"
+    if lowered.endswith(".webp"):
+        return "image/webp"
+    if lowered.endswith(".gif"):
+        return "image/gif"
+    if lowered.endswith(".bmp"):
+        return "image/bmp"
+    if lowered.endswith((".tif", ".tiff")):
+        return "image/tiff"
+    return ""
+
+
+def _is_image_document(document: Any) -> Tuple[bool, str]:
+    mime = (getattr(document, "mime_type", "") or "").lower()
+    filename = (getattr(document, "file_name", "") or "").lower()
+    guessed_mime = _guess_mime_from_name(filename)
+    is_image = mime.startswith("image/") or bool(guessed_mime)
+    effective_mime = mime if mime.startswith("image/") else guessed_mime
+    return is_image, effective_mime
+
+
+def _combine_caption_and_extracted(caption: str, extracted: str) -> str:
+    caption_clean = (caption or "").strip()
+    extracted_clean = (extracted or "").strip()
+    if caption_clean and extracted_clean:
+        return f"{caption_clean}\n{extracted_clean}".strip()
+    return (caption_clean or extracted_clean).strip()
+
+
+async def _extract_text_from_photo_message(
+    message: Any, context: ContextTypes.DEFAULT_TYPE
+) -> str:
+    if not getattr(message, "photo", None):
+        return ""
+    photo = message.photo[-1]
+    file = await context.bot.get_file(photo.file_id)
+    bio = io.BytesIO()
+    await file.download_to_memory(bio)
+    image_bytes = bio.getvalue()
+    extracted = model_provider.image_to_text(image_bytes, mime_type="image/jpeg")
+    return _combine_caption_and_extracted(getattr(message, "caption", "") or "", extracted)
+
+
+async def _extract_text_from_image_document(
+    message: Any, context: ContextTypes.DEFAULT_TYPE
+) -> Optional[str]:
+    document = getattr(message, "document", None)
+    if document is None:
+        return None
+    is_image_document, effective_mime = _is_image_document(document)
+    if not is_image_document:
+        return None
+
+    file = await context.bot.get_file(document.file_id)
+    bio = io.BytesIO()
+    await file.download_to_memory(bio)
+    image_bytes = bio.getvalue()
+    extracted = model_provider.image_to_text(
+        image_bytes,
+        mime_type=effective_mime or "image/jpeg",
+    )
+    return _combine_caption_and_extracted(getattr(message, "caption", "") or "", extracted)
+
+
+def _message_sender_name(message: Any) -> str:
+    from_user = getattr(message, "from_user", None)
+    if from_user is None:
+        return "Unknown"
+    sender = getattr(from_user, "first_name", None) or getattr(from_user, "name", None)
+    if sender:
+        return str(sender)
+    user_id = getattr(from_user, "id", None)
+    if user_id is None:
+        return "Unknown"
+    return str(user_id)
+
+
+async def _extract_reply_target_text(
+    reply_message: Any,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> Tuple[str, str]:
+    reply_text = (getattr(reply_message, "text", "") or "").strip()
+    if reply_text:
+        return reply_text, "message_text"
+
+    if getattr(reply_message, "photo", None):
+        try:
+            extracted = await _extract_text_from_photo_message(reply_message, context)
+            extracted_text = extracted.strip()
+            if extracted_text:
+                return extracted_text, "fallback_ocr"
+        except Exception as exc:
+            logger.warning("Failed to OCR replied photo", extra={"error": str(exc)})
+        caption = (getattr(reply_message, "caption", "") or "").strip()
+        if caption:
+            return caption, "message_caption"
+        return _NON_TEXT_REPLY_PLACEHOLDER, "non_text"
+
+    if getattr(reply_message, "document", None):
+        document = reply_message.document
+        if document.file_size is not None and document.file_size > _IMAGE_MAX_BYTES:
+            caption = (getattr(reply_message, "caption", "") or "").strip()
+            if caption:
+                return caption, "message_caption"
+            return _NON_TEXT_REPLY_PLACEHOLDER, "image_too_large"
+        try:
+            extracted = await _extract_text_from_image_document(reply_message, context)
+            if extracted is not None:
+                extracted_text = extracted.strip()
+                if extracted_text:
+                    return extracted_text, "fallback_ocr"
+        except Exception as exc:
+            logger.warning("Failed to OCR replied image document", extra={"error": str(exc)})
+        caption = (getattr(reply_message, "caption", "") or "").strip()
+        if caption:
+            return caption, "message_caption"
+        return _NON_TEXT_REPLY_PLACEHOLDER, "non_text"
+
+    reply_caption = (getattr(reply_message, "caption", "") or "").strip()
+    if reply_caption:
+        return reply_caption, "message_caption"
+    return _NON_TEXT_REPLY_PLACEHOLDER, "non_text"
+
+
+async def _resolve_reply_target_context(
+    message: Any,
+    *,
+    chat_id: str,
+    context: ContextTypes.DEFAULT_TYPE,
+) -> Optional[Dict[str, str]]:
+    reply_message = getattr(message, "reply_to_message", None)
+    if reply_message is None:
+        return None
+    sender = _message_sender_name(reply_message)
+    reply_message_id = getattr(reply_message, "message_id", None)
+    if reply_message_id is not None:
+        stored_message = get_message_by_telegram_message_id(
+            chat_id=chat_id,
+            telegram_message_id=reply_message_id,
+        )
+        if stored_message is not None:
+            stored_text = str(stored_message.get("text", "")).strip()
+            if stored_text:
+                return {
+                    "sender": str(stored_message.get("sender", sender) or sender),
+                    "text": stored_text,
+                    "source": "history_lookup",
+                }
+    resolved_text, source = await _extract_reply_target_text(reply_message, context)
+    return {
+        "sender": sender,
+        "text": resolved_text or _NON_TEXT_REPLY_PLACEHOLDER,
+        "source": source,
+    }
+
+
+def _build_prompt(
+    *,
+    context_text: str,
+    sender: str,
+    latest_text: str,
+    reply_target_context: Optional[Dict[str, str]] = None,
+) -> str:
+    if reply_target_context is None:
+        return f"{context_text}\n---\n{sender}: {latest_text}"
+    target_sender = reply_target_context.get("sender", "Unknown")
+    target_text = reply_target_context.get("text", _NON_TEXT_REPLY_PLACEHOLDER)
+    return (
+        f"{context_text}\n---\n"
+        "Target message for clarification:\n"
+        f"{target_sender}: {target_text}\n"
+        "---\n"
+        f"{sender}: {latest_text}"
+    )
 
 
 def _reset_reaction_budget_if_needed(now: datetime) -> None:
@@ -81,14 +369,20 @@ def is_allowed(update: Update) -> bool:
     user_id = str(update.effective_user.id)
     # Allow if chat or user is in the allowed list (if list is not empty)
     if settings.allowed_chat_ids:
-        if chat_id not in settings.allowed_chat_ids and user_id not in settings.allowed_chat_ids:
+        if (
+            chat_id not in settings.allowed_chat_ids
+            and user_id not in settings.allowed_chat_ids
+        ):
             logger.warning(
                 "Unauthorized access attempt",
                 extra={"user_id": user_id, "chat_id": chat_id},
             )
             return False
         return True
-    logger.info("No allowed_chat_ids configured, disallowing all users", extra=_log_context(update))
+    logger.info(
+        "No allowed_chat_ids configured, disallowing all users",
+        extra=_log_context(update),
+    )
     return False
 
 
@@ -102,7 +396,10 @@ async def maybe_react(update: Update, text: str):
     _MESSAGES_SINCE_LAST_REACTION += 1
 
     _reset_reaction_budget_if_needed(datetime.now())
-    if settings.reaction_daily_budget <= 0 or _REACTION_COUNT >= settings.reaction_daily_budget:
+    if (
+        settings.reaction_daily_budget <= 0
+        or _REACTION_COUNT >= settings.reaction_daily_budget
+    ):
         return
     if settings.reaction_cooldown_secs > 0:
         if time.monotonic() - _REACTION_LAST_TS < settings.reaction_cooldown_secs:
@@ -137,22 +434,32 @@ async def hi(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not settings.features.get("commands", {}).get("hi"):
         return
     await update.message.reply_text("Hello! I am your speech-to-text bot.")
-    await update.message.reply_text(f"Configured model provider: {settings.model_provider}")
+    await update.message.reply_text(
+        f"Configured model provider: {settings.model_provider}"
+    )
     if settings.model_provider == "openai":
-        await update.message.reply_text(f"Configured OpenAI model: {settings.openai_model}")
+        await update.message.reply_text(
+            f"Configured OpenAI model: {settings.openai_model}"
+        )
     elif settings.gemini_api_key and settings.gemini_models:
         preferred = settings.gemini_models[0].name
+
         def fmt_limit(value: Optional[int]) -> str:
             return "unlimited" if value is None else str(value)
+
         formatted = ", ".join(
             f"{model.name} (rpm={fmt_limit(model.rpm)}, rpd={fmt_limit(model.rpd)})"
             for model in settings.gemini_models
         )
-        await update.message.reply_text("Configured Gemini model priority: " + preferred)
+        await update.message.reply_text(
+            "Configured Gemini model priority: " + preferred
+        )
         await update.message.reply_text("Configured Gemini models: " + formatted)
 
 
-def _parse_summary_command_args(args: list[str]) -> Tuple[Optional[Dict], Optional[str]]:
+def _parse_summary_command_args(
+    args: list[str],
+) -> Tuple[Optional[Dict], Optional[str]]:
     parsed: Dict = {"head": 0, "tail": 0, "index": None, "grep": "", "show_help": False}
     if not args:
         parsed["tail"] = 1
@@ -163,7 +470,9 @@ def _parse_summary_command_args(args: list[str]) -> Tuple[Optional[Dict], Option
         parsed["show_help"] = True
         return parsed, None
 
-    def parse_int(raw: str, name: str, allow_zero: bool = False) -> Tuple[Optional[int], Optional[str]]:
+    def parse_int(
+        raw: str, name: str, allow_zero: bool = False
+    ) -> Tuple[Optional[int], Optional[str]]:
         try:
             value = int(raw)
         except ValueError:
@@ -264,7 +573,11 @@ def _command_args_from_message_text(text: str) -> list[str]:
 async def view_summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update):
         return
-    if update.message is None or update.effective_chat is None or update.effective_user is None:
+    if (
+        update.message is None
+        or update.effective_chat is None
+        or update.effective_user is None
+    ):
         return
 
     args = _command_args_from_message_text(update.message.text or "")
@@ -278,10 +591,9 @@ async def view_summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(_summary_command_usage())
         return
 
-    if update.effective_chat.type == "private":
-        storage_id = str(update.effective_user.id)
-    else:
-        storage_id = str(update.effective_chat.id)
+    storage_id = _storage_id(update)
+    if storage_id is None:
+        return
 
     try:
         output = get_summary_view_text(
@@ -300,14 +612,24 @@ async def view_summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(chunk)
 
 
-async def transcribe_voice_message(voice: Voice, context: ContextTypes.DEFAULT_TYPE) -> str:
+async def transcribe_voice_message(
+    voice: Voice, context: ContextTypes.DEFAULT_TYPE
+) -> str:
     if voice is None:
         return ""
     with tempfile.NamedTemporaryFile(delete=False, suffix=".ogg") as temp_audio:
-        file = await context.bot.get_file(voice.file_id)
-        await file.download_to_drive(temp_audio.name)
         temp_audio_path = temp_audio.name
-    return transcribe_audio(temp_audio_path, model_provider)
+    try:
+        file = await context.bot.get_file(voice.file_id)
+        await file.download_to_drive(temp_audio_path)
+        return transcribe_audio(temp_audio_path, model_provider)
+    finally:
+        try:
+            os.remove(temp_audio_path)
+        except OSError:
+            logger.debug(
+                "Failed to remove temporary voice file", extra={"path": temp_audio_path}
+            )
 
 
 async def handle_addressed_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -323,7 +645,7 @@ async def handle_addressed_message(update: Update, context: ContextTypes.DEFAULT
 
     # if the message is audio or image, transcribe/extract it
     is_transcribe_text = False
-    is_image = False
+    authored_text = (update.message.text or (update.message.caption or "")).strip()
     if update.message.voice:
         text = await transcribe_voice_message(update.message.voice, context)
         logger.debug(
@@ -332,96 +654,109 @@ async def handle_addressed_message(update: Update, context: ContextTypes.DEFAULT
         )
         is_transcribe_text = True
     elif update.message.photo:
-        # Process the largest photo in-memory
-        photo = update.message.photo[-1]
-        file = await context.bot.get_file(photo.file_id)
-        bio = io.BytesIO()
-        await file.download_to_memory(bio)
-        image_bytes = bio.getvalue()
-        extracted = model_provider.image_to_text(image_bytes, mime_type="image/jpeg")
-        # Include caption if present
-        caption = update.message.caption or ""
-        text = (caption + "\n" + extracted).strip() if caption else extracted
+        text = await _extract_text_from_photo_message(update.message, context)
         logger.debug(
             "Received photo message",
             extra={**_log_context(update), "message_preview": text[:256]},
         )
-        is_transcribe_text = False
     elif update.message.document:
-        # Only process if the document is an image; ignore others
-        doc = update.message.document
-        mime = (doc.mime_type or "").lower()
-        name = (doc.file_name or "").lower()
-
-        def guess_mime_from_name(n: str) -> str:
-            if n.endswith((".jpg", ".jpeg")):
-                return "image/jpeg"
-            if n.endswith(".png"):
-                return "image/png"
-            if n.endswith(".webp"):
-                return "image/webp"
-            if n.endswith(".gif"):
-                return "image/gif"
-            if n.endswith((".bmp",)):
-                return "image/bmp"
-            if n.endswith((".tif", ".tiff")):
-                return "image/tiff"
-            return ""
-
-        is_image_doc = mime.startswith("image/") or guess_mime_from_name(name) != ""
-        eff_mime = mime if mime.startswith("image/") else guess_mime_from_name(name)
-
-        # Basic size guard (e.g., 15 MB)
+        is_image_doc, _ = _is_image_document(update.message.document)
         if not is_image_doc:
-            logger.debug("Ignoring non-image document message", extra=_log_context(update))
+            logger.debug(
+                "Ignoring non-image document message", extra=_log_context(update)
+            )
             return
-        if doc.file_size is not None and doc.file_size > 15 * 1024 * 1024:
+        if (
+            update.message.document.file_size is not None
+            and update.message.document.file_size > _IMAGE_MAX_BYTES
+        ):
             logger.warning(
                 "Image document too large",
-                extra={**_log_context(update), "file_size": doc.file_size},
+                extra={
+                    **_log_context(update),
+                    "file_size": update.message.document.file_size,
+                },
             )
             return
 
-        file = await context.bot.get_file(doc.file_id)
-        bio = io.BytesIO()
-        await file.download_to_memory(bio)
-        image_bytes = bio.getvalue()
-        extracted = model_provider.image_to_text(image_bytes, mime_type=eff_mime or "image/jpeg")
-        caption = update.message.caption or ""
-        text = (caption + "\n" + extracted).strip() if caption else extracted
+        text_from_document = await _extract_text_from_image_document(
+            update.message, context
+        )
+        if text_from_document is None:
+            logger.debug(
+                "Ignoring non-image document message", extra=_log_context(update)
+            )
+            return
+
+        text = text_from_document
         logger.debug(
             "Received image document",
             extra={**_log_context(update), "message_preview": text[:256]},
         )
-        is_transcribe_text = False
     else:
-        text = update.message.text or (update.message.caption or "")
+        text = authored_text
         logger.debug(
             "Received text message",
             extra={**_log_context(update), "message_preview": text[:256]},
         )
     sender = update.effective_user.first_name or update.effective_user.name
-    if update.effective_chat.type == "private":
-        storage_id = str(update.effective_user.id)
-    else:
-        storage_id = str(update.effective_chat.id)
+    storage_id = _storage_id(update)
+    if storage_id is None:
+        return
 
-    add_message(sender, text, is_bot=False, chat_id=storage_id)
+    reply_to_telegram_message_id = None
+    if update.message.reply_to_message is not None:
+        reply_to_telegram_message_id = update.message.reply_to_message.message_id
+
+    add_message(
+        sender,
+        text,
+        is_bot=False,
+        chat_id=storage_id,
+        telegram_message_id=update.message.message_id,
+        reply_to_telegram_message_id=reply_to_telegram_message_id,
+    )
 
     await maybe_react(update, text)
 
     bot = await context.bot.get_me()
-    bot_names_and_aliases = list(settings.bot_aliases)
-    if bot.username:
-        bot_names_and_aliases.append(bot.username.lower())
-    text_lower = text.lower()
-    mentioned = any(alias in text_lower for alias in bot_names_and_aliases)
-    is_reply_to_bot = mentioned or (
-        update.message.reply_to_message and
-        update.message.reply_to_message.from_user and
-        update.message.reply_to_message.from_user.id == bot.id
+    mentioned_bot = _is_bot_mentioned(
+        update.message,
+        bot_username=bot.username or "",
+        bot_id=bot.id,
+        aliases=settings.bot_aliases,
+        fallback_text=text if is_transcribe_text else "",
     )
-    if not is_reply_to_bot:
+
+    replied_user_id = None
+    if (
+        update.message.reply_to_message is not None
+        and update.message.reply_to_message.from_user is not None
+    ):
+        replied_user_id = update.message.reply_to_message.from_user.id
+    replied_to_bot = replied_user_id == bot.id
+    replied_to_other_user = (
+        update.message.reply_to_message is not None
+        and replied_user_id is not None
+        and replied_user_id != bot.id
+    )
+    should_respond = _should_respond_to_message(
+        mentioned_bot=mentioned_bot,
+        replied_to_bot=replied_to_bot,
+        replied_to_other_user=replied_to_other_user,
+    )
+    logger.debug(
+        "Addressing decision",
+        extra={
+            **_log_context(update),
+            "mentioned_bot": mentioned_bot,
+            "replied_to_bot": replied_to_bot,
+            "replied_to_other_user": replied_to_other_user,
+            "triggered": should_respond,
+        },
+    )
+
+    if not should_respond:
         if is_transcribe_text:
             # if the message is not addressed to the bot
             # just send the transcribed text
@@ -429,19 +764,44 @@ async def handle_addressed_message(update: Update, context: ContextTypes.DEFAULT
             await update.message.reply_text(text)
         return
 
+    reply_target_context = None
+    if replied_to_other_user and mentioned_bot:
+        reply_target_context = await _resolve_reply_target_context(
+            update.message,
+            chat_id=storage_id,
+            context=context,
+        )
+        if settings.debug_mode and reply_target_context is not None:
+            logger.debug(
+                "Resolved reply target context",
+                extra={
+                    **_log_context(update),
+                    "source": reply_target_context.get("source", ""),
+                    "reply_target_preview": reply_target_context.get("text", "")[:256],
+                },
+            )
+
     await update.effective_chat.send_action(action=ChatAction.TYPING)
     context_str = build_context(
         chat_id=storage_id,
         latest_user_text=text,
         summarize_fn=model_provider.generate_low_cost,
     )
-    prompt = f"{context_str}\n---\n{sender}: {text}"
+    prompt = _build_prompt(
+        context_text=context_str,
+        sender=sender,
+        latest_text=text,
+        reply_target_context=reply_target_context,
+    )
     if settings.debug_mode:
         # trim the promt in the middle for logging purposes
         if len(prompt) > 1024:
             logger.debug(
                 "Generated prompt (trimmed)",
-                extra={**_log_context(update), "prompt": prompt[:512] + "\n...\n" + prompt[-512:]},
+                extra={
+                    **_log_context(update),
+                    "prompt": prompt[:512] + "\n...\n" + prompt[-512:],
+                },
             )
         else:
             logger.debug(
@@ -456,7 +816,11 @@ async def handle_addressed_message(update: Update, context: ContextTypes.DEFAULT
             break
         logger.warning(
             "Model returned empty response",
-            extra={**_log_context(update), "attempt": attempt, "max_attempts": max_empty_retries},
+            extra={
+                **_log_context(update),
+                "attempt": attempt,
+                "max_attempts": max_empty_retries,
+            },
         )
         if attempt < max_empty_retries:
             await asyncio.sleep(0.5)
@@ -474,12 +838,13 @@ async def handle_addressed_message(update: Update, context: ContextTypes.DEFAULT
 
     await send_ai_response(update, outgoing_text, storage_id)
 
+
 def chunk_string(s: str, chunk_size: int) -> list[str]:
     if not s:
         return []
     if len(s) <= chunk_size:
         return [s]
-    return [s[i:i + chunk_size] for i in range(0, len(s), chunk_size)]
+    return [s[i : i + chunk_size] for i in range(0, len(s), chunk_size)]
 
 
 async def send_ai_response(update: Update, outgoing_text: str, storage_id: str) -> None:
@@ -489,28 +854,36 @@ async def send_ai_response(update: Update, outgoing_text: str, storage_id: str) 
 
     settings = config.get_settings()
     if not settings.telegram_format_ai_replies:
-        for chunk in [chunk for chunk in chunk_string(outgoing_text, 4000) if chunk.strip()]:
+        for chunk in [
+            chunk for chunk in chunk_string(outgoing_text, 4000) if chunk.strip()
+        ]:
             await message.reply_text(chunk)
-            add_message('Bot', chunk, chat_id=storage_id, is_bot=True)
+            add_message("Bot", chunk, chat_id=storage_id, is_bot=True)
         return
 
     html_chunks = [
-        chunk for chunk in utils.build_telegram_html_chunks(outgoing_text, 4000) if chunk.strip()
+        chunk
+        for chunk in utils.build_telegram_html_chunks(outgoing_text, 4000)
+        if chunk.strip()
     ]
     for chunk in html_chunks:
         plain_chunk = utils.telegram_html_to_plain_text(chunk).strip()
         try:
             await message.reply_text(chunk, parse_mode=ParseMode.HTML)
             if plain_chunk:
-                add_message('Bot', plain_chunk, chat_id=storage_id, is_bot=True)
+                add_message("Bot", plain_chunk, chat_id=storage_id, is_bot=True)
         except BadRequest as exc:
             logger.warning(
                 "Failed to send formatted response chunk, falling back to plain text",
-                extra={**_log_context(update), "error": str(exc), "chunk_preview": chunk[:256]},
+                extra={
+                    **_log_context(update),
+                    "error": str(exc),
+                    "chunk_preview": chunk[:256],
+                },
             )
             fallback_chunk = plain_chunk or chunk
             await message.reply_text(fallback_chunk)
-            add_message('Bot', fallback_chunk, chat_id=storage_id, is_bot=True)
+            add_message("Bot", fallback_chunk, chat_id=storage_id, is_bot=True)
 
 
 async def schedule_events(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -518,7 +891,11 @@ async def schedule_events(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_allowed(update) or not settings.features["schedule_events"]:
         return
 
-    if update.message is None or update.effective_chat is None or update.effective_user is None:
+    if (
+        update.message is None
+        or update.effective_chat is None
+        or update.effective_user is None
+    ):
         return
 
     if not update.message.photo:
@@ -526,6 +903,7 @@ async def schedule_events(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.effective_chat.send_action(action=ChatAction.TYPING)
 
+    temp_photo_path: Optional[str] = None
     try:
         # Get the largest photo
         photo = update.message.photo[-1]
@@ -533,13 +911,13 @@ async def schedule_events(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Download the photo
         with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as temp_photo:
-            await file.download_to_drive(temp_photo.name)
             temp_photo_path = temp_photo.name
+        await file.download_to_drive(temp_photo_path)
 
         try:
             event_data = model_provider.parse_image_to_event(temp_photo_path)
 
-            if event_data.get('confidence', 0) < 0.5:
+            if event_data.get("confidence", 0) < 0.5:
                 await update.message.reply_text(
                     "I'm not very confident about the event details, but I'll create it anyway."
                 )
@@ -548,62 +926,67 @@ async def schedule_events(update: Update, context: ContextTypes.DEFAULT_TYPE):
             calendar = CalendarProvider()
 
             # Validate and handle date and time
-            if not event_data.get('date'):
+            if not event_data.get("date"):
                 raise ValueError("No date found in the event data")
 
             # Handle time with proper error checking
-            event_time = event_data.get('time')
+            event_time = event_data.get("time")
             is_all_day = event_time is None
             if event_time is None:
                 logger.warning(
                     "No time found in event data, treating as all-day event",
                     extra=_log_context(update),
                 )
-                event_time = '00:00'
+                event_time = "00:00"
             elif not isinstance(event_time, str):
                 logger.warning(
                     "Invalid time format, using default time of 00:00",
                     extra={**_log_context(update), "event_time": event_time},
                 )
-                event_time = '00:00'
+                event_time = "00:00"
 
             try:
                 naive_datetime = datetime.strptime(
-                    f"{event_data['date']} {event_time}",
-                    "%Y-%m-%d %H:%M"
+                    f"{event_data['date']} {event_time}", "%Y-%m-%d %H:%M"
                 )
             except ValueError as e:
                 logger.error(
                     "Failed to parse datetime",
                     extra={**_log_context(update), "error": str(e)},
                 )
-                raise ValueError(f"Invalid date or time format: {event_data['date']} {event_time}")
-            
+                raise ValueError(
+                    f"Invalid date or time format: {event_data['date']} {event_time}"
+                )
+
             # Get system's local timezone and set it for the datetime
             local_tz = tzlocal.get_localzone()
             start_time = naive_datetime.replace(tzinfo=local_tz)
-            
+
             event = calendar.create_event(
-                title=event_data['title'],
+                title=event_data["title"],
                 is_all_day=is_all_day,
                 start_time=start_time,
-                location=event_data.get('location'),
-                description=event_data.get('description')
+                location=event_data.get("location"),
+                description=event_data.get("description"),
             )
-            
+
             # Format the time for display in local timezone
             formatted_time = start_time.strftime("%H:%M")
-            
+
             message_parts = [
                 "Event created successfully!",
                 f"Title: {event_data['title']}",
                 f"Date: {event_data['date']}",
-                f"Time: {formatted_time} ({local_tz})" if event_data['time'] else "All day event",
-                f"Location: {event_data.get('location', 'Not specified')}"
+                (
+                    f"Time: {formatted_time} ({local_tz})"
+                    if event_data["time"]
+                    else "All day event"
+                ),
+                f"Location: {event_data.get('location', 'Not specified')}",
             ]
-            
+
             await update.message.reply_text("\n".join(message_parts))
-            
+
         except Exception as e:
             logger.error(
                 "Failed to process photo",
@@ -614,11 +997,9 @@ async def schedule_events(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             await notify_admin(
                 context,
-                f"Photo processing failed for user {update.effective_user.id}: {e}"
+                f"Photo processing failed for user {update.effective_user.id}: {e}",
             )
-        finally:
-            os.remove(temp_photo_path)
-            
+
     except Exception as e:
         logger.error(
             "Failed to handle photo message",
@@ -629,8 +1010,17 @@ async def schedule_events(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         await notify_admin(
             context,
-            f"Photo message handling failed for user {update.effective_user.id}: {e}"
+            f"Photo message handling failed for user {update.effective_user.id}: {e}",
         )
+    finally:
+        if temp_photo_path:
+            try:
+                os.remove(temp_photo_path)
+            except OSError:
+                logger.debug(
+                    "Failed to remove temporary photo file",
+                    extra={"path": temp_photo_path, **_log_context(update)},
+                )
 
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -645,7 +1035,9 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
     if not settings.admin_chat_id or context.error is None:
         return
 
-    tb_list = traceback.format_exception(None, context.error, context.error.__traceback__)
+    tb_list = traceback.format_exception(
+        None, context.error, context.error.__traceback__
+    )
     tb_string = "".join(tb_list)
     update_str = update.to_dict() if isinstance(update, Update) else str(update)
     message = (
@@ -676,9 +1068,7 @@ async def notify_admin(context: ContextTypes.DEFAULT_TYPE, message: str) -> None
     if not settings.admin_chat_id:
         return
     await context.bot.send_message(
-        chat_id=settings.admin_chat_id,
-        text=message,
-        parse_mode=ParseMode.HTML
+        chat_id=settings.admin_chat_id, text=message, parse_mode=ParseMode.HTML
     )
 
 
@@ -695,21 +1085,26 @@ if __name__ == "__main__":
 
     app.add_handler(CommandHandler("hi", hi))
     app.add_handler(CommandHandler(["summary", "tldr"], view_summary))
-    app.add_handler(MessageHandler(filters.PHOTO, schedule_events))
-    app.add_handler(
-        MessageHandler(
-            (filters.TEXT & ~filters.COMMAND) | filters.VOICE | filters.PHOTO | filters.Document.IMAGE,
-            handle_addressed_message,
+    if settings.features["message_handling"]:
+        app.add_handler(
+            MessageHandler(
+                (filters.TEXT & ~filters.COMMAND)
+                | filters.VOICE
+                | filters.PHOTO
+                | filters.Document.IMAGE,
+                handle_addressed_message,
+            )
         )
-    )
+    if settings.features["schedule_events"]:
+        app.add_handler(MessageHandler(filters.PHOTO, schedule_events))
 
-    '''
+    """
     app.job_queue.run_repeating(
         refresh_settings_job,
         interval=settings.settings_refresh_interval,
         first=settings.settings_refresh_interval,
     )
-    '''
-    
+    """
+
     logger.info("Bot started with features: %s", settings.features)
     app.run_polling()
