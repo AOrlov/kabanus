@@ -1,7 +1,7 @@
 import base64
 import json
 import logging
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Iterator, Optional, Tuple
 
 from openai import APIStatusError, AuthenticationError, OpenAI
 
@@ -152,8 +152,8 @@ class OpenAIProvider(ModelProvider):
                     chunks.append(text.strip())
         return "\n".join(chunks).strip()
 
-    def _responses_create(self, *, model: str, user_content: Any, system_instruction: str = "") -> str:
-        input_items = []
+    def _build_input_items(self, *, user_content: Any, system_instruction: str = "") -> list[dict[str, Any]]:
+        input_items: list[dict[str, Any]] = []
         if system_instruction:
             input_items.append(
                 {
@@ -162,6 +162,25 @@ class OpenAIProvider(ModelProvider):
                 }
             )
         input_items.append({"role": "user", "content": user_content})
+        return input_items
+
+    def _iter_stream_text_snapshots(self, stream: Any) -> Iterator[str]:
+        accumulated = ""
+        for event in stream:
+            event_type = str(getattr(event, "type", ""))
+            if event_type != "response.output_text.delta":
+                continue
+            delta = getattr(event, "delta", None)
+            if not isinstance(delta, str) or not delta:
+                continue
+            accumulated += delta
+            yield accumulated
+
+    def _responses_create(self, *, model: str, user_content: Any, system_instruction: str = "") -> str:
+        input_items = self._build_input_items(
+            user_content=user_content,
+            system_instruction=system_instruction,
+        )
         client, settings = self._get_client()
         codex_mode = bool(settings.openai_auth_json_path)
         instructions = system_instruction if system_instruction else "You are a helpful assistant."
@@ -210,6 +229,69 @@ class OpenAIProvider(ModelProvider):
 
     def transcribe(self, audio_path: str) -> str:
         raise NotImplementedError("OpenAI transcription is intentionally disabled in this iteration")
+
+    def generate_stream(self, prompt: str):
+        client, settings = self._get_client()
+        codex_mode = bool(settings.openai_auth_json_path)
+        instructions = "You are a helpful assistant."
+        input_items = self._build_input_items(
+            user_content=[{"type": "input_text", "text": prompt}],
+            system_instruction="",
+        )
+        emitted = False
+
+        def _stream_model_response(active_client: OpenAI, request_model: str) -> Iterator[str]:
+            kwargs: Dict[str, Any] = {
+                "model": request_model,
+                "input": input_items,
+            }
+            if codex_mode:
+                kwargs["instructions"] = instructions
+                kwargs["store"] = False
+            with active_client.responses.stream(**kwargs) as stream:
+                last_snapshot = ""
+                try:
+                    for snapshot in self._iter_stream_text_snapshots(stream):
+                        last_snapshot = snapshot
+                        yield snapshot
+                except TypeError:
+                    # Older SDK variants may not expose stream events as an iterator.
+                    pass
+                until_done = getattr(stream, "until_done", None)
+                if callable(until_done):
+                    until_done()
+                final_text = self._extract_text(stream.get_final_response())
+                if final_text and final_text != last_snapshot:
+                    yield final_text
+
+        def _emit(active_client: OpenAI, request_model: str) -> Iterator[str]:
+            nonlocal emitted
+            for snapshot in _stream_model_response(active_client, request_model):
+                emitted = True
+                yield snapshot
+
+        try:
+            yield from _emit(client, settings.openai_model)
+        except Exception as exc:
+            if emitted:
+                raise
+            if codex_mode and self._is_codex_model_mismatch_error(exc):
+                fallback_model = settings.openai_codex_default_model
+                if fallback_model and fallback_model != settings.openai_model:
+                    logger.warning(
+                        "OpenAI Codex model '%s' is incompatible; retrying with '%s'",
+                        settings.openai_model,
+                        fallback_model,
+                    )
+                    yield from _emit(client, fallback_model)
+                    return
+                raise
+            if settings.openai_auth_json_path and self._should_attempt_refresh(exc):
+                logger.warning("OpenAI auth failed; attempting token refresh from auth.json")
+                refreshed_client, _ = self._get_client(force_refresh=True)
+                yield from _emit(refreshed_client, settings.openai_model)
+                return
+            raise
 
     def generate(self, prompt: str) -> str:
         _, settings = self._get_client()

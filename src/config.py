@@ -121,6 +121,8 @@ class Settings:
     reaction_context_turns: int
     reaction_context_token_limit: int
     telegram_format_ai_replies: bool
+    telegram_use_message_drafts: bool
+    telegram_draft_update_interval_secs: float
 
 
 def get_settings(force: bool = False) -> Settings:
@@ -290,6 +292,10 @@ def get_settings(force: bool = False) -> Settings:
             1, int(os.getenv("REACTION_CONTEXT_TOKEN_LIMIT", "1200"))
         ),
         telegram_format_ai_replies=_env_bool("TELEGRAM_FORMAT_AI_REPLIES", "true"),
+        telegram_use_message_drafts=_env_bool("TELEGRAM_USE_MESSAGE_DRAFTS"),
+        telegram_draft_update_interval_secs=max(
+            0.05, float(os.getenv("TELEGRAM_DRAFT_UPDATE_INTERVAL_SECS", "0.5"))
+        ),
     )
     _SETTINGS_CACHE = settings
     _SETTINGS_CACHE_TS = now
@@ -348,6 +354,8 @@ def __getattr__(name: str):
         "REACTION_CONTEXT_TURNS": settings.reaction_context_turns,
         "REACTION_CONTEXT_TOKEN_LIMIT": settings.reaction_context_token_limit,
         "TELEGRAM_FORMAT_AI_REPLIES": settings.telegram_format_ai_replies,
+        "TELEGRAM_USE_MESSAGE_DRAFTS": settings.telegram_use_message_drafts,
+        "TELEGRAM_DRAFT_UPDATE_INTERVAL_SECS": settings.telegram_draft_update_interval_secs,
     }
     if name in mapping:
         return mapping[name]

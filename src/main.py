@@ -1,5 +1,6 @@
 import asyncio
 import html
+import hashlib
 import io
 import json
 import logging
@@ -35,6 +36,7 @@ from src.message_store import (
 )
 from src.model_provider import ModelProvider
 from src.provider_factory import build_provider
+from src.telegram_drafts import send_message_draft
 
 logging_utils.configure_bootstrap()
 settings = config.get_settings()
@@ -847,7 +849,10 @@ async def handle_addressed_message(update: Update, context: ContextTypes.DEFAULT
     response = ""
     max_empty_retries = 3
     for attempt in range(1, max_empty_retries + 1):
-        response = (model_provider.generate(prompt) or "").strip()
+        if _should_use_message_drafts(update, settings):
+            response = await _generate_response_with_drafts(update, prompt, settings)
+        else:
+            response = (model_provider.generate(prompt) or "").strip()
         if response:
             break
         logger.warning(
@@ -881,6 +886,133 @@ def chunk_string(s: str, chunk_size: int) -> list[str]:
     if len(s) <= chunk_size:
         return [s]
     return [s[i : i + chunk_size] for i in range(0, len(s), chunk_size)]
+
+
+def _should_use_message_drafts(update: Update, settings: config.Settings) -> bool:
+    if not settings.telegram_use_message_drafts:
+        return False
+    if settings.model_provider != "openai":
+        return False
+    if update.effective_chat is None:
+        return False
+    return update.effective_chat.type == "private"
+
+
+def _build_response_draft_id(update: Update) -> int:
+    chat_id = getattr(update.effective_chat, "id", "unknown")
+    message_id = getattr(update.message, "message_id", int(time.time() * 1000))
+    raw = f"{chat_id}:{message_id}".encode("utf-8")
+    value = int.from_bytes(hashlib.blake2b(raw, digest_size=8).digest(), "big")
+    # draft_id must be a non-zero integer.
+    return (value % ((1 << 63) - 1)) + 1
+
+
+async def _generate_response_with_drafts(
+    update: Update,
+    prompt: str,
+    settings: config.Settings,
+) -> str:
+    chat = update.effective_chat
+    if chat is None:
+        return (model_provider.generate(prompt) or "").strip()
+
+    draft_id = _build_response_draft_id(update)
+    last_sent_draft = ""
+    last_sent_ts = 0.0
+    stream_text = ""
+    draft_updates_enabled = True
+    pending_send_task: Optional[asyncio.Task] = None
+    pending_send_text = ""
+    stream_error: Optional[Exception] = None
+
+    async def _finalize_pending_send(force: bool = False) -> None:
+        nonlocal pending_send_task, draft_updates_enabled, pending_send_text
+        if pending_send_task is None:
+            return
+        if not force and not pending_send_task.done():
+            return
+        try:
+            await pending_send_task
+        except Exception as exc:
+            draft_updates_enabled = False
+            logger.warning(
+                "Failed to update Telegram message draft; continuing without drafts",
+                extra={
+                    **_log_context(update),
+                    "error": str(exc),
+                    "draft_id": draft_id,
+                    "draft_preview": pending_send_text[:128],
+                },
+            )
+        finally:
+            pending_send_task = None
+            pending_send_text = ""
+
+    def _schedule_send(draft_text: str) -> None:
+        nonlocal pending_send_task, pending_send_text, last_sent_draft, last_sent_ts
+        pending_send_text = draft_text
+        pending_send_task = asyncio.create_task(
+            send_message_draft(
+                bot_token=settings.telegram_bot_token,
+                chat_id=chat.id,
+                draft_id=draft_id,
+                text=draft_text,
+            )
+        )
+        last_sent_draft = draft_text
+        last_sent_ts = time.monotonic()
+
+    try:
+        for snapshot in model_provider.generate_stream(prompt):
+            stream_text = str(snapshot or "")
+            draft_text = stream_text[:4096]
+            if not draft_text.strip():
+                continue
+
+            await _finalize_pending_send()
+            if not draft_updates_enabled:
+                continue
+            if pending_send_task is not None:
+                continue
+            if draft_text == last_sent_draft:
+                continue
+            now = time.monotonic()
+            if last_sent_ts and (now - last_sent_ts) < settings.telegram_draft_update_interval_secs:
+                continue
+            _schedule_send(draft_text)
+    except Exception as exc:
+        stream_error = exc
+        logger.warning(
+            "Model stream failed; using best available response",
+            extra={
+                **_log_context(update),
+                "error": str(exc),
+                "has_partial_output": bool(stream_text.strip()),
+            },
+        )
+    finally:
+        await _finalize_pending_send(force=True)
+
+    final_text = stream_text.strip()
+    if stream_error is not None and not final_text:
+        try:
+            final_text = (model_provider.generate(prompt) or "").strip()
+        except Exception as fallback_exc:
+            logger.warning(
+                "Fallback generation failed after stream error",
+                extra={
+                    **_log_context(update),
+                    "stream_error": str(stream_error),
+                    "fallback_error": str(fallback_exc),
+                },
+            )
+            return ""
+
+    final_draft_text = (stream_text if stream_text else final_text)[:4096]
+    if final_draft_text.strip() and draft_updates_enabled and final_draft_text != last_sent_draft:
+        _schedule_send(final_draft_text)
+        await _finalize_pending_send(force=True)
+    return final_text
 
 
 async def send_ai_response(update: Update, outgoing_text: str, storage_id: str) -> None:
