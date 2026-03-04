@@ -102,6 +102,8 @@ GOOGLE_CREDENTIALS_JSON='{"type": "..."}'  # Optional, inlined credentials JSON
 # Bot behavior
 BOT_ALIASES=bot,бот,ботик                  # Optional, comma-separated aliases
 TELEGRAM_FORMAT_AI_REPLIES=true            # Optional, send AI replies as Telegram HTML (default: true)
+TELEGRAM_USE_MESSAGE_DRAFTS=false          # Optional, stream OpenAI replies via Bot API sendMessageDraft in private chats
+TELEGRAM_DRAFT_UPDATE_INTERVAL_SECS=0.15   # Optional, minimum seconds between draft updates
 CHAT_MESSAGES_STORE_PATH=messages.jsonl    # Optional, history message store file
 
 # Memory/context optimization

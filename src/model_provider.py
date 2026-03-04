@@ -3,6 +3,11 @@ class ModelProvider:
     def transcribe(self, audio_path: str) -> str:
         raise NotImplementedError
 
+    def generate_stream(self, prompt: str):
+        text = self.generate(prompt)
+        if text:
+            yield text
+
     def generate(self, prompt: str) -> str:
         raise NotImplementedError
 

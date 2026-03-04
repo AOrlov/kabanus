@@ -44,6 +44,29 @@ class RoutedModelProvider(ModelProvider):
         fallback_fn = (lambda: self._fallback.generate(prompt)) if self._fallback is not None else None
         return self._call("generate", lambda: self._primary.generate(prompt), fallback_fn)
 
+    def generate_stream(self, prompt: str):
+        emitted = False
+        try:
+            for chunk in self._primary.generate_stream(prompt):
+                emitted = True
+                yield chunk
+            return
+        except Exception as exc:
+            if emitted:
+                logger.warning(
+                    "Primary provider stream failed after partial output; returning partial response",
+                    extra={"operation": "generate_stream", "error": str(exc)},
+                )
+                return
+            if self._fallback is None:
+                raise
+            logger.warning(
+                "Primary provider operation failed, falling back",
+                extra={"operation": "generate_stream", "error": str(exc)},
+            )
+            for chunk in self._fallback.generate_stream(prompt):
+                yield chunk
+
     def generate_low_cost(self, prompt: str) -> str:
         fallback_fn = (lambda: self._fallback.generate_low_cost(prompt)) if self._fallback is not None else None
         return self._call("generate_low_cost", lambda: self._primary.generate_low_cost(prompt), fallback_fn)

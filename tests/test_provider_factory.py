@@ -32,6 +32,17 @@ class _FailGenerateProvider(_OkProvider):
         raise RuntimeError("boom")
 
 
+class _FailGenerateStreamProvider(_OkProvider):
+    def generate_stream(self, prompt: str):
+        raise RuntimeError("boom")
+
+
+class _PartialFailGenerateStreamProvider(_OkProvider):
+    def generate_stream(self, prompt: str):
+        yield "partial"
+        raise RuntimeError("boom")
+
+
 class _FallbackTranscribeProvider(_OkProvider):
     def transcribe(self, audio_path: str) -> str:
         return f"fallback:{audio_path}"
@@ -73,6 +84,21 @@ def test_routed_provider_uses_fallback_for_transcribe_when_forced() -> None:
         transcribe_use_fallback=True,
     )
     assert provider.transcribe("voice.ogg") == "fallback:voice.ogg"
+
+
+def test_routed_provider_falls_back_on_generate_stream_error() -> None:
+    provider = RoutedModelProvider(primary=_FailGenerateStreamProvider(), fallback=_OkProvider())
+
+    assert list(provider.generate_stream("hello")) == ["g:hello"]
+
+
+def test_routed_provider_returns_partial_stream_if_primary_fails_after_emitting() -> None:
+    provider = RoutedModelProvider(
+        primary=_PartialFailGenerateStreamProvider(),
+        fallback=_OkProvider(),
+    )
+
+    assert list(provider.generate_stream("hello")) == ["partial"]
 
 
 def test_routed_provider_forwards_reaction_context_to_fallback() -> None:

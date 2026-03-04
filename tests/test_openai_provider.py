@@ -114,6 +114,77 @@ class _ModelFallbackResponses:
         return self._StreamManager(self, kwargs)
 
 
+class _StreamingResponses:
+    def __init__(self, deltas) -> None:
+        self.calls = []
+        self._deltas = list(deltas)
+
+    class _StreamManager:
+        def __init__(self, outer, kwargs):
+            self._outer = outer
+            self._kwargs = kwargs
+
+        def __enter__(self):
+            self._outer.calls.append(self._kwargs)
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def __iter__(self):
+            for delta in self._outer._deltas:
+                yield SimpleNamespace(type="response.output_text.delta", delta=delta)
+
+        def get_final_response(self):
+            return SimpleNamespace(output_text="".join(self._outer._deltas))
+
+    def stream(self, **kwargs):
+        return self._StreamManager(self, kwargs)
+
+
+class _StreamingModelFallbackResponses:
+    def __init__(self) -> None:
+        self.models = []
+
+    class _StreamManager:
+        def __init__(self, outer, kwargs):
+            self._outer = outer
+            self._kwargs = kwargs
+            self._model = kwargs["model"]
+
+        def __enter__(self):
+            self._outer.models.append(self._model)
+            if self._model == "legacy-unsupported-model":
+                raise RuntimeError(
+                    "The 'legacy-unsupported-model' model is not supported when using Codex with a ChatGPT account."
+                )
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def __iter__(self):
+            yield SimpleNamespace(type="response.output_text.delta", delta="ok")
+
+        def get_final_response(self):
+            return SimpleNamespace(output_text="ok")
+
+    def stream(self, **kwargs):
+        return self._StreamManager(self, kwargs)
+
+
+class _AuthFailStreamingResponses:
+    class _StreamManager:
+        def __enter__(self):
+            raise RuntimeError("401 unauthorized")
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    def stream(self, **kwargs):
+        return self._StreamManager()
+
+
 def test_responses_create_sets_instructions_in_codex_mode(monkeypatch) -> None:
     provider = OpenAIProvider()
     fake = _FakeResponses()
@@ -153,6 +224,68 @@ def test_responses_create_retries_with_codex_default_model(monkeypatch) -> None:
 
     assert result == "ok"
     assert fake.models == ["legacy-unsupported-model", "gpt-5.3-codex"]
+
+
+def test_generate_stream_yields_progressive_snapshots(monkeypatch) -> None:
+    provider = OpenAIProvider()
+    fake = _StreamingResponses(["he", "llo"])
+    client = SimpleNamespace(responses=fake)
+    settings = SimpleNamespace(
+        openai_auth_json_path="x",
+        openai_model="gpt-5.3-codex",
+        openai_codex_default_model="gpt-5.3-codex",
+    )
+    monkeypatch.setattr(provider, "_get_client", lambda force_refresh=False: (client, settings))
+
+    snapshots = list(provider.generate_stream("hi"))
+
+    assert snapshots == ["he", "hello"]
+    assert fake.calls
+    assert fake.calls[0]["instructions"] == "You are a helpful assistant."
+    assert fake.calls[0]["store"] is False
+
+
+def test_generate_stream_retries_with_codex_default_model(monkeypatch) -> None:
+    provider = OpenAIProvider()
+    fake = _StreamingModelFallbackResponses()
+    client = SimpleNamespace(responses=fake)
+    settings = SimpleNamespace(
+        openai_auth_json_path="x",
+        openai_model="legacy-unsupported-model",
+        openai_codex_default_model="gpt-5.3-codex",
+    )
+    monkeypatch.setattr(provider, "_get_client", lambda force_refresh=False: (client, settings))
+
+    snapshots = list(provider.generate_stream("hi"))
+
+    assert snapshots == ["ok"]
+    assert fake.models == ["legacy-unsupported-model", "gpt-5.3-codex"]
+
+
+def test_generate_stream_refreshes_auth_once(monkeypatch) -> None:
+    provider = OpenAIProvider()
+    failing_client = SimpleNamespace(responses=_AuthFailStreamingResponses())
+    success_responses = _StreamingResponses(["ok"])
+    success_client = SimpleNamespace(responses=success_responses)
+    settings = SimpleNamespace(
+        openai_auth_json_path="x",
+        openai_model="gpt-5.3-codex",
+        openai_codex_default_model="gpt-5.3-codex",
+    )
+    calls = []
+
+    def _fake_get_client(force_refresh=False):
+        calls.append(force_refresh)
+        if force_refresh:
+            return success_client, settings
+        return failing_client, settings
+
+    monkeypatch.setattr(provider, "_get_client", _fake_get_client)
+
+    snapshots = list(provider.generate_stream("hi"))
+
+    assert snapshots == ["ok"]
+    assert calls == [False, True]
 
 
 def test_choose_reaction_includes_recent_context(monkeypatch) -> None:

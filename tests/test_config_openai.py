@@ -109,6 +109,35 @@ def test_telegram_format_ai_replies_can_be_disabled(monkeypatch) -> None:
     assert settings.telegram_format_ai_replies is False
 
 
+def test_telegram_use_message_drafts_default_false(monkeypatch) -> None:
+    monkeypatch.setattr(config, "_reload_env", lambda: None)
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "t")
+    monkeypatch.setenv("ALLOWED_CHAT_IDS", "1")
+    monkeypatch.setenv("MODEL_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "k")
+    monkeypatch.delenv("TELEGRAM_USE_MESSAGE_DRAFTS", raising=False)
+    _reset_settings_cache()
+
+    settings = config.get_settings(force=True)
+    assert settings.telegram_use_message_drafts is False
+    assert settings.telegram_draft_update_interval_secs == 0.15
+
+
+def test_telegram_use_message_drafts_can_be_enabled(monkeypatch) -> None:
+    monkeypatch.setattr(config, "_reload_env", lambda: None)
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "t")
+    monkeypatch.setenv("ALLOWED_CHAT_IDS", "1")
+    monkeypatch.setenv("MODEL_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "k")
+    monkeypatch.setenv("TELEGRAM_USE_MESSAGE_DRAFTS", "true")
+    monkeypatch.setenv("TELEGRAM_DRAFT_UPDATE_INTERVAL_SECS", "0.1")
+    _reset_settings_cache()
+
+    settings = config.get_settings(force=True)
+    assert settings.telegram_use_message_drafts is True
+    assert settings.telegram_draft_update_interval_secs == 0.1
+
+
 def test_csv_env_values_are_trimmed(monkeypatch) -> None:
     monkeypatch.setattr(config, "_reload_env", lambda: None)
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "t")
