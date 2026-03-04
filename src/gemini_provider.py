@@ -356,14 +356,23 @@ class GeminiProvider(ModelProvider):
             thinking_budget=settings.thinking_budget,
         )
 
-    def choose_reaction(self, message: str, allowed_reactions: List[str]) -> str:
+    def choose_reaction(
+        self,
+        message: str,
+        allowed_reactions: List[str],
+        context_text: str = "",
+    ) -> str:
         client, settings = self._get_client()
         system_instruction = (
             "You are a Telegram reactions selector. "
             "Pick a single reaction emoji that fits the user message. "
             "Return only the emoji, nothing else."
         )
-        prompt = f"Message: {message}\nAllowed reactions: {', '.join(allowed_reactions)}"
+        prompt_parts = [f"Current message: {message}"]
+        if context_text:
+            prompt_parts.append(f"Recent context:\n{context_text}")
+        prompt_parts.append(f"Allowed reactions: {', '.join(allowed_reactions)}")
+        prompt = "\n\n".join(prompt_parts)
         reaction_specs = self._prefer_gemma_first(settings.gemini_models)
 
         def run_request(spec: config.ModelSpec):
@@ -380,7 +389,7 @@ class GeminiProvider(ModelProvider):
                 config=self._prepare_config(
                     spec,
                     system_instruction=instruction,
-                    thinking_budget=settings.thinking_budget,
+                    thinking_budget=0,
                 ),
             )
 

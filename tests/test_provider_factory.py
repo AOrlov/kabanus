@@ -12,7 +12,12 @@ class _OkProvider(ModelProvider):
     def generate_low_cost(self, prompt: str) -> str:
         return f"lc:{prompt}"
 
-    def choose_reaction(self, message: str, allowed_reactions: list[str]) -> str:
+    def choose_reaction(
+        self,
+        message: str,
+        allowed_reactions: list[str],
+        context_text: str = "",
+    ) -> str:
         return allowed_reactions[0]
 
     def parse_image_to_event(self, image_path: str) -> dict:
@@ -32,6 +37,30 @@ class _FallbackTranscribeProvider(_OkProvider):
         return f"fallback:{audio_path}"
 
 
+class _FailReactionProvider(_OkProvider):
+    def choose_reaction(
+        self,
+        message: str,
+        allowed_reactions: list[str],
+        context_text: str = "",
+    ) -> str:
+        raise RuntimeError("boom")
+
+
+class _CaptureReactionProvider(_OkProvider):
+    def __init__(self) -> None:
+        self.last_context = ""
+
+    def choose_reaction(
+        self,
+        message: str,
+        allowed_reactions: list[str],
+        context_text: str = "",
+    ) -> str:
+        self.last_context = context_text
+        return super().choose_reaction(message, allowed_reactions, context_text=context_text)
+
+
 def test_routed_provider_falls_back_on_generate_error() -> None:
     provider = RoutedModelProvider(primary=_FailGenerateProvider(), fallback=_OkProvider())
     assert provider.generate("hello") == "g:hello"
@@ -44,3 +73,13 @@ def test_routed_provider_uses_fallback_for_transcribe_when_forced() -> None:
         transcribe_use_fallback=True,
     )
     assert provider.transcribe("voice.ogg") == "fallback:voice.ogg"
+
+
+def test_routed_provider_forwards_reaction_context_to_fallback() -> None:
+    fallback = _CaptureReactionProvider()
+    provider = RoutedModelProvider(primary=_FailReactionProvider(), fallback=fallback)
+
+    reaction = provider.choose_reaction("hello", ["😀"], context_text="Alice: hi")
+
+    assert reaction == "😀"
+    assert fallback.last_context == "Alice: hi"

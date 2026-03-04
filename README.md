@@ -39,7 +39,16 @@ git clone <your-repo-url>
 cd kabanus
 ```
 
-### 3. Configure Environment Variables
+### 3. Create and Activate Virtual Environment (Local Development)
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+pip install -r requirements-dev.txt
+```
+
+### 4. Configure Environment Variables
 Create a `.env` file or set environment variables:
 ```
 # Core
@@ -82,6 +91,8 @@ REACTION_COOLDOWN_SECS=600                 # Optional, seconds between reactions
 REACTION_DAILY_BUDGET=50                   # Optional, max reactions per day
 REACTION_MESSAGES_THRESHOLD=10             # Optional, messages between reactions
 REACTION_GEMINI_MODEL=gemini-2.0-flash     # Optional, defaults to GEMINI_MODEL
+REACTION_CONTEXT_TURNS=8                   # Optional, recent dialogue lines considered for reaction choice
+REACTION_CONTEXT_TOKEN_LIMIT=1200          # Optional, token budget for reaction context prompt
 
 # Google Calendar
 GOOGLE_CALENDAR_ID=your-calendar-id        # Required for event creation
@@ -111,13 +122,13 @@ SETTINGS_CACHE_TTL=1.0                     # Optional, settings cache TTL in sec
 SETTINGS_REFRESH_INTERVAL=1.0              # Optional, refresh interval (used if job enabled)
 ```
 
-### 4. Build and Run with Docker
+### 5. Build and Run with Docker
 ```
 docker build -t kabanus .
 docker run --env-file .env kabanus
 ```
 
-### 5. OpenAI Onboarding Wizard (Optional)
+### 6. OpenAI Onboarding Wizard (Optional)
 
 Generate `scripts/openai.auth.json` and validate your OpenAI key with a live smoke test:
 
@@ -148,7 +159,7 @@ Supported OpenAI models in this setup:
 4. `gpt-5.2` - Frontier model with improvements across knowledge, reasoning, and coding.
 5. `gpt-5.1-codex-mini` - Optimized for Codex, cheaper and faster.
 
-### 5.1 OpenAI `auth.json` Refresh Behavior
+### 6.1 OpenAI `auth.json` Refresh Behavior
 
 When `OPENAI_AUTH_JSON_PATH` is set, runtime auth uses access+refresh tokens from `auth.json`
 instead of `OPENAI_API_KEY`.
@@ -176,13 +187,10 @@ Supported shapes include top-level keys and `tokens.*` keys. Minimal recommended
 }
 ```
 
-### 6. Run Locally (for development)
-Install dependencies:
-```
-pip install -r requirements.txt
-```
-Run the bot:
-```
+### 7. Run Locally (for development)
+With the virtual environment activated:
+```bash
+source .venv/bin/activate
 python -m src.main
 ```
 
@@ -195,7 +203,7 @@ python -m src.main
   `/summary help` shows command usage.
   Summary command requests and responses are not saved into chat history.
 - If `GEMINI_MODELS` is set, the bot tries models in order of desirability and skips any that hit RPM/RPD limits.
-- If `REACTION_ENABLED=true`, the bot may react to messages using Gemini within the configured budget/cooldown.
+- If `REACTION_ENABLED=true`, the bot may react to messages within configured budget/cooldown and considers recent dialogue context when choosing emoji.
 
 ## Utilities
 - `scripts/dump_chat.py`: Dump Telegram chat history to JSONL (see script for usage).

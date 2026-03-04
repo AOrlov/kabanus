@@ -225,8 +225,17 @@ class OpenAIProvider(ModelProvider):
             user_content=[{"type": "input_text", "text": prompt}],
         )
 
-    def choose_reaction(self, message: str, allowed_reactions: list[str]) -> str:
+    def choose_reaction(
+        self,
+        message: str,
+        allowed_reactions: list[str],
+        context_text: str = "",
+    ) -> str:
         _, settings = self._get_client()
+        prompt_parts = [f"Current message: {message}"]
+        if context_text:
+            prompt_parts.append(f"Recent context:\n{context_text}")
+        prompt_parts.append(f"Allowed reactions: {', '.join(allowed_reactions)}")
         text = self._responses_create(
             model=settings.openai_reaction_model,
             system_instruction=(
@@ -236,7 +245,7 @@ class OpenAIProvider(ModelProvider):
             user_content=[
                 {
                     "type": "input_text",
-                    "text": f"Message: {message}\nAllowed reactions: {', '.join(allowed_reactions)}",
+                    "text": "\n\n".join(prompt_parts),
                 }
             ],
         ).strip()

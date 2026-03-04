@@ -1,3 +1,4 @@
+import asyncio
 import importlib
 import sys
 from types import SimpleNamespace
@@ -15,7 +16,12 @@ class _DummyProvider:
     def generate_low_cost(self, prompt: str) -> str:
         return ""
 
-    def choose_reaction(self, message: str, allowed_reactions: list[str]) -> str:
+    def choose_reaction(
+        self,
+        message: str,
+        allowed_reactions: list[str],
+        context_text: str = "",
+    ) -> str:
         return ""
 
     def parse_image_to_event(self, image_path: str) -> dict:
@@ -137,3 +143,126 @@ def test_build_prompt_includes_reply_target_context(monkeypatch) -> None:
     assert "Target message for clarification:" in prompt
     assert "Alice: image says deploy at 18:00" in prompt
     assert prompt.endswith("Bob: @kaban explain")
+
+
+class _ReactionRecorderProvider(_DummyProvider):
+    def __init__(self, reaction: str) -> None:
+        self.reaction = reaction
+        self.calls = []
+
+    def choose_reaction(
+        self,
+        message: str,
+        allowed_reactions: list[str],
+        context_text: str = "",
+    ) -> str:
+        self.calls.append(
+            {
+                "message": message,
+                "allowed_reactions": list(allowed_reactions),
+                "context_text": context_text,
+            }
+        )
+        return self.reaction
+
+
+class _ReactionMessage:
+    def __init__(self) -> None:
+        self.reaction = None
+
+    async def set_reaction(self, reaction: str) -> None:
+        self.reaction = reaction
+
+
+def _reaction_settings(**overrides):
+    base = {
+        "reaction_enabled": True,
+        "reaction_daily_budget": 10,
+        "reaction_cooldown_secs": 0.0,
+        "reaction_messages_threshold": 1,
+        "reaction_context_turns": 8,
+        "reaction_context_token_limit": 1200,
+        "debug_mode": False,
+    }
+    base.update(overrides)
+    return SimpleNamespace(**base)
+
+
+def test_maybe_react_uses_recent_context_window(monkeypatch) -> None:
+    main = _load_main(monkeypatch)
+    reaction = main._REACTION_ALLOWED_LIST[0]
+    provider = _ReactionRecorderProvider(reaction)
+    monkeypatch.setattr(main, "model_provider", provider)
+    monkeypatch.setattr(main.config, "get_settings", lambda: _reaction_settings(reaction_context_turns=2))
+    monkeypatch.setattr(
+        main,
+        "get_all_messages",
+        lambda _chat_id: [
+            {"sender": "Alice", "text": "one"},
+            {"sender": "Bob", "text": "two"},
+            {"sender": "Carol", "text": "three"},
+        ],
+    )
+
+    main._REACTION_DAY = None
+    main._REACTION_COUNT = 0
+    main._REACTION_LAST_TS = 0.0
+    main._MESSAGES_SINCE_LAST_REACTION = 0
+
+    message = _ReactionMessage()
+    update = SimpleNamespace(
+        message=message,
+        effective_user=SimpleNamespace(id=1),
+        effective_chat=SimpleNamespace(id=2, type="group"),
+        update_id=123,
+    )
+
+    asyncio.run(main.maybe_react(update, "latest"))
+
+    assert message.reaction == reaction
+    assert len(provider.calls) == 1
+    context = provider.calls[0]["context_text"]
+    assert "Bob: two" in context
+    assert "Carol: three" in context
+    assert "Alice: one" not in context
+
+
+def test_maybe_react_respects_reaction_context_token_limit(monkeypatch) -> None:
+    main = _load_main(monkeypatch)
+    reaction = main._REACTION_ALLOWED_LIST[0]
+    provider = _ReactionRecorderProvider(reaction)
+    monkeypatch.setattr(main, "model_provider", provider)
+    monkeypatch.setattr(
+        main.config,
+        "get_settings",
+        lambda: _reaction_settings(reaction_context_turns=10, reaction_context_token_limit=30),
+    )
+    monkeypatch.setattr(
+        main,
+        "get_all_messages",
+        lambda _chat_id: [
+            {"sender": "Alice", "text": "a" * 60},
+            {"sender": "Bob", "text": "b" * 60},
+            {"sender": "Carol", "text": "c" * 60},
+        ],
+    )
+
+    main._REACTION_DAY = None
+    main._REACTION_COUNT = 0
+    main._REACTION_LAST_TS = 0.0
+    main._MESSAGES_SINCE_LAST_REACTION = 0
+
+    message = _ReactionMessage()
+    update = SimpleNamespace(
+        message=message,
+        effective_user=SimpleNamespace(id=1),
+        effective_chat=SimpleNamespace(id=2, type="group"),
+        update_id=456,
+    )
+
+    asyncio.run(main.maybe_react(update, "latest"))
+
+    assert len(provider.calls) == 1
+    context = provider.calls[0]["context_text"]
+    assert "Carol: ccccc" in context
+    assert "Bob: bbbbb" not in context
