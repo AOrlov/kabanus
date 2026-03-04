@@ -40,6 +40,8 @@ def test_openai_provider_defaults(monkeypatch) -> None:
     assert settings.openai_model == "gpt-5.3-codex"
     assert settings.openai_low_cost_model == settings.openai_model
     assert settings.openai_reaction_model == settings.openai_low_cost_model
+    assert settings.reaction_context_turns == 8
+    assert settings.reaction_context_token_limit == 1200
     assert settings.openai_refresh_url == "https://auth.openai.com/oauth/token"
     assert settings.openai_codex_base_url == "https://chatgpt.com/backend-api"
     assert settings.openai_codex_default_model == "gpt-5.3-codex"
@@ -64,6 +66,21 @@ def test_openai_provider_accepts_auth_json_without_api_key(
     assert settings.openai_model == "gpt-5.3-codex"
     assert settings.openai_low_cost_model == "gpt-5.3-codex"
     assert settings.openai_reaction_model == "gpt-5.3-codex"
+
+
+def test_reaction_context_env_values_are_clamped(monkeypatch) -> None:
+    monkeypatch.setattr(config, "_reload_env", lambda: None)
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "t")
+    monkeypatch.setenv("ALLOWED_CHAT_IDS", "1")
+    monkeypatch.setenv("MODEL_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "k")
+    monkeypatch.setenv("REACTION_CONTEXT_TURNS", "0")
+    monkeypatch.setenv("REACTION_CONTEXT_TOKEN_LIMIT", "-10")
+    _reset_settings_cache()
+
+    settings = config.get_settings(force=True)
+    assert settings.reaction_context_turns == 1
+    assert settings.reaction_context_token_limit == 1
 
 
 def test_telegram_format_ai_replies_default_true(monkeypatch) -> None:

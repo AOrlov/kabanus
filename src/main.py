@@ -27,7 +27,9 @@ from src import config, logging_utils, utils
 from src.calendar_provider import CalendarProvider
 from src.message_store import (
     add_message,
+    assemble_context,
     build_context,
+    get_all_messages,
     get_message_by_telegram_message_id,
     get_summary_view_text,
 )
@@ -361,6 +363,23 @@ def _reset_reaction_budget_if_needed(now: datetime) -> None:
         _REACTION_COUNT = 0
 
 
+def _build_reaction_context(chat_id: Optional[str], settings: config.Settings) -> str:
+    if (
+        not chat_id
+        or settings.reaction_context_turns <= 0
+        or settings.reaction_context_token_limit <= 0
+    ):
+        return ""
+    messages = get_all_messages(chat_id)
+    if not messages:
+        return ""
+    recent_messages = messages[-settings.reaction_context_turns :]
+    return assemble_context(
+        recent_messages,
+        token_limit=settings.reaction_context_token_limit,
+    )
+
+
 def is_allowed(update: Update) -> bool:
     if update.effective_chat is None or update.effective_user is None:
         return False
@@ -407,7 +426,24 @@ async def maybe_react(update: Update, text: str):
     if _MESSAGES_SINCE_LAST_REACTION < settings.reaction_messages_threshold:
         return
 
-    reaction = model_provider.choose_reaction(text, _REACTION_ALLOWED_LIST).strip()
+    storage_id = _storage_id(update)
+    reaction_context = _build_reaction_context(storage_id, settings)
+    if settings.debug_mode:
+        logger.debug(
+            "Built reaction context",
+            extra={
+                **_log_context(update),
+                "has_context": bool(reaction_context),
+                "context_chars": len(reaction_context),
+                "context_preview": reaction_context[:256],
+            },
+        )
+
+    reaction = model_provider.choose_reaction(
+        text,
+        _REACTION_ALLOWED_LIST,
+        context_text=reaction_context,
+    ).strip()
     if not reaction:
         return
     if reaction not in _REACTION_ALLOWED_SET:

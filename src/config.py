@@ -118,6 +118,8 @@ class Settings:
     reaction_daily_budget: int
     reaction_messages_threshold: int
     reaction_gemini_model: str
+    reaction_context_turns: int
+    reaction_context_token_limit: int
     telegram_format_ai_replies: bool
 
 
@@ -283,6 +285,10 @@ def get_settings(force: bool = False) -> Settings:
         reaction_daily_budget=int(os.getenv("REACTION_DAILY_BUDGET", "50")),
         reaction_messages_threshold=int(os.getenv("REACTION_MESSAGES_THRESHOLD", "10")),
         reaction_gemini_model=os.getenv("REACTION_GEMINI_MODEL", gemini_model).lower(),
+        reaction_context_turns=max(1, int(os.getenv("REACTION_CONTEXT_TURNS", "8"))),
+        reaction_context_token_limit=max(
+            1, int(os.getenv("REACTION_CONTEXT_TOKEN_LIMIT", "1200"))
+        ),
         telegram_format_ai_replies=_env_bool("TELEGRAM_FORMAT_AI_REPLIES", "true"),
     )
     _SETTINGS_CACHE = settings
@@ -339,6 +345,8 @@ def __getattr__(name: str):
         "REACTION_DAILY_BUDGET": settings.reaction_daily_budget,
         "REACTION_MESSAGES_THRESHOLD": settings.reaction_messages_threshold,
         "REACTION_GEMINI_MODEL": settings.reaction_gemini_model,
+        "REACTION_CONTEXT_TURNS": settings.reaction_context_turns,
+        "REACTION_CONTEXT_TOKEN_LIMIT": settings.reaction_context_token_limit,
         "TELEGRAM_FORMAT_AI_REPLIES": settings.telegram_format_ai_replies,
     }
     if name in mapping:

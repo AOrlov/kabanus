@@ -9,7 +9,12 @@ class ModelProvider:
     def generate_low_cost(self, prompt: str) -> str:
         raise NotImplementedError
 
-    def choose_reaction(self, message: str, allowed_reactions: list[str]) -> str:
+    def choose_reaction(
+        self,
+        message: str,
+        allowed_reactions: list[str],
+        context_text: str = "",
+    ) -> str:
         raise NotImplementedError
 
     def parse_image_to_event(self, image_path: str) -> dict:

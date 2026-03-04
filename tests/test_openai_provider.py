@@ -105,7 +105,9 @@ class _ModelFallbackResponses:
         model = kwargs["model"]
         self.models.append(model)
         if model == "legacy-unsupported-model":
-            raise RuntimeError("The 'legacy-unsupported-model' model is not supported when using Codex with a ChatGPT account.")
+            raise RuntimeError(
+                "The 'legacy-unsupported-model' model is not supported when using Codex with a ChatGPT account."
+            )
         return SimpleNamespace(output_text="ok")
 
     def stream(self, **kwargs):
@@ -151,3 +153,34 @@ def test_responses_create_retries_with_codex_default_model(monkeypatch) -> None:
 
     assert result == "ok"
     assert fake.models == ["legacy-unsupported-model", "gpt-5.3-codex"]
+
+
+def test_choose_reaction_includes_recent_context(monkeypatch) -> None:
+    provider = OpenAIProvider()
+    settings = SimpleNamespace(openai_reaction_model="gpt-5.3-codex")
+    monkeypatch.setattr(
+        provider,
+        "_get_client",
+        lambda force_refresh=False: (SimpleNamespace(), settings),
+    )
+    captured = {}
+
+    def _fake_responses_create(*, model, user_content, system_instruction=""):
+        captured["model"] = model
+        captured["prompt"] = user_content[0]["text"]
+        return "😀"
+
+    monkeypatch.setattr(provider, "_responses_create", _fake_responses_create)
+
+    reaction = provider.choose_reaction(
+        "ship it",
+        ["😀", "😴"],
+        context_text="Alice: deploy in 10 minutes",
+    )
+
+    assert reaction == "😀"
+    assert captured["model"] == "gpt-5.3-codex"
+    assert "Current message: ship it" in captured["prompt"]
+    assert "Recent context:" in captured["prompt"]
+    assert "Alice: deploy in 10 minutes" in captured["prompt"]
+    assert "Allowed reactions: 😀, 😴" in captured["prompt"]

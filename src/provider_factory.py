@@ -48,13 +48,26 @@ class RoutedModelProvider(ModelProvider):
         fallback_fn = (lambda: self._fallback.generate_low_cost(prompt)) if self._fallback is not None else None
         return self._call("generate_low_cost", lambda: self._primary.generate_low_cost(prompt), fallback_fn)
 
-    def choose_reaction(self, message: str, allowed_reactions: list[str]) -> str:
+    def choose_reaction(
+        self,
+        message: str,
+        allowed_reactions: list[str],
+        context_text: str = "",
+    ) -> str:
         fallback_fn = (
-            lambda: self._fallback.choose_reaction(message, allowed_reactions)
+            lambda: self._fallback.choose_reaction(
+                message,
+                allowed_reactions,
+                context_text=context_text,
+            )
         ) if self._fallback is not None else None
         return self._call(
             "choose_reaction",
-            lambda: self._primary.choose_reaction(message, allowed_reactions),
+            lambda: self._primary.choose_reaction(
+                message,
+                allowed_reactions,
+                context_text=context_text,
+            ),
             fallback_fn,
         )
 
@@ -66,7 +79,11 @@ class RoutedModelProvider(ModelProvider):
         fallback_fn = (
             lambda: self._fallback.image_to_text(image_bytes, mime_type=mime_type)
         ) if self._fallback is not None else None
-        return self._call("image_to_text", lambda: self._primary.image_to_text(image_bytes, mime_type=mime_type), fallback_fn)
+        return self._call(
+            "image_to_text",
+            lambda: self._primary.image_to_text(image_bytes, mime_type=mime_type),
+            fallback_fn,
+        )
 
 
 def build_provider() -> ModelProvider:
