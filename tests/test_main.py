@@ -328,6 +328,44 @@ def test_should_use_message_drafts_private_openai_only(monkeypatch) -> None:
     assert main._should_use_message_drafts(update_private, gemini_settings) is False
 
 
+def test_message_drafts_unavailable_reason(monkeypatch) -> None:
+    main = _load_main(monkeypatch)
+    update_private = SimpleNamespace(effective_chat=SimpleNamespace(type="private"))
+    update_group = SimpleNamespace(effective_chat=SimpleNamespace(type="group"))
+
+    disabled_settings = SimpleNamespace(
+        telegram_use_message_drafts=False,
+        model_provider="openai",
+    )
+    gemini_settings = SimpleNamespace(
+        telegram_use_message_drafts=True,
+        model_provider="gemini",
+    )
+    openai_settings = SimpleNamespace(
+        telegram_use_message_drafts=True,
+        model_provider="openai",
+    )
+    update_without_chat = SimpleNamespace(effective_chat=None)
+
+    assert (
+        main._message_drafts_unavailable_reason(update_private, disabled_settings)
+        == "feature_disabled"
+    )
+    assert (
+        main._message_drafts_unavailable_reason(update_private, gemini_settings)
+        == "provider_not_openai"
+    )
+    assert (
+        main._message_drafts_unavailable_reason(update_without_chat, openai_settings)
+        == "missing_chat"
+    )
+    assert (
+        main._message_drafts_unavailable_reason(update_group, openai_settings)
+        == "chat_type_group"
+    )
+    assert main._message_drafts_unavailable_reason(update_private, openai_settings) is None
+
+
 def test_generate_response_with_drafts_streams_updates(monkeypatch) -> None:
     main = _load_main(monkeypatch)
     provider = _StreamingProvider(["he", "hello", "hello world"])

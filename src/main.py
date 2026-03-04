@@ -846,10 +846,23 @@ async def handle_addressed_message(update: Update, context: ContextTypes.DEFAULT
                 "Generated prompt",
                 extra={**_log_context(update), "prompt": prompt},
             )
+    draft_unavailable_reason = _message_drafts_unavailable_reason(update, settings)
+    use_message_drafts = draft_unavailable_reason is None
+    if settings.telegram_use_message_drafts and not use_message_drafts:
+        logger.debug(
+            "Telegram message drafts are enabled but cannot be used in this chat",
+            extra={
+                **_log_context(update),
+                "reason": draft_unavailable_reason,
+                "model_provider": settings.model_provider,
+                "chat_type": getattr(update.effective_chat, "type", None),
+            },
+        )
+
     response = ""
     max_empty_retries = 3
     for attempt in range(1, max_empty_retries + 1):
-        if _should_use_message_drafts(update, settings):
+        if use_message_drafts:
             response = await _generate_response_with_drafts(update, prompt, settings)
         else:
             response = (model_provider.generate(prompt) or "").strip()
@@ -888,14 +901,22 @@ def chunk_string(s: str, chunk_size: int) -> list[str]:
     return [s[i : i + chunk_size] for i in range(0, len(s), chunk_size)]
 
 
-def _should_use_message_drafts(update: Update, settings: config.Settings) -> bool:
+def _message_drafts_unavailable_reason(
+    update: Update, settings: config.Settings
+) -> Optional[str]:
     if not settings.telegram_use_message_drafts:
-        return False
+        return "feature_disabled"
     if settings.model_provider != "openai":
-        return False
+        return "provider_not_openai"
     if update.effective_chat is None:
-        return False
-    return update.effective_chat.type == "private"
+        return "missing_chat"
+    if update.effective_chat.type != "private":
+        return f"chat_type_{update.effective_chat.type}"
+    return None
+
+
+def _should_use_message_drafts(update: Update, settings: config.Settings) -> bool:
+    return _message_drafts_unavailable_reason(update, settings) is None
 
 
 def _build_response_draft_id(update: Update) -> int:
