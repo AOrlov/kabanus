@@ -116,6 +116,7 @@ def test_telegram_use_message_drafts_default_false(monkeypatch) -> None:
     monkeypatch.setenv("MODEL_PROVIDER", "openai")
     monkeypatch.setenv("OPENAI_API_KEY", "k")
     monkeypatch.delenv("TELEGRAM_USE_MESSAGE_DRAFTS", raising=False)
+    monkeypatch.delenv("TELEGRAM_DRAFT_UPDATE_INTERVAL_SECS", raising=False)
     _reset_settings_cache()
 
     settings = config.get_settings(force=True)
