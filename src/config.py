@@ -294,7 +294,7 @@ def get_settings(force: bool = False) -> Settings:
         telegram_format_ai_replies=_env_bool("TELEGRAM_FORMAT_AI_REPLIES", "true"),
         telegram_use_message_drafts=_env_bool("TELEGRAM_USE_MESSAGE_DRAFTS"),
         telegram_draft_update_interval_secs=max(
-            0.05, float(os.getenv("TELEGRAM_DRAFT_UPDATE_INTERVAL_SECS", "0.5"))
+            0.05, float(os.getenv("TELEGRAM_DRAFT_UPDATE_INTERVAL_SECS", "0.15"))
         ),
     )
     _SETTINGS_CACHE = settings

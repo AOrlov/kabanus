@@ -930,6 +930,8 @@ async def _generate_response_with_drafts(
         if pending_send_task is None:
             return
         if not force and not pending_send_task.done():
+            # Let pending draft update task start/advance before the next stream poll.
+            await asyncio.sleep(0)
             return
         try:
             await pending_send_task
@@ -980,6 +982,7 @@ async def _generate_response_with_drafts(
             if last_sent_ts and (now - last_sent_ts) < settings.telegram_draft_update_interval_secs:
                 continue
             _schedule_send(draft_text)
+            await asyncio.sleep(0)
     except Exception as exc:
         stream_error = exc
         logger.warning(

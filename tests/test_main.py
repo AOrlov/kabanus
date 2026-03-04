@@ -1,6 +1,7 @@
 import asyncio
 import importlib
 import sys
+import threading
 from types import SimpleNamespace
 
 from src import config, provider_factory
@@ -298,6 +299,17 @@ class _FailingStreamProvider(_DummyProvider):
         return self.fallback_text
 
 
+class _DraftSchedulingProbeProvider(_DummyProvider):
+    def __init__(self, first_draft_sent: threading.Event):
+        self._first_draft_sent = first_draft_sent
+        self.wait_saw_signal = False
+
+    def generate_stream(self, prompt: str):
+        yield "he"
+        self.wait_saw_signal = self._first_draft_sent.wait(timeout=0.2)
+        yield "hello"
+
+
 def test_should_use_message_drafts_private_openai_only(monkeypatch) -> None:
     main = _load_main(monkeypatch)
     update_private = SimpleNamespace(effective_chat=SimpleNamespace(type="private"))
@@ -441,6 +453,35 @@ def test_generate_response_with_drafts_falls_back_to_generate_when_stream_empty(
     assert provider.stream_prompts == ["p"]
     assert provider.generate_prompts == ["p"]
     assert sent_updates[-1]["text"] == "fallback response"
+
+
+def test_generate_response_with_drafts_starts_sending_before_next_chunk(monkeypatch) -> None:
+    main = _load_main(monkeypatch)
+    first_draft_sent = threading.Event()
+    provider = _DraftSchedulingProbeProvider(first_draft_sent)
+    monkeypatch.setattr(main, "model_provider", provider)
+
+    async def _fake_send_message_draft(**kwargs):
+        first_draft_sent.set()
+        return True
+
+    monkeypatch.setattr(main, "send_message_draft", _fake_send_message_draft)
+
+    update = SimpleNamespace(
+        effective_chat=SimpleNamespace(id=7, type="private"),
+        message=SimpleNamespace(message_id=77),
+        effective_user=SimpleNamespace(id=1),
+        update_id=1,
+    )
+    settings = SimpleNamespace(
+        telegram_bot_token="test-token",
+        telegram_draft_update_interval_secs=0.0,
+    )
+
+    response = asyncio.run(main._generate_response_with_drafts(update, "p", settings))
+
+    assert response == "hello"
+    assert provider.wait_saw_signal is True
 
 
 def test_build_response_draft_id_is_positive_int(monkeypatch) -> None:
