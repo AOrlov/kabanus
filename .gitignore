@@ -86,3 +86,5 @@ system_instructions.txt
 
 /src/data/*
 /.secrets/
+# ralphex progress logs
+.ralphex/progress/
