@@ -105,3 +105,46 @@ def test_get_message_by_telegram_message_id(monkeypatch, tmp_path) -> None:
     assert found["sender"] == "Alice"
     assert found["text"] == "first"
     assert missing is None
+
+
+def test_get_all_messages_returns_copy_for_legacy_callers(monkeypatch, tmp_path) -> None:
+    store_path = tmp_path / "messages.jsonl"
+    monkeypatch.setattr(
+        message_store.config,
+        "get_settings",
+        lambda: _settings(chat_messages_store_path=str(store_path)),
+    )
+    message_store._message_store_by_chat.clear()
+
+    message_store.add_message("Alice", "first", chat_id="chat3")
+
+    snapshot = message_store.get_all_messages("chat3")
+    snapshot.append({"sender": "Injected", "text": "tampered"})
+
+    fresh = message_store.get_all_messages("chat3")
+    assert len(snapshot) == 2
+    assert len(fresh) == 1
+    assert fresh[0]["sender"] == "Alice"
+
+
+def test_add_message_normalizes_legacy_string_ids(monkeypatch, tmp_path) -> None:
+    store_path = tmp_path / "messages.jsonl"
+    monkeypatch.setattr(
+        message_store.config,
+        "get_settings",
+        lambda: _settings(chat_messages_store_path=str(store_path)),
+    )
+    message_store._message_store_by_chat.clear()
+
+    message_store.add_message(
+        "Alice",
+        "hello",
+        chat_id="chat4",
+        telegram_message_id="100",
+        reply_to_telegram_message_id="90",
+    )
+    added = message_store.get_last_message("chat4")
+
+    assert added is not None
+    assert added["telegram_message_id"] == 100
+    assert added["reply_to_telegram_message_id"] == 90

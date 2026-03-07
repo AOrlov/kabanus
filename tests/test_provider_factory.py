@@ -1,4 +1,7 @@
+from types import SimpleNamespace
+
 from src.model_provider import ModelProvider
+from src import provider_factory
 from src.provider_factory import RoutedModelProvider
 
 
@@ -72,6 +75,22 @@ class _CaptureReactionProvider(_OkProvider):
         return super().choose_reaction(message, allowed_reactions, context_text=context_text)
 
 
+class _OpenAIProvider(_OkProvider):
+    def transcribe(self, audio_path: str) -> str:
+        return f"openai:{audio_path}"
+
+    def generate(self, prompt: str) -> str:
+        return f"openai:{prompt}"
+
+
+class _GeminiProvider(_OkProvider):
+    def transcribe(self, audio_path: str) -> str:
+        return f"gemini:{audio_path}"
+
+    def generate(self, prompt: str) -> str:
+        return f"gemini:{prompt}"
+
+
 def test_routed_provider_falls_back_on_generate_error() -> None:
     provider = RoutedModelProvider(primary=_FailGenerateProvider(), fallback=_OkProvider())
     assert provider.generate("hello") == "g:hello"
@@ -109,3 +128,67 @@ def test_routed_provider_forwards_reaction_context_to_fallback() -> None:
 
     assert reaction == "😀"
     assert fallback.last_context == "Alice: hi"
+
+
+def test_build_provider_openai_uses_gemini_transcribe_fallback(monkeypatch) -> None:
+    monkeypatch.setattr(
+        provider_factory.config,
+        "get_settings",
+        lambda: SimpleNamespace(
+            model_provider="openai",
+            gemini_api_key="gem-key",
+            openai_api_key="openai-key",
+            openai_auth_json_path="",
+        ),
+    )
+    monkeypatch.setattr(provider_factory, "OpenAIProvider", _OpenAIProvider)
+    monkeypatch.setattr(provider_factory, "GeminiProvider", _GeminiProvider)
+
+    routed = provider_factory.build_provider()
+
+    assert routed.generate("ping") == "openai:ping"
+    assert routed.transcribe("voice.ogg") == "gemini:voice.ogg"
+
+
+def test_build_provider_openai_without_fallback_keeps_primary_transcribe(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        provider_factory.config,
+        "get_settings",
+        lambda: SimpleNamespace(
+            model_provider="openai",
+            gemini_api_key="",
+            openai_api_key="openai-key",
+            openai_auth_json_path="",
+        ),
+    )
+    monkeypatch.setattr(provider_factory, "OpenAIProvider", _OpenAIProvider)
+    monkeypatch.setattr(provider_factory, "GeminiProvider", _GeminiProvider)
+
+    routed = provider_factory.build_provider()
+
+    assert routed.generate("ping") == "openai:ping"
+    assert routed.transcribe("voice.ogg") == "openai:voice.ogg"
+
+
+def test_build_provider_gemini_keeps_primary_transcribe_even_with_openai_fallback(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        provider_factory.config,
+        "get_settings",
+        lambda: SimpleNamespace(
+            model_provider="gemini",
+            gemini_api_key="gem-key",
+            openai_api_key="openai-key",
+            openai_auth_json_path="",
+        ),
+    )
+    monkeypatch.setattr(provider_factory, "OpenAIProvider", _OpenAIProvider)
+    monkeypatch.setattr(provider_factory, "GeminiProvider", _GeminiProvider)
+
+    routed = provider_factory.build_provider()
+
+    assert routed.generate("ping") == "gemini:ping"
+    assert routed.transcribe("voice.ogg") == "gemini:voice.ogg"

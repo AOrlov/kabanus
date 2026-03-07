@@ -146,6 +146,49 @@ def test_build_prompt_includes_reply_target_context(monkeypatch) -> None:
     assert prompt.endswith("Bob: @kaban explain")
 
 
+def test_parse_summary_command_args_friendly_forms(monkeypatch) -> None:
+    main = _load_main(monkeypatch)
+
+    parsed_tail, tail_err = main._parse_summary_command_args(["5", "budget"])
+    parsed_index, index_err = main._parse_summary_command_args(["index", "12"])
+    parsed_grep, grep_err = main._parse_summary_command_args(["incident", "report"])
+
+    assert tail_err is None
+    assert parsed_tail == {
+        "head": 0,
+        "tail": 5,
+        "index": None,
+        "grep": "budget",
+        "show_help": False,
+    }
+    assert index_err is None
+    assert parsed_index == {
+        "head": 0,
+        "tail": 0,
+        "index": 12,
+        "grep": "",
+        "show_help": False,
+    }
+    assert grep_err is None
+    assert parsed_grep == {
+        "head": 5,
+        "tail": 0,
+        "index": None,
+        "grep": "incident report",
+        "show_help": False,
+    }
+
+
+def test_parse_summary_command_args_help_aliases(monkeypatch) -> None:
+    main = _load_main(monkeypatch)
+
+    for token in ["help", "--help", "-help", "?"]:
+        parsed, err = main._parse_summary_command_args([token])
+        assert err is None
+        assert parsed is not None
+        assert parsed["show_help"] is True
+
+
 class _ReactionRecorderProvider(_DummyProvider):
     def __init__(self, reaction: str) -> None:
         self.reaction = reaction

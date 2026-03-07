@@ -49,10 +49,10 @@ Refactor the codebase to reduce complexity and improve maintainability by splitt
 - Create: `tests/test_main_flow_contracts.py`
 - Create: `tests/test_config_compat_contract.py`
 
-- [ ] Add characterization tests for current externally observable behavior (message handling trigger matrix, summary command parsing forms, drafts fallback behavior, reaction gating, and context limits)
-- [ ] Add config compatibility contract tests that lock current env var names/defaults and module-level config attribute access behavior
-- [ ] Add tests that validate old callers of message_store and provider factory still behave identically
-- [ ] Run `pytest -q` and fix regressions before task 2
+- [x] Add characterization tests for current externally observable behavior (message handling trigger matrix, summary command parsing forms, drafts fallback behavior, reaction gating, and context limits)
+- [x] Add config compatibility contract tests that lock current env var names/defaults and module-level config attribute access behavior
+- [x] Add tests that validate old callers of message_store and provider factory still behave identically
+- [x] Run `pytest -q` and fix regressions before task 2
 
 ### Task 2: Isolate Configuration Parsing and Keep Legacy Compatibility Surface
 
