@@ -48,7 +48,9 @@ class OpenAIAuthManager:
                 or self._extract_text(data, "api_key")
                 or self._extract_text(data, "OPENAI_API_KEY")
             )
-            refresh_token = self._extract_text(data, "refresh_token") or self._extract_text(data, "tokens.refresh_token")
+            refresh_token = self._extract_text(
+                data, "refresh_token"
+            ) or self._extract_text(data, "tokens.refresh_token")
             expires_at = self._parse_expires_at(data)
             token_url = (
                 self._extract_text(data, "token_url")
@@ -79,7 +81,9 @@ class OpenAIAuthManager:
                 client_id=client_id,
                 grant_type=grant_type,
             )
-            new_access_token, new_refresh_token, new_expires_at = self._refresh(snapshot)
+            new_access_token, new_refresh_token, new_expires_at = self._refresh(
+                snapshot
+            )
             self._write_auth_json(
                 data=data,
                 is_nested=is_nested,
@@ -128,7 +132,11 @@ class OpenAIAuthManager:
             if not isinstance(root, dict):
                 root = {}
             target = dict(root)
-            openai_block = dict(target.get("openai", {})) if isinstance(target.get("openai"), dict) else {}
+            openai_block = (
+                dict(target.get("openai", {}))
+                if isinstance(target.get("openai"), dict)
+                else {}
+            )
             openai_block.update(
                 {
                     "access_token": access_token,
@@ -148,7 +156,9 @@ class OpenAIAuthManager:
                     {
                         "access_token": access_token,
                         "refresh_token": refresh_token,
-                        "expires_at": int(expires_at) if expires_at is not None else None,
+                        "expires_at": (
+                            int(expires_at) if expires_at is not None else None
+                        ),
                         "token_url": token_url,
                         "client_id": client_id,
                         "grant_type": grant_type,
@@ -160,7 +170,9 @@ class OpenAIAuthManager:
                     {
                         "access_token": access_token,
                         "refresh_token": refresh_token,
-                        "expires_at": int(expires_at) if expires_at is not None else None,
+                        "expires_at": (
+                            int(expires_at) if expires_at is not None else None
+                        ),
                         "token_url": token_url,
                         "client_id": client_id,
                         "grant_type": grant_type,
@@ -170,7 +182,9 @@ class OpenAIAuthManager:
             json.dump(target, f, ensure_ascii=False, indent=2)
             f.write("\n")
 
-    def _refresh(self, snapshot: OpenAIAuthSnapshot) -> Tuple[str, str, Optional[float]]:
+    def _refresh(
+        self, snapshot: OpenAIAuthSnapshot
+    ) -> Tuple[str, str, Optional[float]]:
         payload = {
             "grant_type": snapshot.grant_type,
             "refresh_token": snapshot.refresh_token,
@@ -207,7 +221,9 @@ class OpenAIAuthManager:
         access_token = self._extract_text(data, "access_token")
         if not access_token:
             raise RuntimeError("Token refresh response missing access_token")
-        refresh_token = self._extract_text(data, "refresh_token") or snapshot.refresh_token
+        refresh_token = (
+            self._extract_text(data, "refresh_token") or snapshot.refresh_token
+        )
         expires_at = self._parse_expires_at(data)
         if expires_at is None:
             expires_in = data.get("expires_in")
@@ -243,20 +259,26 @@ class OpenAIAuthManager:
         if raw is None:
             return None
         if isinstance(raw, (int, float)):
-            value = float(raw)
-            return value / 1000.0 if value > 10_000_000_000 else value
+            numeric_value = float(raw)
+            return (
+                numeric_value / 1000.0
+                if numeric_value > 10_000_000_000
+                else numeric_value
+            )
         if isinstance(raw, str):
-            value = raw.strip()
-            if not value:
+            text_value = raw.strip()
+            if not text_value:
                 return None
             try:
-                numeric = float(value)
+                numeric = float(text_value)
                 return numeric / 1000.0 if numeric > 10_000_000_000 else numeric
             except ValueError:
                 pass
             try:
                 # Accept RFC3339-ish timestamps.
-                return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+                return datetime.fromisoformat(
+                    text_value.replace("Z", "+00:00")
+                ).timestamp()
             except ValueError:
                 return None
         return None

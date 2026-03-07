@@ -3,9 +3,8 @@ import json
 import logging
 import os
 import time
-from datetime import datetime
-import re
 import functools
+from datetime import datetime
 from typing import Dict, List, Optional
 
 from google import genai
@@ -72,7 +71,10 @@ class _ModelRouter:
             usage = self._usage_by_model.setdefault(spec.name, _ModelUsage())
             if usage.can_use(spec, now, today):
                 return spec
-        logger.error("All configured models exhausted for RPM/RPD limits.", extra={"event": "model_exhausted"})
+        logger.error(
+            "All configured models exhausted for RPM/RPD limits.",
+            extra={"event": "model_exhausted"},
+        )
         return None
 
     def record_request(self, spec: config.ModelSpec) -> None:
@@ -103,10 +105,14 @@ class GeminiProvider(ModelProvider):
     def _supports_thinking_config(self, model_name: str) -> bool:
         return "gemma" not in model_name.lower()
 
-    def _prefer_gemma_first(self, specs: List[config.ModelSpec]) -> List[config.ModelSpec]:
+    def _prefer_gemma_first(
+        self, specs: List[config.ModelSpec]
+    ) -> List[config.ModelSpec]:
         return sorted(specs, key=lambda spec: "gemma" not in spec.name.lower())
 
-    def _prefer_low_cost_first(self, specs: List[config.ModelSpec]) -> List[config.ModelSpec]:
+    def _prefer_low_cost_first(
+        self, specs: List[config.ModelSpec]
+    ) -> List[config.ModelSpec]:
         # GEMINI_MODELS is ordered from most powerful/expensive to cheapest.
         return list(reversed(specs))
 
@@ -193,7 +199,6 @@ class GeminiProvider(ModelProvider):
             tools=tools,
         )
 
-
     def _on_generate_error(
         self,
         client: genai.Client,
@@ -219,7 +224,11 @@ class GeminiProvider(ModelProvider):
             return False
         logger.error(
             "Gemini model quota exhausted. Retry with next model.",
-            extra={"model": spec.name, "attempt": attempt, "max_attempts": max_attempts},
+            extra={
+                "model": spec.name,
+                "attempt": attempt,
+                "max_attempts": max_attempts,
+            },
         )
         logger.debug("ClientError details", extra={"model": spec.name, "error": exc})
         self._model_router.mark_exhausted(spec)
@@ -238,14 +247,22 @@ class GeminiProvider(ModelProvider):
 
     def _get_system_instructions(self, settings):
         if settings.ai_system_instructions_path == "":
-            logger.warning("AI system instructions path is not set.", extra={"event": "missing_system_instructions"})
+            logger.warning(
+                "AI system instructions path is not set.",
+                extra={"event": "missing_system_instructions"},
+            )
             return ""
-        path = os.path.join(os.path.dirname(__file__), settings.ai_system_instructions_path)
+        path = os.path.join(
+            os.path.dirname(__file__), settings.ai_system_instructions_path
+        )
         try:
             mtime = os.path.getmtime(path)
         except OSError:
             mtime = None
-        if path != self._system_instructions_path or mtime != self._system_instructions_mtime:
+        if (
+            path != self._system_instructions_path
+            or mtime != self._system_instructions_mtime
+        ):
             with open(path, "r", encoding="utf-8") as f:
                 self._system_instructions = f.read()
             self._system_instructions_path = path
@@ -296,9 +313,7 @@ class GeminiProvider(ModelProvider):
     ) -> str:
         client, settings = self._get_client()
         system_instructions = self._get_system_instructions(settings)
-        grounding_tool = types.Tool(
-            google_search=types.GoogleSearch()
-        )
+        grounding_tool = types.Tool(google_search=types.GoogleSearch())
         selected_model = ""
 
         def run_request(spec: config.ModelSpec):
@@ -415,14 +430,14 @@ class GeminiProvider(ModelProvider):
             contents, system_instruction = self._prepare_contents(
                 spec,
                 [
-                    "Analyze this image and extract event information. " +
-                    "Provide a JSON response with the following fields: " +
-                    "title (string), date (YYYY-MM-DD), time (HH:MM), " +
-                    "location (string), description (string), " +
-                    "confidence (float between 0 and 1). " +
-                    "If any field is unclear, set it to null." +
-                    f"If there is no year, set it to current year ({datetime.now().year})",
-                    {"mime_type": "image/jpeg", "data": image_data}
+                    "Analyze this image and extract event information. "
+                    + "Provide a JSON response with the following fields: "
+                    + "title (string), date (YYYY-MM-DD), time (HH:MM), "
+                    + "location (string), description (string), "
+                    + "confidence (float between 0 and 1). "
+                    + "If any field is unclear, set it to null."
+                    + f"If there is no year, set it to current year ({datetime.now().year})",
+                    {"mime_type": "image/jpeg", "data": image_data},
                 ],
                 system_instructions,
             )
@@ -453,6 +468,7 @@ class GeminiProvider(ModelProvider):
         """Extracts readable content from image bytes and returns plain text."""
         client, settings = self._get_client()
         system_instructions = self._get_system_instructions(settings)
+
         def run_request(spec: config.ModelSpec):
             self._model_router.record_request(spec)
             contents, system_instruction = self._prepare_contents(

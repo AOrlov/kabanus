@@ -1,0 +1,3 @@
+interface:
+  display_name: "Python Code Review"
+  short_description: "Review Python code for bugs, security, performance, and test gaps"

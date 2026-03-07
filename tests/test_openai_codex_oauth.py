@@ -1,5 +1,4 @@
 import json
-from pathlib import Path
 
 from scripts import openai_codex_oauth
 

@@ -21,7 +21,9 @@ def test_onboard_writes_json_on_success(tmp_path, monkeypatch) -> None:
     rc = onboard_openai.onboard(
         str(auth_file),
         prompt_secret=lambda _: "sk-test",
-        prompt_input=_prompt_input_factory(["gpt-5.3-codex", "gpt-5.3-codex", "gpt-5.3-codex"]),
+        prompt_input=_prompt_input_factory(
+            ["gpt-5.3-codex", "gpt-5.3-codex", "gpt-5.3-codex"]
+        ),
         prompt_overwrite=lambda _: True,
     )
     assert rc == 0
@@ -37,7 +39,9 @@ def test_onboard_respects_overwrite_rejection(tmp_path, monkeypatch) -> None:
     rc = onboard_openai.onboard(
         str(auth_file),
         prompt_secret=lambda _: "sk-new",
-        prompt_input=_prompt_input_factory(["gpt-5.3-codex", "gpt-5.3-codex", "gpt-5.3-codex"]),
+        prompt_input=_prompt_input_factory(
+            ["gpt-5.3-codex", "gpt-5.3-codex", "gpt-5.3-codex"]
+        ),
         prompt_overwrite=lambda _: False,
     )
     assert rc == 1
@@ -54,7 +58,9 @@ def test_onboard_verify_failure_blocks_write(tmp_path, monkeypatch) -> None:
     rc = onboard_openai.onboard(
         str(auth_file),
         prompt_secret=lambda _: "sk-test",
-        prompt_input=_prompt_input_factory(["gpt-5.3-codex", "gpt-5.3-codex", "gpt-5.3-codex"]),
+        prompt_input=_prompt_input_factory(
+            ["gpt-5.3-codex", "gpt-5.3-codex", "gpt-5.3-codex"]
+        ),
         prompt_overwrite=lambda _: True,
     )
     assert rc == 2
@@ -65,7 +71,7 @@ def test_onboard_no_verify_writes(tmp_path, monkeypatch) -> None:
     auth_file = tmp_path / "openai.auth.json"
     called = {"verify": 0}
 
-    def _verify(api_key: str, model: str) -> None:
+    def _verify(_api_key: str, _model: str) -> None:
         called["verify"] += 1
 
     monkeypatch.setattr(onboard_openai, "verify_openai", _verify)
@@ -73,7 +79,9 @@ def test_onboard_no_verify_writes(tmp_path, monkeypatch) -> None:
         str(auth_file),
         no_verify=True,
         prompt_secret=lambda _: "sk-test",
-        prompt_input=_prompt_input_factory(["gpt-5.3-codex", "gpt-5.3-codex", "gpt-5.3-codex"]),
+        prompt_input=_prompt_input_factory(
+            ["gpt-5.3-codex", "gpt-5.3-codex", "gpt-5.3-codex"]
+        ),
         prompt_overwrite=lambda _: True,
     )
     assert rc == 0

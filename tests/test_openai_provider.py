@@ -18,7 +18,9 @@ def _jwt_with_account_id(account_id: str) -> str:
 def test_resolve_client_options_uses_codex_backend_for_auth_json(monkeypatch) -> None:
     provider = OpenAIProvider()
     token = _jwt_with_account_id("acct_123")
-    monkeypatch.setattr(provider, "_resolve_api_key", lambda _settings, force_refresh=False: token)
+    monkeypatch.setattr(
+        provider, "_resolve_api_key", lambda _settings, force_refresh=False: token
+    )
     monkeypatch.setattr(provider, "_get_auth_manager", lambda _settings: object())
     settings = SimpleNamespace(openai_codex_base_url="https://chatgpt.com/backend-api")
 
@@ -33,7 +35,11 @@ def test_resolve_client_options_uses_codex_backend_for_auth_json(monkeypatch) ->
 
 def test_resolve_client_options_falls_back_without_account_id(monkeypatch) -> None:
     provider = OpenAIProvider()
-    monkeypatch.setattr(provider, "_resolve_api_key", lambda _settings, force_refresh=False: "plain-token")
+    monkeypatch.setattr(
+        provider,
+        "_resolve_api_key",
+        lambda _settings, force_refresh=False: "plain-token",
+    )
     monkeypatch.setattr(provider, "_get_auth_manager", lambda _settings: object())
     settings = SimpleNamespace(openai_codex_base_url="https://chatgpt.com/backend-api")
 
@@ -181,7 +187,7 @@ class _AuthFailStreamingResponses:
         def __exit__(self, exc_type, exc, tb):
             return False
 
-    def stream(self, **kwargs):
+    def stream(self, **_kwargs):
         return self._StreamManager()
 
 
@@ -193,7 +199,9 @@ def test_responses_create_sets_instructions_in_codex_mode(monkeypatch) -> None:
         openai_auth_json_path="x",
         openai_codex_default_model="gpt-5.3-codex",
     )
-    monkeypatch.setattr(provider, "_get_client", lambda force_refresh=False: (client, settings))
+    monkeypatch.setattr(
+        provider, "_get_client", lambda force_refresh=False: (client, settings)
+    )
 
     result = provider._responses_create(
         model="gpt-5.3-codex",
@@ -215,7 +223,9 @@ def test_responses_create_retries_with_codex_default_model(monkeypatch) -> None:
         openai_auth_json_path="x",
         openai_codex_default_model="gpt-5.3-codex",
     )
-    monkeypatch.setattr(provider, "_get_client", lambda force_refresh=False: (client, settings))
+    monkeypatch.setattr(
+        provider, "_get_client", lambda force_refresh=False: (client, settings)
+    )
 
     result = provider._responses_create(
         model="legacy-unsupported-model",
@@ -235,7 +245,9 @@ def test_generate_stream_yields_progressive_snapshots(monkeypatch) -> None:
         openai_model="gpt-5.3-codex",
         openai_codex_default_model="gpt-5.3-codex",
     )
-    monkeypatch.setattr(provider, "_get_client", lambda force_refresh=False: (client, settings))
+    monkeypatch.setattr(
+        provider, "_get_client", lambda force_refresh=False: (client, settings)
+    )
 
     snapshots = list(provider.generate_stream("hi"))
 
@@ -254,7 +266,9 @@ def test_generate_stream_retries_with_codex_default_model(monkeypatch) -> None:
         openai_model="legacy-unsupported-model",
         openai_codex_default_model="gpt-5.3-codex",
     )
-    monkeypatch.setattr(provider, "_get_client", lambda force_refresh=False: (client, settings))
+    monkeypatch.setattr(
+        provider, "_get_client", lambda force_refresh=False: (client, settings)
+    )
 
     snapshots = list(provider.generate_stream("hi"))
 
@@ -299,6 +313,7 @@ def test_choose_reaction_includes_recent_context(monkeypatch) -> None:
     captured = {}
 
     def _fake_responses_create(*, model, user_content, system_instruction=""):
+        _ = system_instruction
         captured["model"] = model
         captured["prompt"] = user_content[0]["text"]
         return "😀"

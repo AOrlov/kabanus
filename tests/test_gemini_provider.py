@@ -40,13 +40,14 @@ def test_choose_reaction_includes_recent_context(monkeypatch) -> None:
 
     monkeypatch.setattr(provider, "_get_client", lambda: (_FakeClient(), settings))
 
-    def _fake_prepare_config(*args, **kwargs):
+    def _fake_prepare_config(*_args, **kwargs):
         captured["thinking_budget"] = kwargs.get("thinking_budget")
         return None
 
     monkeypatch.setattr(provider, "_prepare_config", _fake_prepare_config)
 
     def _fake_retry_with_item(*, max_attempts, pick_item, run, on_error):
+        _ = max_attempts, on_error
         spec = pick_item()
         return run(spec)
 

@@ -5,7 +5,7 @@ from typing import Any, Dict, Optional, Union
 
 import tzlocal
 from google.oauth2 import service_account
-from googleapiclient.discovery import build
+from googleapiclient.discovery import build  # type: ignore[import-untyped]
 
 from src import config
 

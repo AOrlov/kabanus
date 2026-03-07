@@ -5,7 +5,8 @@ ignore = .venv, .git, __pycache__, build, dist
 disable =
     C0114,
     C0115,
-    C0116
+    C0116,
+    R0801
 
 [FORMAT]
 max-line-length = 120
