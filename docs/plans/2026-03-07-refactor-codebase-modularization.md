@@ -62,11 +62,11 @@ Refactor the codebase to reduce complexity and improve maintainability by splitt
 - Create: `src/settings_loader.py`
 - Create: `tests/test_settings_loader.py`
 
-- [ ] Move parsing, validation, and cache internals out of `src/config.py` into focused loader/model modules
-- [ ] Keep `src/config.py` as compatibility facade exposing `Settings`, `ModelSpec`, `get_settings(force=...)`, and legacy module attribute mapping (`__getattr__`)
-- [ ] Preserve all existing env var names, defaults, and validation rules
-- [ ] Write tests comparing legacy config behavior before/after extraction
-- [ ] Run `pytest -q` and fix regressions before task 3
+- [x] Move parsing, validation, and cache internals out of `src/config.py` into focused loader/model modules
+- [x] Keep `src/config.py` as compatibility facade exposing `Settings`, `ModelSpec`, `get_settings(force=...)`, and legacy module attribute mapping (`__getattr__`)
+- [x] Preserve all existing env var names, defaults, and validation rules
+- [x] Write tests comparing legacy config behavior before/after extraction
+- [x] Run `pytest -q` and fix regressions before task 3
 
 ### Task 3: Split Message Store Into Focused Components With Compatibility Wrappers
 
