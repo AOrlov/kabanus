@@ -1,4 +1,6 @@
 import json
+import os
+import stat
 import time
 import urllib.parse
 
@@ -77,6 +79,38 @@ def test_auth_manager_refreshes_and_writes_file(tmp_path, monkeypatch) -> None:
     payload = json.loads(auth_file.read_text(encoding="utf-8"))
     assert payload["access_token"] == "a2"
     assert payload["refresh_token"] == "r2"
+
+
+def test_auth_manager_refresh_writes_private_file_permissions(
+    tmp_path, monkeypatch
+) -> None:
+    auth_file = tmp_path / "auth.json"
+    auth_file.write_text(json.dumps({"refresh_token": "r1"}), encoding="utf-8")
+
+    def _fake_urlopen(req, timeout):
+        _ = req
+        _ = timeout
+        return _FakeResponse(
+            {
+                "access_token": "a2",
+                "refresh_token": "r2",
+                "expires_in": 1200,
+            }
+        )
+
+    monkeypatch.setattr("urllib.request.urlopen", _fake_urlopen)
+    manager = OpenAIAuthManager(
+        str(auth_file),
+        refresh_url_default="https://example.com/token",
+        client_id_default="cid",
+        grant_type_default="refresh_token",
+        leeway_secs=60,
+        timeout_secs=5,
+    )
+    token = manager.get_access_token()
+    assert token == "a2"
+    mode = stat.S_IMODE(os.stat(auth_file).st_mode)
+    assert mode == 0o600
 
 
 def test_auth_manager_reads_codex_style_nested_tokens(tmp_path, monkeypatch) -> None:

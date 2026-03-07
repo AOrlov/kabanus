@@ -1,5 +1,6 @@
 import json
 import os
+import tempfile
 import threading
 import time
 import urllib.parse
@@ -178,9 +179,39 @@ class OpenAIAuthManager:
                         "grant_type": grant_type,
                     }
                 )
-        with open(self._path, "w", encoding="utf-8") as f:
-            json.dump(target, f, ensure_ascii=False, indent=2)
-            f.write("\n")
+        self._atomic_write_auth_json(target)
+
+    def _atomic_write_auth_json(self, payload: Dict[str, Any]) -> None:
+        parent_dir = os.path.dirname(self._path) or "."
+        os.makedirs(parent_dir, exist_ok=True)
+        fd, temp_path = tempfile.mkstemp(
+            prefix=".openai-auth-",
+            suffix=".tmp",
+            dir=parent_dir,
+        )
+        try:
+            try:
+                os.fchmod(fd, 0o600)
+            except (AttributeError, OSError):
+                pass
+
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(payload, f, ensure_ascii=False, indent=2)
+                f.write("\n")
+                f.flush()
+                os.fsync(f.fileno())
+
+            os.replace(temp_path, self._path)
+            try:
+                os.chmod(self._path, 0o600)
+            except OSError:
+                pass
+        finally:
+            if os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except OSError:
+                    pass
 
     def _refresh(
         self, snapshot: OpenAIAuthSnapshot

@@ -4,6 +4,8 @@ import json
 import logging
 import os
 import re
+import tempfile
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Callable, Dict, List, Optional, Tuple
 
@@ -14,6 +16,19 @@ logger = logging.getLogger(__name__)
 
 
 _summary_store_by_chat: Dict[str, Dict] = {}
+_summary_lock_by_chat: Dict[str, threading.RLock] = {}
+_summary_lock_guard = threading.Lock()
+
+
+def _get_summary_lock(chat_id: str) -> threading.RLock:
+    if not chat_id:
+        raise ValueError("chat_id is required for summary storage")
+    with _summary_lock_guard:
+        lock = _summary_lock_by_chat.get(chat_id)
+        if lock is None:
+            lock = threading.RLock()
+            _summary_lock_by_chat[chat_id] = lock
+    return lock
 
 
 def _estimate_token_count(text: str) -> int:
@@ -34,6 +49,12 @@ def _get_summary_store_path(chat_id: str) -> str:
 
 
 def _load_summary_state(chat_id: str) -> Dict:
+    lock = _get_summary_lock(chat_id)
+    with lock:
+        return _load_summary_state_unlocked(chat_id)
+
+
+def _load_summary_state_unlocked(chat_id: str) -> Dict:
     if chat_id in _summary_store_by_chat:
         return _summary_store_by_chat[chat_id]
 
@@ -48,10 +69,31 @@ def _load_summary_state(chat_id: str) -> Dict:
 
 
 def _save_summary_state(chat_id: str, state: Dict) -> None:
+    lock = _get_summary_lock(chat_id)
+    with lock:
+        _save_summary_state_unlocked(chat_id, state)
+
+
+def _save_summary_state_unlocked(chat_id: str, state: Dict) -> None:
     path = _get_summary_store_path(chat_id)
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-    with open(path, "w", encoding="utf-8") as handle:
-        json.dump(state, handle, ensure_ascii=False)
+    fd, temp_path = tempfile.mkstemp(
+        prefix=".summary-state-",
+        suffix=".tmp",
+        dir=os.path.dirname(path) or ".",
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(state, handle, ensure_ascii=False)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_path, path)
+    finally:
+        if os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
 
 
 def _clean_string_list(value) -> List[str]:
@@ -87,7 +129,9 @@ def _summary_chunk_to_text(index: int, chunk: Dict) -> str:
     lines.extend(format_items("Decisions", decisions))
     lines.extend(format_items("Open items", open_items))
     if isinstance(source_ids, list) and source_ids:
-        lines.append(f"Messages: {source_ids[0]} .. {source_ids[-1]} ({len(source_ids)})")
+        lines.append(
+            f"Messages: {source_ids[0]} .. {source_ids[-1]} ({len(source_ids)})"
+        )
     return "\n".join(lines)
 
 
@@ -98,17 +142,22 @@ def get_summary_view_text(
     index: Optional[int] = None,
     grep: str = "",
 ) -> str:
-    state = _load_summary_state(chat_id)
-    chunks = state.get("chunks", [])
-    if not isinstance(chunks, list):
-        raise RuntimeError("'chunks' must be a list")
+    lock = _get_summary_lock(chat_id)
+    with lock:
+        state = _load_summary_state_unlocked(chat_id)
+        chunks_raw = state.get("chunks", [])
+        if not isinstance(chunks_raw, list):
+            raise RuntimeError("'chunks' must be a list")
+        chunks = list(chunks_raw)
+        summary_path = _get_summary_store_path(chat_id)
+        version = state.get("version")
+        processed = state.get("last_message_count")
 
-    summary_path = _get_summary_store_path(chat_id)
     lines = [
         "Summary overview",
         f"File: {summary_path}",
-        f"Version: {state.get('version')}",
-        f"Messages processed: {state.get('last_message_count')}",
+        f"Version: {version}",
+        f"Messages processed: {processed}",
         f"Chunks total: {len(chunks)}",
     ]
 
@@ -143,7 +192,9 @@ def get_summary_view_text(
     if tail > 0:
         tail_items = selected[-tail:]
         existing = {idx for idx, _ in to_show}
-        to_show.extend([(idx, chunk) for idx, chunk in tail_items if idx not in existing])
+        to_show.extend(
+            [(idx, chunk) for idx, chunk in tail_items if idx not in existing]
+        )
 
     if not to_show:
         lines.append(
@@ -175,7 +226,10 @@ def _fallback_chunk_summary(chunk: List[Dict], start: int, end: int) -> Dict:
     last = lines[-1] if lines else ""
     return {
         "id": f"chunk-{start}-{end}",
-        "source_message_ids": [_message_id(msg, fallback_index=start + idx) for idx, msg in enumerate(chunk)],
+        "source_message_ids": [
+            _message_id(msg, fallback_index=start + idx)
+            for idx, msg in enumerate(chunk)
+        ],
         "summary": f"{first} ... {last}".strip(),
         "facts": [],
         "decisions": [],
@@ -205,7 +259,11 @@ def _contains_language_markers(text: str, lang: str) -> bool:
 def _build_summary_prompt(chunk_lines: List[str], target_lang: str) -> str:
     dialogue = "\n".join(chunk_lines)
     lang_name = "Russian" if target_lang == "ru" else "English"
-    lang_rule = "Use Russian only. Do not translate to English." if target_lang == "ru" else "Use English only."
+    lang_rule = (
+        "Use Russian only. Do not translate to English."
+        if target_lang == "ru"
+        else "Use English only."
+    )
     return (
         "Summarize this chat dialogue chunk. Return JSON only, no markdown.\n"
         "Schema:\n"
@@ -260,7 +318,11 @@ def _summarize_chunk(
             stricter = (
                 prompt
                 + "\n\nIMPORTANT: Your previous answer used the wrong language. "
-                + ("Respond strictly in Russian." if target_lang == "ru" else "Respond strictly in English.")
+                + (
+                    "Respond strictly in Russian."
+                    if target_lang == "ru"
+                    else "Respond strictly in English."
+                )
             )
             raw_retry = summarize_fn(stricter).strip()
             if raw_retry:
@@ -282,10 +344,16 @@ def _summarize_chunk(
             "open_items": _clean_string_list(parsed.get("open_items")),
         }
     except (json.JSONDecodeError, TypeError, ValueError) as exc:
-        logger.warning("Failed to parse chunk summary JSON: %s", exc, extra={"chat_id": chat_id})
+        logger.warning(
+            "Failed to parse chunk summary JSON: %s", exc, extra={"chat_id": chat_id}
+        )
         return fallback
-    except Exception as exc:  # pragma: no cover - defensive parity with previous behavior
-        logger.warning("Chunk summarization failed: %s", exc, extra={"chat_id": chat_id})
+    except (
+        Exception
+    ) as exc:  # pragma: no cover - defensive parity with previous behavior
+        logger.warning(
+            "Chunk summarization failed: %s", exc, extra={"chat_id": chat_id}
+        )
         return fallback
 
 
@@ -302,83 +370,95 @@ def maybe_rollup_summary(
     if not settings.memory_summary_enabled:
         return 0
 
-    source_messages = list(messages) if messages is not None else history_store.get_all_messages(chat_id)
-    if force_rebuild:
-        state = {"version": 1, "last_message_count": 0, "chunks": []}
-        _summary_store_by_chat[chat_id] = state
-    else:
-        state = _load_summary_state(chat_id)
-
-    chunk_size = settings.memory_summary_chunk_size
-    processed = int(state.get("last_message_count", 0))
-    if processed > len(source_messages):
-        processed = 0
-        state = {"version": 1, "last_message_count": 0, "chunks": []}
-        _summary_store_by_chat[chat_id] = state
-
-    chunk_limit = settings.memory_summary_max_chunks_per_run if max_chunks is None else max_chunks
-    if chunk_limit <= 0:
-        chunk_limit = 1
-
-    changed = False
-    created = 0
-
-    candidates = []
-    scan = processed
-    while len(source_messages) - scan >= chunk_size and len(candidates) < chunk_limit:
-        chunk = source_messages[scan : scan + chunk_size]
-        start = scan
-        end = scan + chunk_size - 1
-        candidates.append((chunk, start, end))
-        scan += chunk_size
-
-    if candidates:
-        max_workers = max(1, int(parallel_workers))
-        if summarize_fn is None or max_workers == 1 or len(candidates) == 1:
-            summaries = []
-            for chunk, start, end in candidates:
-                summaries.append(
-                    _summarize_chunk(
-                        chat_id=chat_id,
-                        chunk=chunk,
-                        start=start,
-                        end=end,
-                        summarize_fn=summarize_fn,
-                    )
-                )
-                if on_chunk_done is not None:
-                    on_chunk_done()
+    source_messages = (
+        list(messages)
+        if messages is not None
+        else history_store.get_all_messages(chat_id)
+    )
+    lock = _get_summary_lock(chat_id)
+    with lock:
+        if force_rebuild:
+            state = {"version": 1, "last_message_count": 0, "chunks": []}
+            _summary_store_by_chat[chat_id] = state
         else:
-            by_start = {}
-            with ThreadPoolExecutor(max_workers=max_workers) as pool:
-                future_map = {
-                    pool.submit(
-                        _summarize_chunk,
-                        chat_id,
-                        chunk,
-                        start,
-                        end,
-                        summarize_fn,
-                    ): start
-                    for chunk, start, end in candidates
-                }
-                for future in as_completed(future_map):
-                    start = future_map[future]
-                    by_start[start] = future.result()
+            state = _load_summary_state_unlocked(chat_id)
+
+        chunk_size = settings.memory_summary_chunk_size
+        processed = int(state.get("last_message_count", 0))
+        if processed > len(source_messages):
+            processed = 0
+            state = {"version": 1, "last_message_count": 0, "chunks": []}
+            _summary_store_by_chat[chat_id] = state
+
+        chunk_limit = (
+            settings.memory_summary_max_chunks_per_run
+            if max_chunks is None
+            else max_chunks
+        )
+        if chunk_limit <= 0:
+            chunk_limit = 1
+
+        changed = False
+        created = 0
+
+        candidates = []
+        scan = processed
+        while (
+            len(source_messages) - scan >= chunk_size and len(candidates) < chunk_limit
+        ):
+            chunk = source_messages[scan : scan + chunk_size]
+            start = scan
+            end = scan + chunk_size - 1
+            candidates.append((chunk, start, end))
+            scan += chunk_size
+
+        if candidates:
+            max_workers = max(1, int(parallel_workers))
+            if summarize_fn is None or max_workers == 1 or len(candidates) == 1:
+                summaries = []
+                for chunk, start, end in candidates:
+                    summaries.append(
+                        _summarize_chunk(
+                            chat_id=chat_id,
+                            chunk=chunk,
+                            start=start,
+                            end=end,
+                            summarize_fn=summarize_fn,
+                        )
+                    )
                     if on_chunk_done is not None:
                         on_chunk_done()
-            summaries = [by_start[start] for _, start, _ in candidates]
+            else:
+                by_start = {}
+                with ThreadPoolExecutor(max_workers=max_workers) as pool:
+                    future_map = {
+                        pool.submit(
+                            _summarize_chunk,
+                            chat_id,
+                            chunk,
+                            start,
+                            end,
+                            summarize_fn,
+                        ): start
+                        for chunk, start, end in candidates
+                    }
+                    for future in as_completed(future_map):
+                        start = future_map[future]
+                        by_start[start] = future.result()
+                        if on_chunk_done is not None:
+                            on_chunk_done()
+                summaries = [by_start[start] for _, start, _ in candidates]
 
-        for chunk_summary in summaries:
-            state.setdefault("chunks", []).append(chunk_summary)
-            processed += chunk_size
-            state["last_message_count"] = processed
-            changed = True
-            created += 1
+            for chunk_summary in summaries:
+                state.setdefault("chunks", []).append(chunk_summary)
+                processed += chunk_size
+                state["last_message_count"] = processed
+                changed = True
+                created += 1
 
-    if changed:
-        _save_summary_state(chat_id, state)
-    return created
+        if changed:
+            _save_summary_state_unlocked(chat_id, state)
+        return created
 
 
 def _build_summary_lines(
@@ -390,8 +470,10 @@ def _build_summary_lines(
     if token_limit <= 0 or max_items <= 0:
         return [], 0
 
-    state = _load_summary_state(chat_id)
-    chunks = state.get("chunks", [])
+    lock = _get_summary_lock(chat_id)
+    with lock:
+        state = _load_summary_state_unlocked(chat_id)
+        chunks = list(state.get("chunks", []))
     if not chunks:
         return [], 0
 
@@ -407,7 +489,12 @@ def _build_summary_lines(
         facts = _clean_string_list(chunk.get("facts"))
         decisions = _clean_string_list(chunk.get("decisions"))
         open_items = _clean_string_list(chunk.get("open_items"))
-        score = overlap + (2 if decisions else 0) + (1 if facts else 0) + (1 if open_items else 0)
+        score = (
+            overlap
+            + (2 if decisions else 0)
+            + (1 if facts else 0)
+            + (1 if open_items else 0)
+        )
 
         details = []
         if facts:
