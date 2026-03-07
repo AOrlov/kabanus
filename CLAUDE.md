@@ -20,6 +20,7 @@
 - Do not rename or silently change env var semantics without explicit migration notes.
 - Preserve `config.get_settings(force=...)` behavior and legacy module attribute access.
 - Preserve existing `message_store` callable surface unless a deliberate break is documented.
+- Preserve legacy `src.main` helper/wrapper exports used by tests or integrations, or document migration/deprecation explicitly.
 - Preserve provider fallback semantics in `RoutedModelProvider`.
 
 ## Testing and Validation

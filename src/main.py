@@ -157,6 +157,31 @@ def _reaction_state_from_globals() -> ReactionState:
     )
 
 
+def _reset_reaction_budget_if_needed(now: datetime) -> None:
+    global _REACTION_DAY, _REACTION_COUNT
+    today = now.date()
+    if _REACTION_DAY != today:
+        _REACTION_DAY = today
+        _REACTION_COUNT = 0
+
+
+def _build_reaction_context(chat_id: Optional[str], settings: config.Settings) -> str:
+    if (
+        not chat_id
+        or settings.reaction_context_turns <= 0
+        or settings.reaction_context_token_limit <= 0
+    ):
+        return ""
+    messages = get_all_messages(chat_id)
+    if not messages:
+        return ""
+    recent_messages = messages[-settings.reaction_context_turns :]
+    return assemble_context(
+        recent_messages,
+        token_limit=settings.reaction_context_token_limit,
+    )
+
+
 async def _extract_text_from_photo_message(
     message: Any,
     context: ContextTypes.DEFAULT_TYPE,
@@ -213,8 +238,10 @@ async def maybe_react(update: Update, text: str):
         log_context_fn=_log_context,
         logger_override=logger,
     )
-    await service.maybe_react(update, text)
-    _sync_reaction_state_to_globals(service.state)
+    try:
+        await service.maybe_react(update, text)
+    finally:
+        _sync_reaction_state_to_globals(service.state)
 
 
 async def hi(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -353,7 +380,7 @@ async def notify_admin(context: ContextTypes.DEFAULT_TYPE, message: str) -> None
         return
     await context.bot.send_message(
         chat_id=active_settings.admin_chat_id,
-        text=message,
+        text=html.escape(message),
         parse_mode=ParseMode.HTML,
     )
 

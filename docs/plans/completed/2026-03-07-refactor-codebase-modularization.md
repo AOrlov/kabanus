@@ -139,7 +139,7 @@ Refactor the codebase to reduce complexity and improve maintainability by splitt
 
 **Files:**
 - Modify: `README.md`
-- Modify: `AGENTS.md` (if internal architecture conventions are updated)
+- Modify: `CLAUDE.md` (if internal architecture conventions are updated)
 - Create: `docs/architecture/refactor-overview.md`
 
 - [x] update README.md if user-facing changes

@@ -124,7 +124,7 @@ class BotRuntime:
             return
         await context.bot.send_message(
             chat_id=settings.admin_chat_id,
-            text=message,
+            text=html.escape(message),
             parse_mode=ParseMode.HTML,
         )
 

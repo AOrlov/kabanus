@@ -151,9 +151,25 @@ def test_add_message_normalizes_legacy_string_ids(monkeypatch, tmp_path) -> None
     assert added["reply_to_telegram_message_id"] == 90
 
 
-def test_facade_uses_shared_underlying_cache_dicts() -> None:
-    assert message_store._message_store_by_chat is history_store._message_store_by_chat
-    assert message_store._summary_store_by_chat is summary_store._summary_store_by_chat
+def test_facade_calls_target_same_store_behavior(monkeypatch, tmp_path) -> None:
+    store_path = tmp_path / "messages.jsonl"
+    monkeypatch.setattr(
+        message_store.config,
+        "get_settings",
+        lambda: _settings(chat_messages_store_path=str(store_path)),
+    )
+    message_store._message_store_by_chat.clear()
+    history_store._message_store_by_chat.clear()
+
+    message_store.add_message("Alice", "from facade", chat_id="chat_shared")
+    last_message = history_store.get_last_message("chat_shared")
+    assert last_message is not None
+    assert last_message["sender"] == "Alice"
+    assert last_message["text"] == "from facade"
+    assert last_message["kind"] == "user"
+
+    history_store.add_message("Bob", "from history", chat_id="chat_shared")
+    assert len(message_store.get_all_messages("chat_shared")) == 2
 
 
 def test_facade_get_summary_view_text_matches_summary_store(monkeypatch, tmp_path) -> None:

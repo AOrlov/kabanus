@@ -125,7 +125,7 @@ class EventsHandler:
                     f"Date: {event_data['date']}",
                     (
                         f"Time: {formatted_time} ({local_tz})"
-                        if event_data["time"]
+                        if not is_all_day
                         else "All day event"
                     ),
                     f"Location: {event_data.get('location', 'Not specified')}",

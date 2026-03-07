@@ -1,4 +1,5 @@
 import asyncio
+import os
 from types import SimpleNamespace
 
 from src.bot import app as bot_app
@@ -60,6 +61,242 @@ def test_schedule_events_exits_without_photo() -> None:
     asyncio.run(handler.schedule_events(update, context))
 
     assert notifications == []
+
+
+def test_schedule_events_creates_event_and_cleans_temp_file(monkeypatch) -> None:
+    removed = []
+    events = []
+    notifications = []
+    responses = []
+
+    class _FakeFile:
+        async def download_to_drive(self, path: str) -> None:
+            with open(path, "wb") as stream:
+                stream.write(b"photo")
+
+    class _FakeCalendar:
+        def create_event(self, **kwargs) -> None:
+            events.append(kwargs)
+
+    class _FakeBot:
+        async def get_file(self, _file_id: str) -> _FakeFile:
+            return _FakeFile()
+
+    class _FakeMessage:
+        async def reply_text(self, text: str) -> None:
+            responses.append(text)
+
+    monkeypatch.setattr(
+        "src.bot.handlers.events_handler.os.remove",
+        lambda path: removed.append(path),
+    )
+
+    async def _notify_admin(context, message):
+        notifications.append((context, message))
+
+    async def _send_action(**kwargs):
+        return None
+
+    handler = EventsHandler(
+        is_allowed_fn=lambda _update: True,
+        provider_getter=lambda: SimpleNamespace(
+            parse_image_to_event=lambda _path: {
+                "title": "Design Review",
+                "date": "2030-06-20",
+                "time": "14:00",
+                "location": "Office",
+                "description": "Discuss architecture",
+                "confidence": 0.95,
+            }
+        ),
+        notify_admin_fn=_notify_admin,
+        log_context_fn=lambda _update: {},
+        settings_getter=lambda: SimpleNamespace(features={"schedule_events": True}),
+        calendar_provider_factory=_FakeCalendar,
+    )
+
+    update = SimpleNamespace(
+        message=SimpleNamespace(photo=[SimpleNamespace(file_id="photo")], reply_text=_FakeMessage().reply_text),
+        effective_chat=SimpleNamespace(send_action=_send_action),
+        effective_user=SimpleNamespace(id=1),
+    )
+    context = SimpleNamespace(bot=_FakeBot())
+
+    asyncio.run(handler.schedule_events(update, context))
+
+    assert len(events) == 1
+    assert events[0]["title"] == "Design Review"
+    assert removed
+    assert notifications == []
+    assert any("Event created successfully!" in text for text in responses)
+
+
+def test_schedule_events_handles_all_day_events_without_time(monkeypatch) -> None:
+    events = []
+    responses = []
+    removed = []
+
+    class _FakeFile:
+        async def download_to_drive(self, path: str) -> None:
+            with open(path, "wb") as stream:
+                stream.write(b"photo")
+
+    class _FakeCalendar:
+        def create_event(self, **kwargs) -> None:
+            events.append(kwargs)
+
+    class _FakeBot:
+        async def get_file(self, _file_id: str) -> _FakeFile:
+            return _FakeFile()
+
+    class _FakeMessage:
+        async def reply_text(self, text: str) -> None:
+            responses.append(text)
+
+    monkeypatch.setattr(
+        "src.bot.handlers.events_handler.os.remove",
+        lambda path: removed.append(path),
+    )
+
+    async def _notify_admin(_context, _message):
+        return None
+
+    async def _send_action(**kwargs):
+        return None
+
+    handler = EventsHandler(
+        is_allowed_fn=lambda _update: True,
+        provider_getter=lambda: SimpleNamespace(
+            parse_image_to_event=lambda _path: {
+                "title": "All Day Event",
+                "date": "2030-07-20",
+                "location": "Office",
+                "description": "No time field provided",
+                "confidence": 0.95,
+            }
+        ),
+        notify_admin_fn=_notify_admin,
+        log_context_fn=lambda _update: {},
+        settings_getter=lambda: SimpleNamespace(features={"schedule_events": True}),
+        calendar_provider_factory=_FakeCalendar,
+    )
+
+    update = SimpleNamespace(
+        message=SimpleNamespace(photo=[SimpleNamespace(file_id="photo")], reply_text=_FakeMessage().reply_text),
+        effective_chat=SimpleNamespace(send_action=_send_action),
+        effective_user=SimpleNamespace(id=1),
+    )
+    context = SimpleNamespace(bot=_FakeBot())
+
+    asyncio.run(handler.schedule_events(update, context))
+
+    assert len(events) == 1
+    assert events[0]["is_all_day"] is True
+    assert removed
+    assert any("All day event" in text for text in responses)
+
+
+def test_schedule_events_reports_error_when_event_data_missing_date(monkeypatch) -> None:
+    removed = []
+    notifications = []
+    responses = []
+
+    class _FakeFile:
+        async def download_to_drive(self, path: str) -> None:
+            with open(path, "wb") as stream:
+                stream.write(b"photo")
+
+    class _FakeBot:
+        async def get_file(self, _file_id: str) -> _FakeFile:
+            return _FakeFile()
+
+    class _FakeMessage:
+        async def reply_text(self, text: str) -> None:
+            responses.append(text)
+
+    monkeypatch.setattr(
+        "src.bot.handlers.events_handler.os.remove",
+        lambda path: removed.append(path),
+    )
+
+    async def _notify_admin(context, message):
+        notifications.append((context, message))
+
+    async def _send_action(**kwargs):
+        return None
+
+    handler = EventsHandler(
+        is_allowed_fn=lambda _update: True,
+        provider_getter=lambda: SimpleNamespace(
+            parse_image_to_event=lambda _path: {
+                "title": "Missing Date",
+                "location": "Office",
+                "confidence": 0.55,
+            }
+        ),
+        notify_admin_fn=_notify_admin,
+        log_context_fn=lambda _update: {},
+        settings_getter=lambda: SimpleNamespace(features={"schedule_events": True}),
+    )
+
+    update = SimpleNamespace(
+        message=SimpleNamespace(photo=[SimpleNamespace(file_id="photo")], reply_text=_FakeMessage().reply_text),
+        effective_chat=SimpleNamespace(send_action=_send_action),
+        effective_user=SimpleNamespace(id=1),
+    )
+    context = SimpleNamespace(bot=_FakeBot())
+
+    asyncio.run(handler.schedule_events(update, context))
+
+    assert notifications
+    assert removed
+    assert any("couldn't process the photo" in text for text in responses)
+
+
+def test_schedule_events_handles_chat_file_download_failure(monkeypatch) -> None:
+    notifications = []
+    responses = []
+    removed = []
+
+    class _FakeMessage:
+        async def reply_text(self, text: str) -> None:
+            responses.append(text)
+
+    async def _notify_admin(context, message):
+        notifications.append((context, message))
+
+    async def _send_action(**kwargs):
+        return None
+
+    handler = EventsHandler(
+        is_allowed_fn=lambda _update: True,
+        provider_getter=lambda: SimpleNamespace(parse_image_to_event=lambda _path: {}),
+        notify_admin_fn=_notify_admin,
+        log_context_fn=lambda _update: {},
+        settings_getter=lambda: SimpleNamespace(features={"schedule_events": True}),
+    )
+
+    class _FailingBot:
+        async def get_file(self, _file_id: str):
+            raise RuntimeError("download unavailable")
+
+    monkeypatch.setattr(
+        "src.bot.handlers.events_handler.os.remove",
+        lambda path: removed.append(path),
+    )
+
+    update = SimpleNamespace(
+        message=SimpleNamespace(photo=[SimpleNamespace(file_id="photo")], reply_text=_FakeMessage().reply_text),
+        effective_chat=SimpleNamespace(send_action=_send_action),
+        effective_user=SimpleNamespace(id=1),
+    )
+    context = SimpleNamespace(bot=_FailingBot())
+
+    asyncio.run(handler.schedule_events(update, context))
+
+    assert notifications
+    assert removed == []
+    assert any("something went wrong" in text for text in responses)
 
 
 def test_build_application_wiring_smoke(monkeypatch) -> None:

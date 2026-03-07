@@ -199,9 +199,9 @@ python -m src.main
 ## Usage
 - If `ENABLE_SCHEDULE_EVENTS=true`, send a photo of an event poster to create a Google Calendar event (requires calendar credentials and ID).
 - If `ENABLE_MESSAGE_HANDLING=true`, send a voice, text, or image to interact with the bot. Mention the bot or reply to its message for a response.
-- Use `/summary` (alias: `/view_summary`) to inspect per-chat summary chunks created by memory summary.
+- Use `/summary` (alias: `/tldr`) to inspect per-chat summary chunks created by memory summary.
   Examples:
-  `/summary` (first 3 chunks), `/summary 5`, `/summary tail 5`, `/summary index 42`, `/summary budget api`, `/summary --head 10 --grep budget`.
+  `/summary` (last chunk), `/summary 5`, `/summary index 42`, `/summary budget api`, `/summary --head 10 --grep budget`.
   `/summary help` shows command usage.
   Summary command requests and responses are not saved into chat history.
 - If `GEMINI_MODELS` is set, the bot tries models in order of desirability and skips any that hit RPM/RPD limits.

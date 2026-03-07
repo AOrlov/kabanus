@@ -106,11 +106,19 @@ class ReactionService:
             )
 
         provider = self._provider_getter()
-        reaction = provider.choose_reaction(
-            text,
-            REACTION_ALLOWED_LIST,
-            context_text=reaction_context,
-        ).strip()
+        try:
+            reaction = provider.choose_reaction(
+                text,
+                REACTION_ALLOWED_LIST,
+                context_text=reaction_context,
+            ).strip()
+        except Exception as exc:
+            self._logger.warning(
+                "Failed to choose reaction: %s",
+                exc,
+                extra=self._log_context(update),
+            )
+            return
         if not reaction:
             return
 

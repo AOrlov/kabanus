@@ -81,8 +81,22 @@ def _load_messages(chat_id: str) -> List[Dict]:
 
     messages = []
     with open(path, "r", encoding="utf-8") as handle:
-        for line in handle:
-            messages.append(json.loads(line))
+        for line_number, line in enumerate(handle, start=1):
+            payload = line.strip()
+            if not payload:
+                continue
+            try:
+                messages.append(json.loads(payload))
+            except json.JSONDecodeError as exc:
+                logger.warning(
+                    "Skipping malformed message JSON line",
+                    extra={
+                        "chat_id": chat_id,
+                        "path": path,
+                        "line_number": line_number,
+                        "error": str(exc),
+                    },
+                )
 
     logger.debug("Loaded messages", extra={"chat_id": chat_id, "count": len(messages)})
     return messages
