@@ -79,12 +79,12 @@ Refactor the codebase to reduce complexity and improve maintainability by splitt
 - Create: `tests/test_memory_summary_store.py`
 - Create: `tests/test_memory_context_builder.py`
 
-- [ ] Extract JSONL history persistence and retrieval into `history_store`
-- [ ] Extract summary state I/O and chunk rollup logic into `summary_store`
-- [ ] Extract prompt context assembly logic into `context_builder`
-- [ ] Keep `src/message_store.py` as a backward-compatible facade delegating to new modules
-- [ ] Add targeted tests per module plus compatibility tests for existing `message_store` API
-- [ ] Run `pytest -q` and fix regressions before task 4
+- [x] Extract JSONL history persistence and retrieval into `history_store`
+- [x] Extract summary state I/O and chunk rollup logic into `summary_store`
+- [x] Extract prompt context assembly logic into `context_builder`
+- [x] Keep `src/message_store.py` as a backward-compatible facade delegating to new modules
+- [x] Add targeted tests per module plus compatibility tests for existing `message_store` API
+- [x] Run `pytest -q` and fix regressions before task 4
 
 ### Task 4: Decompose main.py Into Telegram Handlers and Application Services
 

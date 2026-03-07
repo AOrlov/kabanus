@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
 from src import message_store
+from src.memory import context_builder, history_store, summary_store
 
 
 def _settings(**overrides):
@@ -148,3 +149,49 @@ def test_add_message_normalizes_legacy_string_ids(monkeypatch, tmp_path) -> None
     assert added is not None
     assert added["telegram_message_id"] == 100
     assert added["reply_to_telegram_message_id"] == 90
+
+
+def test_facade_uses_shared_underlying_cache_dicts() -> None:
+    assert message_store._message_store_by_chat is history_store._message_store_by_chat
+    assert message_store._summary_store_by_chat is summary_store._summary_store_by_chat
+
+
+def test_facade_get_summary_view_text_matches_summary_store(monkeypatch, tmp_path) -> None:
+    store_path = tmp_path / "messages.jsonl"
+    monkeypatch.setattr(
+        message_store.config,
+        "get_settings",
+        lambda: _settings(chat_messages_store_path=str(store_path)),
+    )
+    message_store._summary_store_by_chat.clear()
+    message_store._summary_store_by_chat["chat5"] = {
+        "version": 1,
+        "last_message_count": 2,
+        "chunks": [
+            {
+                "id": "chunk-0-1",
+                "source_message_ids": ["a", "b"],
+                "summary": "Planning update",
+                "facts": ["prefers async updates"],
+                "decisions": [],
+                "open_items": [],
+            }
+        ],
+    }
+
+    facade_text = message_store.get_summary_view_text("chat5", head=1)
+    module_text = summary_store.get_summary_view_text("chat5", head=1)
+
+    assert facade_text == module_text
+
+
+def test_facade_assemble_context_matches_context_builder() -> None:
+    messages = [
+        {"sender": "Alice", "text": "hello"},
+        {"sender": "Bob", "text": "world"},
+    ]
+
+    facade_output = message_store.assemble_context(messages, token_limit=200)
+    module_output = context_builder.assemble_context(messages, token_limit=200)
+
+    assert facade_output == module_output
