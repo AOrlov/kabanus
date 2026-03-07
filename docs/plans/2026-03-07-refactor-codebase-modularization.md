@@ -129,11 +129,11 @@ Refactor the codebase to reduce complexity and improve maintainability by splitt
 
 ### Task 6: Verify acceptance criteria
 
-- [ ] Manual test: run the bot locally and verify key flows (standard text reply, voice/image extraction path, summary command, optional schedule events)
-- [ ] run full test suite (`pytest -q`)
-- [ ] run linter (`pylint src tests`)
-- [ ] run type checks (`mypy src`)
-- [ ] verify test coverage meets 80%+ (`coverage run -m pytest -q && coverage report --fail-under=80`)
+- [x] Manual test: run the bot locally and verify key flows (standard text reply, voice/image extraction path, summary command, optional schedule events)
+- [x] run full test suite (`pytest -q`)
+- [x] run linter (`pylint src tests`)
+- [x] run type checks (`mypy src`)
+- [x] verify test coverage meets 80%+ (`coverage run -m pytest -q && coverage report --fail-under=80`)
 
 ### Task 7: Update documentation
 

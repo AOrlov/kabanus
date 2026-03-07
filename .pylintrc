@@ -1,5 +1,6 @@
 [MASTER]
 ignore = .venv, .git, __pycache__, build, dist
+errors-only = yes
 
 [MESSAGES CONTROL]
 disable =
