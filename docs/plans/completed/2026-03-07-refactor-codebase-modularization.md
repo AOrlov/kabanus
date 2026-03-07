@@ -142,9 +142,9 @@ Refactor the codebase to reduce complexity and improve maintainability by splitt
 - Modify: `AGENTS.md` (if internal architecture conventions are updated)
 - Create: `docs/architecture/refactor-overview.md`
 
-- [ ] update README.md if user-facing changes
-- [ ] update CLAUDE.md if internal patterns changed
-- [ ] document new module boundaries and extension points
-- [ ] document config backward compatibility guarantees explicitly
-- [ ] document intentional API changes and migration notes
-- [ ] move this plan to `docs/plans/completed/`
+- [x] update README.md if user-facing changes
+- [x] update CLAUDE.md if internal patterns changed
+- [x] document new module boundaries and extension points
+- [x] document config backward compatibility guarantees explicitly
+- [x] document intentional API changes and migration notes
+- [x] move this plan to `docs/plans/completed/`
