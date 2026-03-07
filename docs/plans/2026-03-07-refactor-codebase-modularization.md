@@ -103,12 +103,12 @@ Refactor the codebase to reduce complexity and improve maintainability by splitt
 - Create: `tests/test_bot_events_handler.py`
 - Create: `tests/test_bot_reply_service.py`
 
-- [ ] Move mixed concerns from `main.py` into focused handler and service modules
-- [ ] Replace global mutable runtime state with explicit service state objects where needed
-- [ ] Keep `python -m src.main` as runtime entrypoint, delegating to bot app bootstrap module
-- [ ] Preserve current user-visible behavior unless a deliberate API change is documented
-- [ ] Add handler/service unit tests and one app-wiring smoke test
-- [ ] Run `pytest -q` and fix regressions before task 5
+- [x] Move mixed concerns from `main.py` into focused handler and service modules
+- [x] Replace global mutable runtime state with explicit service state objects where needed
+- [x] Keep `python -m src.main` as runtime entrypoint, delegating to bot app bootstrap module
+- [x] Preserve current user-visible behavior unless a deliberate API change is documented
+- [x] Add handler/service unit tests and one app-wiring smoke test
+- [x] Run `pytest -q` and fix regressions before task 5
 
 ### Task 5: Simplify Provider Layer Boundaries and Wiring
 
