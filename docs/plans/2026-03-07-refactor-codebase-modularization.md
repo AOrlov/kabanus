@@ -120,12 +120,12 @@ Refactor the codebase to reduce complexity and improve maintainability by splitt
 - Create: `src/providers/contracts.py`
 - Create: `tests/test_provider_contracts.py`
 
-- [ ] Define a clearer provider contract surface (typed inputs/outputs where practical)
-- [ ] Keep fallback routing behavior equivalent to current `RoutedModelProvider` semantics
-- [ ] Remove duplicated operation scaffolding where possible without changing behavior
-- [ ] Ensure provider factory composition remains deterministic and testable
-- [ ] Add or expand tests for routing, fallback, streaming, and reaction context propagation
-- [ ] Run `pytest -q` and fix regressions before task 6
+- [x] Define a clearer provider contract surface (typed inputs/outputs where practical)
+- [x] Keep fallback routing behavior equivalent to current `RoutedModelProvider` semantics
+- [x] Remove duplicated operation scaffolding where possible without changing behavior
+- [x] Ensure provider factory composition remains deterministic and testable
+- [x] Add or expand tests for routing, fallback, streaming, and reaction context propagation
+- [x] Run `pytest -q` and fix regressions before task 6
 
 ### Task 6: Verify acceptance criteria
 

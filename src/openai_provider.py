@@ -8,6 +8,7 @@ from openai import APIStatusError, AuthenticationError, OpenAI
 from src import config, utils
 from src.openai_auth import OpenAIAuthManager
 from src.model_provider import ModelProvider
+from src.providers.contracts import ReactionSelectionRequest, build_reaction_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +20,9 @@ class OpenAIProvider(ModelProvider):
         self._auth_manager: Optional[OpenAIAuthManager] = None
         self._auth_manager_path: Optional[str] = None
 
-    def _get_auth_manager(self, settings: config.Settings) -> Optional[OpenAIAuthManager]:
+    def _get_auth_manager(
+        self, settings: config.Settings
+    ) -> Optional[OpenAIAuthManager]:
         auth_json_path = settings.openai_auth_json_path.strip()
         if not auth_json_path:
             return None
@@ -35,7 +38,9 @@ class OpenAIProvider(ModelProvider):
             self._auth_manager_path = auth_json_path
         return self._auth_manager
 
-    def _resolve_api_key(self, settings: config.Settings, force_refresh: bool = False) -> str:
+    def _resolve_api_key(
+        self, settings: config.Settings, force_refresh: bool = False
+    ) -> str:
         auth_manager = self._get_auth_manager(settings)
         if auth_manager is not None:
             return auth_manager.get_access_token(force_refresh=force_refresh)
@@ -71,7 +76,9 @@ class OpenAIProvider(ModelProvider):
 
         account_id = self._extract_chatgpt_account_id(api_key)
         if not account_id:
-            logger.warning("auth.json token has no chatgpt_account_id claim; using default OpenAI API endpoint")
+            logger.warning(
+                "auth.json token has no chatgpt_account_id claim; using default OpenAI API endpoint"
+            )
             return api_key, None, {}
 
         base_url = settings.openai_codex_base_url.rstrip("/")
@@ -86,11 +93,17 @@ class OpenAIProvider(ModelProvider):
         }
         return api_key, base_url, default_headers
 
-    def _get_client(self, force_refresh: bool = False) -> tuple[OpenAI, config.Settings]:
+    def _get_client(
+        self, force_refresh: bool = False
+    ) -> tuple[OpenAI, config.Settings]:
         settings = config.get_settings()
-        api_key, base_url, default_headers = self._resolve_client_options(settings, force_refresh=force_refresh)
+        api_key, base_url, default_headers = self._resolve_client_options(
+            settings, force_refresh=force_refresh
+        )
         if not api_key:
-            raise RuntimeError("OpenAI auth is not configured (missing API key and auth.json token)")
+            raise RuntimeError(
+                "OpenAI auth is not configured (missing API key and auth.json token)"
+            )
         signature = (
             api_key,
             base_url or "",
@@ -111,7 +124,10 @@ class OpenAIProvider(ModelProvider):
     def _is_auth_error(self, exc: Exception) -> bool:
         if isinstance(exc, AuthenticationError):
             return True
-        if isinstance(exc, APIStatusError) and getattr(exc, "status_code", None) in {401, 403}:
+        if isinstance(exc, APIStatusError) and getattr(exc, "status_code", None) in {
+            401,
+            403,
+        }:
             return True
         status_code = getattr(exc, "status_code", None)
         if status_code in {401, 403}:
@@ -152,7 +168,9 @@ class OpenAIProvider(ModelProvider):
                     chunks.append(text.strip())
         return "\n".join(chunks).strip()
 
-    def _build_input_items(self, *, user_content: Any, system_instruction: str = "") -> list[dict[str, Any]]:
+    def _build_input_items(
+        self, *, user_content: Any, system_instruction: str = ""
+    ) -> list[dict[str, Any]]:
         input_items: list[dict[str, Any]] = []
         if system_instruction:
             input_items.append(
@@ -176,14 +194,18 @@ class OpenAIProvider(ModelProvider):
             accumulated += delta
             yield accumulated
 
-    def _responses_create(self, *, model: str, user_content: Any, system_instruction: str = "") -> str:
+    def _responses_create(
+        self, *, model: str, user_content: Any, system_instruction: str = ""
+    ) -> str:
         input_items = self._build_input_items(
             user_content=user_content,
             system_instruction=system_instruction,
         )
         client, settings = self._get_client()
         codex_mode = bool(settings.openai_auth_json_path)
-        instructions = system_instruction if system_instruction else "You are a helpful assistant."
+        instructions = (
+            system_instruction if system_instruction else "You are a helpful assistant."
+        )
 
         def _create_response(request_model: str) -> Any:
             if codex_mode:
@@ -220,7 +242,9 @@ class OpenAIProvider(ModelProvider):
                     raise
             # For auth.json-based flow, attempt one forced refresh and retry.
             elif settings.openai_auth_json_path and self._should_attempt_refresh(exc):
-                logger.warning("OpenAI auth failed; attempting token refresh from auth.json")
+                logger.warning(
+                    "OpenAI auth failed; attempting token refresh from auth.json"
+                )
                 client, _ = self._get_client(force_refresh=True)
                 response = _create_response(model)
             else:
@@ -228,7 +252,9 @@ class OpenAIProvider(ModelProvider):
         return self._extract_text(response)
 
     def transcribe(self, audio_path: str) -> str:
-        raise NotImplementedError("OpenAI transcription is intentionally disabled in this iteration")
+        raise NotImplementedError(
+            "OpenAI transcription is intentionally disabled in this iteration"
+        )
 
     def generate_stream(self, prompt: str):
         client, settings = self._get_client()
@@ -240,7 +266,9 @@ class OpenAIProvider(ModelProvider):
         )
         emitted = False
 
-        def _stream_model_response(active_client: OpenAI, request_model: str) -> Iterator[str]:
+        def _stream_model_response(
+            active_client: OpenAI, request_model: str
+        ) -> Iterator[str]:
             kwargs: Dict[str, Any] = {
                 "model": request_model,
                 "input": input_items,
@@ -287,7 +315,9 @@ class OpenAIProvider(ModelProvider):
                     return
                 raise
             if settings.openai_auth_json_path and self._should_attempt_refresh(exc):
-                logger.warning("OpenAI auth failed; attempting token refresh from auth.json")
+                logger.warning(
+                    "OpenAI auth failed; attempting token refresh from auth.json"
+                )
                 refreshed_client, _ = self._get_client(force_refresh=True)
                 yield from _emit(refreshed_client, settings.openai_model)
                 return
@@ -314,10 +344,11 @@ class OpenAIProvider(ModelProvider):
         context_text: str = "",
     ) -> str:
         _, settings = self._get_client()
-        prompt_parts = [f"Current message: {message}"]
-        if context_text:
-            prompt_parts.append(f"Recent context:\n{context_text}")
-        prompt_parts.append(f"Allowed reactions: {', '.join(allowed_reactions)}")
+        request = ReactionSelectionRequest(
+            message=message,
+            allowed_reactions=allowed_reactions,
+            context_text=context_text,
+        )
         text = self._responses_create(
             model=settings.openai_reaction_model,
             system_instruction=(
@@ -327,7 +358,7 @@ class OpenAIProvider(ModelProvider):
             user_content=[
                 {
                     "type": "input_text",
-                    "text": "\n\n".join(prompt_parts),
+                    "text": build_reaction_prompt(request),
                 }
             ],
         ).strip()
