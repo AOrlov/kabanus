@@ -1,7 +1,5 @@
 from types import SimpleNamespace
 
-import pytest
-
 from src.model_provider import ModelProvider
 from src.provider_factory import (
     RoutedModelProvider,
@@ -27,38 +25,42 @@ class _ContractSpyProvider(ModelProvider):
     def __init__(self) -> None:
         self.calls = []
 
-    def transcribe(self, audio_path: str) -> str:
-        self.calls.append(("transcribe", audio_path))
-        return f"t:{audio_path}"
+    def transcribe_audio(self, request: AudioTranscriptionRequest) -> str:
+        self.calls.append(("transcribe_audio", request.audio_path))
+        return f"t:{request.audio_path}"
 
-    def generate_stream(self, prompt: str):
-        self.calls.append(("generate_stream", prompt))
-        yield f"stream:{prompt}"
+    def generate_text_stream(self, request: TextGenerationRequest):
+        self.calls.append(("generate_text_stream", request.prompt))
+        yield f"stream:{request.prompt}"
 
-    def generate(self, prompt: str) -> str:
-        self.calls.append(("generate", prompt))
-        return f"g:{prompt}"
+    def generate_text(self, request: TextGenerationRequest) -> str:
+        self.calls.append(("generate_text", request.prompt))
+        return f"g:{request.prompt}"
 
-    def generate_low_cost(self, prompt: str) -> str:
-        self.calls.append(("generate_low_cost", prompt))
-        return f"lc:{prompt}"
+    def generate_low_cost_text(self, request: TextGenerationRequest) -> str:
+        self.calls.append(("generate_low_cost_text", request.prompt))
+        return f"lc:{request.prompt}"
 
-    def choose_reaction(
-        self,
-        message: str,
-        allowed_reactions: list[str],
-        context_text: str = "",
-    ) -> str:
-        self.calls.append(("choose_reaction", message, allowed_reactions, context_text))
-        return allowed_reactions[0]
+    def select_reaction(self, request: ReactionSelectionRequest) -> str:
+        self.calls.append(
+            (
+                "select_reaction",
+                request.message,
+                list(request.allowed_reactions),
+                request.context_text,
+            )
+        )
+        return request.allowed_reactions[0]
 
-    def parse_image_to_event(self, image_path: str) -> dict:
-        self.calls.append(("parse_image_to_event", image_path))
-        return {"path": image_path}
+    def parse_image_event(self, request: ImageToEventRequest) -> dict:
+        self.calls.append(("parse_image_event", request.image_path))
+        return {"path": request.image_path}
 
-    def image_to_text(self, image_bytes: bytes, mime_type: str = "image/jpeg") -> str:
-        self.calls.append(("image_to_text", mime_type, len(image_bytes)))
-        return f"{mime_type}:{len(image_bytes)}"
+    def extract_image_text(self, request: ImageToTextRequest) -> str:
+        self.calls.append(
+            ("extract_image_text", request.mime_type, len(request.image_bytes))
+        )
+        return f"{request.mime_type}:{len(request.image_bytes)}"
 
 
 class _ConfigurableProvider(ModelProvider):
@@ -77,15 +79,15 @@ class _ConfigurableProvider(ModelProvider):
         self.stream_calls = 0
         self.reaction_contexts: list[str] = []
 
-    def transcribe(self, audio_path: str) -> str:
-        return f"{self.name}:{audio_path}"
+    def transcribe_audio(self, request: AudioTranscriptionRequest) -> str:
+        return f"{self.name}:{request.audio_path}"
 
-    def generate(self, prompt: str) -> str:
+    def generate_text(self, request: TextGenerationRequest) -> str:
         if self.fail_generate:
             raise RuntimeError("generate failed")
-        return f"{self.name}:{prompt}"
+        return f"{self.name}:{request.prompt}"
 
-    def generate_stream(self, prompt: str):
+    def generate_text_stream(self, request: TextGenerationRequest):
         self.stream_calls += 1
         if self.stream_mode == "fail":
             raise RuntimeError("stream failed")
@@ -94,25 +96,20 @@ class _ConfigurableProvider(ModelProvider):
             raise RuntimeError("stream failed")
         yield f"{self.name}-full"
 
-    def generate_low_cost(self, prompt: str) -> str:
-        return f"{self.name}-low:{prompt}"
+    def generate_low_cost_text(self, request: TextGenerationRequest) -> str:
+        return f"{self.name}-low:{request.prompt}"
 
-    def choose_reaction(
-        self,
-        message: str,
-        allowed_reactions: list[str],
-        context_text: str = "",
-    ) -> str:
-        self.reaction_contexts.append(context_text)
+    def select_reaction(self, request: ReactionSelectionRequest) -> str:
+        self.reaction_contexts.append(request.context_text)
         if self.fail_reaction:
             raise RuntimeError("reaction failed")
-        return allowed_reactions[0]
+        return request.allowed_reactions[0]
 
-    def parse_image_to_event(self, image_path: str) -> dict:
-        return {"provider": self.name, "path": image_path}
+    def parse_image_event(self, request: ImageToEventRequest) -> dict:
+        return {"provider": self.name, "path": request.image_path}
 
-    def image_to_text(self, image_bytes: bytes, mime_type: str = "image/jpeg") -> str:
-        return f"{self.name}:{mime_type}:{len(image_bytes)}"
+    def extract_image_text(self, request: ImageToTextRequest) -> str:
+        return f"{self.name}:{request.mime_type}:{len(request.image_bytes)}"
 
 
 def test_build_reaction_prompt_contract() -> None:
@@ -133,46 +130,24 @@ def test_build_reaction_prompt_contract() -> None:
     assert with_context.endswith("Allowed reactions: 😀, 😴")
 
 
-@pytest.mark.skip(
-    reason="Legacy-to-typed provider bridge is not part of the required compatibility contract."
-)
-def test_model_provider_typed_wrappers_delegate_to_legacy_methods() -> None:
+def test_model_provider_legacy_wrappers_delegate_to_typed_methods() -> None:
     provider = _ContractSpyProvider()
 
-    assert (
-        provider.transcribe_audio(AudioTranscriptionRequest("voice.ogg"))
-        == "t:voice.ogg"
-    )
-    assert list(provider.generate_text_stream(TextGenerationRequest("hello"))) == [
-        "stream:hello"
-    ]
-    assert provider.generate_text(TextGenerationRequest("hello")) == "g:hello"
-    assert provider.generate_low_cost_text(TextGenerationRequest("hello")) == "lc:hello"
-    assert (
-        provider.select_reaction(
-            ReactionSelectionRequest(
-                message="hello",
-                allowed_reactions=("😀", "😴"),
-                context_text="Alice: hi",
-            )
-        )
-        == "😀"
-    )
-    assert provider.parse_image_event(ImageToEventRequest("event.jpg")) == {
-        "path": "event.jpg"
-    }
-    assert (
-        provider.extract_image_text(ImageToTextRequest(b"abc", mime_type="image/png"))
-        == "image/png:3"
-    )
+    assert provider.transcribe("voice.ogg") == "t:voice.ogg"
+    assert list(provider.generate_stream("hello")) == ["stream:hello"]
+    assert provider.generate("hello") == "g:hello"
+    assert provider.generate_low_cost("hello") == "lc:hello"
+    assert provider.choose_reaction("hello", ["😀", "😴"], context_text="Alice: hi") == "😀"
+    assert provider.parse_image_to_event("event.jpg") == {"path": "event.jpg"}
+    assert provider.image_to_text(b"abc", mime_type="image/png") == "image/png:3"
     assert provider.calls == [
-        ("transcribe", "voice.ogg"),
-        ("generate_stream", "hello"),
-        ("generate", "hello"),
-        ("generate_low_cost", "hello"),
-        ("choose_reaction", "hello", ["😀", "😴"], "Alice: hi"),
-        ("parse_image_to_event", "event.jpg"),
-        ("image_to_text", "image/png", 3),
+        ("transcribe_audio", "voice.ogg"),
+        ("generate_text_stream", "hello"),
+        ("generate_text", "hello"),
+        ("generate_low_cost_text", "hello"),
+        ("select_reaction", "hello", ["😀", "😴"], "Alice: hi"),
+        ("parse_image_event", "event.jpg"),
+        ("extract_image_text", "image/png", 3),
     ]
 
 

@@ -8,7 +8,14 @@ from openai import APIStatusError, AuthenticationError, OpenAI
 from src import config, utils
 from src.openai_auth import OpenAIAuthManager
 from src.model_provider import ModelProvider
-from src.providers.contracts import ReactionSelectionRequest, build_reaction_prompt
+from src.providers.contracts import (
+    AudioTranscriptionRequest,
+    ImageToEventRequest,
+    ImageToTextRequest,
+    ReactionSelectionRequest,
+    TextGenerationRequest,
+    build_reaction_prompt,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -251,17 +258,24 @@ class OpenAIProvider(ModelProvider):
                 raise
         return self._extract_text(response)
 
-    def transcribe(self, audio_path: str) -> str:
+    def _text_user_content(self, prompt: str) -> list[dict[str, str]]:
+        return [{"type": "input_text", "text": prompt}]
+
+    def _encode_image_bytes(self, image_bytes: bytes) -> str:
+        return base64.b64encode(image_bytes).decode("ascii")
+
+    def transcribe_audio(self, request: AudioTranscriptionRequest) -> str:
+        _ = request
         raise NotImplementedError(
             "OpenAI transcription is intentionally disabled in this iteration"
         )
 
-    def generate_stream(self, prompt: str):
+    def generate_text_stream(self, request: TextGenerationRequest) -> Iterator[str]:
         client, settings = self._get_client()
         codex_mode = bool(settings.openai_auth_json_path)
         instructions = "You are a helpful assistant."
         input_items = self._build_input_items(
-            user_content=[{"type": "input_text", "text": prompt}],
+            user_content=self._text_user_content(request.prompt),
             system_instruction="",
         )
         emitted = False
@@ -323,32 +337,22 @@ class OpenAIProvider(ModelProvider):
                 return
             raise
 
-    def generate(self, prompt: str) -> str:
+    def generate_text(self, request: TextGenerationRequest) -> str:
         _, settings = self._get_client()
         return self._responses_create(
             model=settings.openai_model,
-            user_content=[{"type": "input_text", "text": prompt}],
+            user_content=self._text_user_content(request.prompt),
         )
 
-    def generate_low_cost(self, prompt: str) -> str:
+    def generate_low_cost_text(self, request: TextGenerationRequest) -> str:
         _, settings = self._get_client()
         return self._responses_create(
             model=settings.openai_low_cost_model,
-            user_content=[{"type": "input_text", "text": prompt}],
+            user_content=self._text_user_content(request.prompt),
         )
 
-    def choose_reaction(
-        self,
-        message: str,
-        allowed_reactions: list[str],
-        context_text: str = "",
-    ) -> str:
+    def select_reaction(self, request: ReactionSelectionRequest) -> str:
         _, settings = self._get_client()
-        request = ReactionSelectionRequest(
-            message=message,
-            allowed_reactions=allowed_reactions,
-            context_text=context_text,
-        )
         text = self._responses_create(
             model=settings.openai_reaction_model,
             system_instruction=(
@@ -362,16 +366,16 @@ class OpenAIProvider(ModelProvider):
                 }
             ],
         ).strip()
-        if text in allowed_reactions:
+        if text in request.allowed_reactions:
             return text
         logger.warning("OpenAI returned unsupported reaction: %s", text)
         return ""
 
-    def parse_image_to_event(self, image_path: str) -> dict:
+    def parse_image_event(self, request: ImageToEventRequest) -> dict:
         _, settings = self._get_client()
-        with open(image_path, "rb") as f:
+        with open(request.image_path, "rb") as f:
             image_bytes = f.read()
-        encoded = base64.b64encode(image_bytes).decode("ascii")
+        encoded = self._encode_image_bytes(image_bytes)
         text = self._responses_create(
             model=settings.openai_model,
             user_content=[
@@ -398,9 +402,9 @@ class OpenAIProvider(ModelProvider):
             logger.warning("OpenAI returned non-JSON event payload")
             return {}
 
-    def image_to_text(self, image_bytes: bytes, mime_type: str = "image/jpeg") -> str:
+    def extract_image_text(self, request: ImageToTextRequest) -> str:
         _, settings = self._get_client()
-        encoded = base64.b64encode(image_bytes).decode("ascii")
+        encoded = self._encode_image_bytes(request.image_bytes)
         return self._responses_create(
             model=settings.openai_low_cost_model,
             user_content=[
@@ -413,7 +417,7 @@ class OpenAIProvider(ModelProvider):
                 },
                 {
                     "type": "input_image",
-                    "image_url": f"data:{mime_type};base64,{encoded}",
+                    "image_url": f"data:{request.mime_type};base64,{encoded}",
                 },
             ],
         )

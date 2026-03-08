@@ -140,15 +140,15 @@ Refactor Plan: Simplify Architecture and Remove Dead Code (Config-
   • Modify: tests/test_provider_factory.py
   • Modify: tests/test_openai_provider.py
   • Modify: tests/test_gemini_provider.py
-  [ ] Choose one primary provider interface style (typed-first) and reduce
+  [x] Choose one primary provider interface style (typed-first) and reduce
   adapter indirection.
-  [ ] Remove truly unused provider methods (for example currently unreferenced
+  [x] Remove truly unused provider methods (for example currently unreferenced
   helpers) only after test-backed confirmation.
-  [ ] Keep routing/fallback semantics intact where they are still required for
+  [x] Keep routing/fallback semantics intact where they are still required for
   behavior.
-  [ ] Consolidate duplicated response/request handling logic in provider
+  [x] Consolidate duplicated response/request handling logic in provider
   implementations.
-  [ ] Run provider tests before Task 6.
+  [x] Run provider tests before Task 6.
 
   ### Task 6: Repository-wide dead code sweep and readability cleanup
 

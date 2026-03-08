@@ -3,16 +3,22 @@ import json
 import logging
 import os
 import time
-from datetime import datetime
-import re
 import functools
-from typing import Dict, List, Optional
+from datetime import datetime
+from typing import Callable, Dict, List, Optional
 
 from google import genai
 from google.genai import types, errors
 
 from src import config, retry_utils, utils
-from src.providers.contracts import ReactionSelectionRequest, build_reaction_prompt
+from src.providers.contracts import (
+    AudioTranscriptionRequest,
+    ImageToEventRequest,
+    ImageToTextRequest,
+    ReactionSelectionRequest,
+    TextGenerationRequest,
+    build_reaction_prompt,
+)
 
 from .model_provider import ModelProvider
 
@@ -271,9 +277,24 @@ class GeminiProvider(ModelProvider):
             self._system_instructions_mtime = mtime
         return self._system_instructions
 
-    def transcribe(self, audio_path: str) -> str:
+    def _run_with_retry(
+        self,
+        *,
+        client: genai.Client,
+        specs: List[config.ModelSpec],
+        max_attempts: int,
+        run_request: Callable[[config.ModelSpec], object],
+    ) -> Optional[object]:
+        return retry_utils.retry_with_item(
+            max_attempts=max_attempts,
+            pick_item=lambda: self._model_router.pick_model(specs),
+            run=run_request,
+            on_error=functools.partial(self._on_generate_error, client),
+        )
+
+    def transcribe_audio(self, request: AudioTranscriptionRequest) -> str:
         client, settings = self._get_client()
-        with open(audio_path, "rb") as f:
+        with open(request.audio_path, "rb") as f:
             audio_bytes = f.read()
 
         def run_request(spec: config.ModelSpec):
@@ -294,15 +315,14 @@ class GeminiProvider(ModelProvider):
                 ),
             )
 
-        response = retry_utils.retry_with_item(
+        response = self._run_with_retry(
+            client=client,
+            specs=settings.gemini_models,
             max_attempts=5,
-            pick_item=lambda: self._model_router.pick_model(settings.gemini_models),
-            run=run_request,
-            on_error=functools.partial(self._on_generate_error, client),
+            run_request=run_request,
         )
         if response is None:
             return ""
-
         return response.text.strip() if response.text else ""
 
     def _generate_with_specs(
@@ -339,11 +359,11 @@ class GeminiProvider(ModelProvider):
                 ),
             )
 
-        response = retry_utils.retry_with_item(
+        response = self._run_with_retry(
+            client=client,
+            specs=specs,
             max_attempts=5,
-            pick_item=lambda: self._model_router.pick_model(specs),
-            run=run_request,
-            on_error=functools.partial(self._on_generate_error, client),
+            run_request=run_request,
         )
         if response is None:
             return ""
@@ -353,45 +373,34 @@ class GeminiProvider(ModelProvider):
             self._log_empty_generation_response(selected_model, response)
         return text
 
-    def generate(self, prompt: str) -> str:
+    def generate_text(self, request: TextGenerationRequest) -> str:
         _, settings = self._get_client()
         return self._generate_with_specs(
-            prompt=prompt,
+            prompt=request.prompt,
             specs=settings.gemini_models,
             use_google_search=settings.use_google_search,
             thinking_budget=settings.thinking_budget,
         )
 
-    def generate_low_cost(self, prompt: str) -> str:
+    def generate_low_cost_text(self, request: TextGenerationRequest) -> str:
         """Generate using the lowest-cost model first (reverse GEMINI_MODELS order)."""
         _, settings = self._get_client()
         low_cost_specs = self._prefer_low_cost_first(settings.gemini_models)
         return self._generate_with_specs(
-            prompt=prompt,
+            prompt=request.prompt,
             specs=low_cost_specs,
             use_google_search=settings.use_google_search,
             thinking_budget=settings.thinking_budget,
         )
 
-    def choose_reaction(
-        self,
-        message: str,
-        allowed_reactions: List[str],
-        context_text: str = "",
-    ) -> str:
+    def select_reaction(self, request: ReactionSelectionRequest) -> str:
         client, settings = self._get_client()
         system_instruction = (
             "You are a Telegram reactions selector. "
             "Pick a single reaction emoji that fits the user message. "
             "Return only the emoji, nothing else."
         )
-        prompt = build_reaction_prompt(
-            ReactionSelectionRequest(
-                message=message,
-                allowed_reactions=allowed_reactions,
-                context_text=context_text,
-            )
-        )
+        prompt = build_reaction_prompt(request)
         reaction_specs = self._prefer_gemma_first(settings.gemini_models)
 
         def run_request(spec: config.ModelSpec):
@@ -412,21 +421,20 @@ class GeminiProvider(ModelProvider):
                 ),
             )
 
-        response = retry_utils.retry_with_item(
+        response = self._run_with_retry(
+            client=client,
+            specs=reaction_specs,
             max_attempts=3,
-            pick_item=lambda: self._model_router.pick_model(reaction_specs),
-            run=run_request,
-            on_error=functools.partial(self._on_generate_error, client),
+            run_request=run_request,
         )
         if response is None:
             return ""
-
         return response.text.strip() if response.text else ""
 
-    def parse_image_to_event(self, image_path: str) -> dict:
+    def parse_image_event(self, request: ImageToEventRequest) -> dict:
         client, settings = self._get_client()
         system_instructions = self._get_system_instructions(settings)
-        with open(image_path, "rb") as f:
+        with open(request.image_path, "rb") as f:
             image_data = f.read()
 
         def run_request(spec: config.ModelSpec):
@@ -455,11 +463,11 @@ class GeminiProvider(ModelProvider):
                 ),
             )
 
-        response = retry_utils.retry_with_item(
+        response = self._run_with_retry(
+            client=client,
+            specs=settings.gemini_models,
             max_attempts=5,
-            pick_item=lambda: self._model_router.pick_model(settings.gemini_models),
-            run=run_request,
-            on_error=functools.partial(self._on_generate_error, client),
+            run_request=run_request,
         )
         if response is None:
             return {}
@@ -468,7 +476,7 @@ class GeminiProvider(ModelProvider):
 
         return event_data
 
-    def image_to_text(self, image_bytes: bytes, mime_type: str = "image/jpeg") -> str:
+    def extract_image_text(self, request: ImageToTextRequest) -> str:
         """Extracts readable content from image bytes and returns plain text."""
         client, settings = self._get_client()
         system_instructions = self._get_system_instructions(settings)
@@ -483,7 +491,10 @@ class GeminiProvider(ModelProvider):
                         f"briefly describe important visual content. Respond in {settings.language}. "
                         f"Return plain text only without any markdown or JSON."
                     ),
-                    types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
+                    types.Part.from_bytes(
+                        data=request.image_bytes,
+                        mime_type=request.mime_type,
+                    ),
                 ],
                 system_instructions,
             )
@@ -497,16 +508,12 @@ class GeminiProvider(ModelProvider):
                 ),
             )
 
-        response = retry_utils.retry_with_item(
+        response = self._run_with_retry(
+            client=client,
+            specs=settings.gemini_models,
             max_attempts=5,
-            pick_item=lambda: self._model_router.pick_model(settings.gemini_models),
-            run=run_request,
-            on_error=functools.partial(self._on_generate_error, client),
+            run_request=run_request,
         )
         if response is None:
             return ""
         return (response.text or "").strip()
-
-    def list_models(self) -> List[str]:
-        client, _ = self._get_client()
-        return [model.name for model in client.models.list() if model.name is not None]

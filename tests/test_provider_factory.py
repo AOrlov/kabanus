@@ -1,63 +1,64 @@
 from types import SimpleNamespace
 
-from src.model_provider import ModelProvider
 from src import provider_factory
+from src.model_provider import ModelProvider
 from src.provider_factory import RoutedModelProvider
+from src.providers.contracts import (
+    AudioTranscriptionRequest,
+    ImageToEventRequest,
+    ImageToTextRequest,
+    ReactionSelectionRequest,
+    TextGenerationRequest,
+)
 
 
 class _OkProvider(ModelProvider):
-    def transcribe(self, audio_path: str) -> str:
-        return f"t:{audio_path}"
+    def transcribe_audio(self, request: AudioTranscriptionRequest) -> str:
+        return f"t:{request.audio_path}"
 
-    def generate(self, prompt: str) -> str:
-        return f"g:{prompt}"
+    def generate_text(self, request: TextGenerationRequest) -> str:
+        return f"g:{request.prompt}"
 
-    def generate_low_cost(self, prompt: str) -> str:
-        return f"lc:{prompt}"
+    def generate_low_cost_text(self, request: TextGenerationRequest) -> str:
+        return f"lc:{request.prompt}"
 
-    def choose_reaction(
-        self,
-        message: str,
-        allowed_reactions: list[str],
-        context_text: str = "",
-    ) -> str:
-        return allowed_reactions[0]
+    def select_reaction(self, request: ReactionSelectionRequest) -> str:
+        return request.allowed_reactions[0]
 
-    def parse_image_to_event(self, image_path: str) -> dict:
-        return {"path": image_path}
+    def parse_image_event(self, request: ImageToEventRequest) -> dict:
+        return {"path": request.image_path}
 
-    def image_to_text(self, image_bytes: bytes, mime_type: str = "image/jpeg") -> str:
-        return f"{mime_type}:{len(image_bytes)}"
+    def extract_image_text(self, request: ImageToTextRequest) -> str:
+        return f"{request.mime_type}:{len(request.image_bytes)}"
 
 
 class _FailGenerateProvider(_OkProvider):
-    def generate(self, prompt: str) -> str:
+    def generate_text(self, request: TextGenerationRequest) -> str:
+        _ = request
         raise RuntimeError("boom")
 
 
 class _FailGenerateStreamProvider(_OkProvider):
-    def generate_stream(self, prompt: str):
+    def generate_text_stream(self, request: TextGenerationRequest):
+        _ = request
         raise RuntimeError("boom")
 
 
 class _PartialFailGenerateStreamProvider(_OkProvider):
-    def generate_stream(self, prompt: str):
+    def generate_text_stream(self, request: TextGenerationRequest):
+        _ = request
         yield "partial"
         raise RuntimeError("boom")
 
 
 class _FallbackTranscribeProvider(_OkProvider):
-    def transcribe(self, audio_path: str) -> str:
-        return f"fallback:{audio_path}"
+    def transcribe_audio(self, request: AudioTranscriptionRequest) -> str:
+        return f"fallback:{request.audio_path}"
 
 
 class _FailReactionProvider(_OkProvider):
-    def choose_reaction(
-        self,
-        message: str,
-        allowed_reactions: list[str],
-        context_text: str = "",
-    ) -> str:
+    def select_reaction(self, request: ReactionSelectionRequest) -> str:
+        _ = request
         raise RuntimeError("boom")
 
 
@@ -65,68 +66,25 @@ class _CaptureReactionProvider(_OkProvider):
     def __init__(self) -> None:
         self.last_context = ""
 
-    def choose_reaction(
-        self,
-        message: str,
-        allowed_reactions: list[str],
-        context_text: str = "",
-    ) -> str:
-        self.last_context = context_text
-        return super().choose_reaction(
-            message, allowed_reactions, context_text=context_text
-        )
+    def select_reaction(self, request: ReactionSelectionRequest) -> str:
+        self.last_context = request.context_text
+        return super().select_reaction(request)
 
 
 class _OpenAIProvider(_OkProvider):
-    def transcribe(self, audio_path: str) -> str:
-        return f"openai:{audio_path}"
+    def transcribe_audio(self, request: AudioTranscriptionRequest) -> str:
+        return f"openai:{request.audio_path}"
 
-    def generate(self, prompt: str) -> str:
-        return f"openai:{prompt}"
+    def generate_text(self, request: TextGenerationRequest) -> str:
+        return f"openai:{request.prompt}"
 
 
 class _GeminiProvider(_OkProvider):
-    def transcribe(self, audio_path: str) -> str:
-        return f"gemini:{audio_path}"
+    def transcribe_audio(self, request: AudioTranscriptionRequest) -> str:
+        return f"gemini:{request.audio_path}"
 
-    def generate(self, prompt: str) -> str:
-        return f"gemini:{prompt}"
-
-
-class _LegacyOnlyProvider:
-    def __init__(self, name: str, *, fail_generate: bool = False) -> None:
-        self.name = name
-        self.fail_generate = fail_generate
-
-    def transcribe(self, audio_path: str) -> str:
-        return f"{self.name}:{audio_path}"
-
-    def generate(self, prompt: str) -> str:
-        if self.fail_generate:
-            raise RuntimeError("boom")
-        return f"{self.name}:{prompt}"
-
-    def generate_stream(self, prompt: str):
-        yield f"{self.name}:{prompt}"
-
-    def generate_low_cost(self, prompt: str) -> str:
-        return f"{self.name}-low:{prompt}"
-
-    def choose_reaction(
-        self,
-        message: str,
-        allowed_reactions: list[str],
-        context_text: str = "",
-    ) -> str:
-        _ = message
-        _ = context_text
-        return allowed_reactions[0]
-
-    def parse_image_to_event(self, image_path: str) -> dict:
-        return {"provider": self.name, "path": image_path}
-
-    def image_to_text(self, image_bytes: bytes, mime_type: str = "image/jpeg") -> str:
-        return f"{self.name}:{mime_type}:{len(image_bytes)}"
+    def generate_text(self, request: TextGenerationRequest) -> str:
+        return f"gemini:{request.prompt}"
 
 
 def test_routed_provider_falls_back_on_generate_error() -> None:
@@ -172,27 +130,6 @@ def test_routed_provider_forwards_reaction_context_to_fallback() -> None:
 
     assert reaction == "😀"
     assert fallback.last_context == "Alice: hi"
-
-
-def test_routed_provider_supports_legacy_only_providers() -> None:
-    provider = RoutedModelProvider(
-        primary=_LegacyOnlyProvider("primary", fail_generate=True),
-        fallback=_LegacyOnlyProvider("fallback"),
-    )
-
-    assert provider.generate("hello") == "fallback:hello"
-    assert provider.generate_low_cost("hello") == "primary-low:hello"
-    assert provider.choose_reaction("hello", ["😀"], context_text="ctx") == "😀"
-
-
-def test_routed_provider_transcribe_uses_fallback_for_legacy_only_provider() -> None:
-    provider = RoutedModelProvider(
-        primary=_LegacyOnlyProvider("primary"),
-        fallback=_LegacyOnlyProvider("fallback"),
-        transcribe_use_fallback=True,
-    )
-
-    assert provider.transcribe("voice.ogg") == "fallback:voice.ogg"
 
 
 def test_build_provider_openai_uses_gemini_transcribe_fallback(monkeypatch) -> None:
