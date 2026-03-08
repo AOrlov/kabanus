@@ -77,13 +77,13 @@ Refactor Plan: Simplify Architecture and Remove Dead Code (Config-
   • Modify: src/bot/app.py
   • Modify: tests/test_main.py
   • Modify: tests/test_bot_app.py
-  [ ] Make src/bot/app.py the single runtime composition location.
-  [ ] Reduce src/main.py to a thin entrypoint (startup/logging/run), removing
+  [x] Make src/bot/app.py the single runtime composition location.
+  [x] Reduce src/main.py to a thin entrypoint (startup/logging/run), removing
   duplicated handler/service wrappers.
-  [ ] Remove duplicated reaction/runtime globals that are now owned by
+  [x] Remove duplicated reaction/runtime globals that are now owned by
   service/runtime objects.
-  [ ] Update runtime tests to validate behavior through one path.
-  [ ] Run project tests for runtime/bot modules before Task 3.
+  [x] Update runtime tests to validate behavior through one path.
+  [x] Run project tests for runtime/bot modules before Task 3.
 
   ### Task 3: Simplify settings/config internals while preserving config
   behavior

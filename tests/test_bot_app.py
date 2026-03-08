@@ -84,3 +84,77 @@ def test_bot_runtime_supports_no_arg_settings_getter(monkeypatch) -> None:
     assert runtime.get_settings(force=True) is settings
     asyncio.run(runtime.refresh_settings_job(None))
     assert levels
+
+
+def test_build_runtime_uses_injected_provider(monkeypatch) -> None:
+    settings = SimpleNamespace(admin_chat_id=None, debug_mode=False)
+    provider = SimpleNamespace()
+
+    def _forbidden_build_provider():
+        raise AssertionError(
+            "build_provider should not be used when provider is injected"
+        )
+
+    monkeypatch.setattr(bot_app, "build_provider", _forbidden_build_provider)
+
+    runtime = bot_app.build_runtime(
+        settings_getter=lambda force=False: settings,
+        provider=provider,
+    )
+
+    assert runtime.provider() is provider
+    assert runtime.reaction_service._provider_getter() is provider
+
+
+def test_run_polling_builds_runtime_when_not_provided(monkeypatch) -> None:
+    settings = SimpleNamespace(debug_mode=False, features={"message_handling": True})
+    runtime = SimpleNamespace(get_settings=lambda: settings)
+    calls = []
+
+    def _fake_build_runtime():
+        calls.append("build_runtime")
+        return runtime
+
+    class _FakeApp:
+        def run_polling(self):
+            calls.append("run_polling")
+
+    def _fake_build_application(runtime_arg, *, settings):
+        calls.append(("build_application", runtime_arg, settings))
+        return _FakeApp()
+
+    monkeypatch.setattr(bot_app, "build_runtime", _fake_build_runtime)
+    monkeypatch.setattr(bot_app, "build_application", _fake_build_application)
+
+    bot_app.run_polling()
+
+    assert calls[0] == "build_runtime"
+    assert calls[1] == ("build_application", runtime, settings)
+    assert calls[2] == "run_polling"
+
+
+def test_run_polling_uses_passed_runtime(monkeypatch) -> None:
+    settings = SimpleNamespace(debug_mode=False, features={"message_handling": True})
+    runtime = SimpleNamespace(get_settings=lambda: settings)
+    called = {}
+
+    def _forbidden_build_runtime():
+        raise AssertionError("run_polling should use passed runtime")
+
+    class _FakeApp:
+        def run_polling(self):
+            called["ran"] = True
+
+    def _fake_build_application(runtime_arg, *, settings):
+        called["runtime"] = runtime_arg
+        called["settings"] = settings
+        return _FakeApp()
+
+    monkeypatch.setattr(bot_app, "build_runtime", _forbidden_build_runtime)
+    monkeypatch.setattr(bot_app, "build_application", _fake_build_application)
+
+    bot_app.run_polling(runtime=runtime)
+
+    assert called["runtime"] is runtime
+    assert called["settings"] is settings
+    assert called["ran"] is True
