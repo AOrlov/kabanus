@@ -9,6 +9,10 @@ import pytest
 
 from src import config, provider_factory
 
+# Contract note:
+# - Stable compatibility contract is limited to configuration behavior.
+# - Runtime flow expectations in this module are characterization tests and may evolve.
+
 
 class _DummyProvider:
     def transcribe(self, audio_path: str) -> str:
