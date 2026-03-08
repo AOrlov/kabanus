@@ -36,10 +36,6 @@ def message_drafts_unavailable_reason(
     return None
 
 
-def should_use_message_drafts(update: Update, settings: config.Settings) -> bool:
-    return message_drafts_unavailable_reason(update, settings) is None
-
-
 def build_response_draft_id(update: Update) -> int:
     chat_id = getattr(update.effective_chat, "id", "unknown")
     message_id = getattr(update.message, "message_id", int(time.time() * 1000))
@@ -217,7 +213,9 @@ class ReplyService:
             try:
                 await message.reply_text(chunk, parse_mode=ParseMode.HTML)
                 if plain_chunk:
-                    self._add_message("Bot", plain_chunk, chat_id=storage_id, is_bot=True)
+                    self._add_message(
+                        "Bot", plain_chunk, chat_id=storage_id, is_bot=True
+                    )
             except BadRequest as exc:
                 self._logger.warning(
                     "Failed to send formatted response chunk, falling back to plain text",
@@ -229,4 +227,6 @@ class ReplyService:
                 )
                 fallback_chunk = plain_chunk or chunk
                 await message.reply_text(fallback_chunk)
-                self._add_message("Bot", fallback_chunk, chat_id=storage_id, is_bot=True)
+                self._add_message(
+                    "Bot", fallback_chunk, chat_id=storage_id, is_bot=True
+                )

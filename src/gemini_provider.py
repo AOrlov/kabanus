@@ -5,7 +5,7 @@ import os
 import time
 import functools
 from datetime import datetime
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, cast
 
 from google import genai
 from google.genai import types, errors
@@ -315,11 +315,14 @@ class GeminiProvider(ModelProvider):
                 ),
             )
 
-        response = self._run_with_retry(
-            client=client,
-            specs=settings.gemini_models,
-            max_attempts=5,
-            run_request=run_request,
+        response = cast(
+            Optional[types.GenerateContentResponse],
+            self._run_with_retry(
+                client=client,
+                specs=settings.gemini_models,
+                max_attempts=5,
+                run_request=run_request,
+            ),
         )
         if response is None:
             return ""
@@ -359,11 +362,14 @@ class GeminiProvider(ModelProvider):
                 ),
             )
 
-        response = self._run_with_retry(
-            client=client,
-            specs=specs,
-            max_attempts=5,
-            run_request=run_request,
+        response = cast(
+            Optional[types.GenerateContentResponse],
+            self._run_with_retry(
+                client=client,
+                specs=specs,
+                max_attempts=5,
+                run_request=run_request,
+            ),
         )
         if response is None:
             return ""
@@ -421,11 +427,14 @@ class GeminiProvider(ModelProvider):
                 ),
             )
 
-        response = self._run_with_retry(
-            client=client,
-            specs=reaction_specs,
-            max_attempts=3,
-            run_request=run_request,
+        response = cast(
+            Optional[types.GenerateContentResponse],
+            self._run_with_retry(
+                client=client,
+                specs=reaction_specs,
+                max_attempts=3,
+                run_request=run_request,
+            ),
         )
         if response is None:
             return ""
@@ -463,11 +472,14 @@ class GeminiProvider(ModelProvider):
                 ),
             )
 
-        response = self._run_with_retry(
-            client=client,
-            specs=settings.gemini_models,
-            max_attempts=5,
-            run_request=run_request,
+        response = cast(
+            Optional[types.GenerateContentResponse],
+            self._run_with_retry(
+                client=client,
+                specs=settings.gemini_models,
+                max_attempts=5,
+                run_request=run_request,
+            ),
         )
         if response is None:
             return {}
@@ -508,11 +520,14 @@ class GeminiProvider(ModelProvider):
                 ),
             )
 
-        response = self._run_with_retry(
-            client=client,
-            specs=settings.gemini_models,
-            max_attempts=5,
-            run_request=run_request,
+        response = cast(
+            Optional[types.GenerateContentResponse],
+            self._run_with_retry(
+                client=client,
+                specs=settings.gemini_models,
+                max_attempts=5,
+                run_request=run_request,
+            ),
         )
         if response is None:
             return ""

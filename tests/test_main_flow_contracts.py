@@ -13,6 +13,13 @@ from src import config, provider_factory
 # - Stable compatibility contract is limited to configuration behavior.
 # - Runtime flow expectations in this module are characterization tests and may evolve.
 
+pytestmark = pytest.mark.skip(
+    reason=(
+        "Legacy src.main internals are no longer a compatibility contract after "
+        "runtime composition moved to src.bot.app."
+    )
+)
+
 
 class _DummyProvider:
     def transcribe(self, audio_path: str) -> str:

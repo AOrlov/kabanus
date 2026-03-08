@@ -158,14 +158,14 @@ Refactor Plan: Simplify Architecture and Remove Dead Code (Config-
   • Modify: tests/**/*.py (targeted)
   • Optional create/modify: scripts/* (dead-code audit helper), requirements-
   dev.txt (if tooling is added)
-  [ ] Run dead-code/unused-symbol analysis and produce a reviewed deletion
+  [x] Run dead-code/unused-symbol analysis and produce a reviewed deletion
   list.
-  [ ] Remove unused methods/imports/constants across runtime, memory, and
+  [x] Remove unused methods/imports/constants across runtime, memory, and
   provider modules.
-  [ ] Enforce simpler module boundaries and naming consistency (no hidden
+  [x] Enforce simpler module boundaries and naming consistency (no hidden
   cross-module private calls).
-  [ ] Add or update tests for each deletion that could affect behavior.
-  [ ] Run full project tests and static checks before Task 7.
+  [x] Add or update tests for each deletion that could affect behavior.
+  [x] Run full project tests and static checks before Task 7.
 
   ### Task 7: Verify acceptance criteria and update documentation
 
