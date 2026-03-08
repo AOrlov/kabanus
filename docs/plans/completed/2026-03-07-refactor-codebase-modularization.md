@@ -1,152 +1,185 @@
----
-# Refactor Kabanus Into Modular, Maintainable Architecture (Config-Compatible)
+Refactor Plan: Simplify Architecture and Remove Dead Code (Config-
+  Compatible)
 
-## Overview
-Refactor the codebase to reduce complexity and improve maintainability by splitting large modules into focused components, introducing clearer boundaries, and tightening tests. Keep current configuration fully backward compatible (same environment variables, defaults, and behavior), while allowing internal and product API reshaping where it improves design.
+  ## Overview
 
-## Context
-- Files involved:
-  - src/main.py
-  - src/message_store.py
-  - src/config.py
-  - src/provider_factory.py
-  - src/model_provider.py
-  - src/openai_provider.py
-  - src/gemini_provider.py
-  - src/calendar_provider.py
-  - src/telegram_drafts.py
-  - tests/test_main.py
-  - tests/test_message_store.py
-  - tests/test_config_openai.py
-  - tests/test_provider_factory.py
-  - tests/test_openai_provider.py
-  - tests/test_gemini_provider.py
-- Related patterns:
-  - Existing Settings dataclass and get_settings cache pattern in src/config.py
-  - Existing provider abstraction via ModelProvider and RoutedModelProvider
-  - Existing unit-test style with monkeypatch and SimpleNamespace fakes
-- Dependencies:
-  - Existing runtime stack only (python-telegram-bot, openai, google-genai, google-api-python-client)
-  - No new external dependencies for the refactor unless strictly required and justified in-task
+  Refactor the runtime, memory, and provider layers to reduce duplication and
+  file bloat, remove unused methods, and improve readability/maintainability.
+  Keep current configuration compatibility (same env vars/defaults/validation
+  behavior), while allowing internal/public Python API changes where they
+  simplify the system.
 
-## Development Approach
-- Testing approach: Regular (code first, then tests), with characterization tests added first as a safety net
-- Complete each task fully before moving to the next
-- Keep migration incremental; avoid a big-bang rewrite
-- Preserve compatibility via facades at current module entry points while internals are extracted
-- CRITICAL: every task MUST include new/updated tests
-- CRITICAL: all tests must pass before starting next task
+  ## Context
 
-## Implementation Steps
+  • Files involved:
+    • Runtime/wiring: src/main.py, src/bot/app.py, src/bot/handlers/.py,
+    src/bot/services/.py
+    • Config/settings: src/config.py, src/settings_loader.py,
+    src/settings_models.py, tests/test_config_*.py, tests/test_settings_loader.
+    py
+    • Memory/store: src/message_store.py, src/memory/history_store.py,
+    src/memory/context_builder.py, src/memory/summary_store.py,
+    tests/test_message_store.py, tests/test_memory_*.py
+    • Provider layer: src/model_provider.py, src/provider_factory.py,
+    src/providers/contracts.py, src/openai_provider.py, src/gemini_provider.py,
+    src/openai_auth.py, tests/test_provider_*.py, tests/test_openai_provider.
+    py, tests/test_gemini_provider.py
+    • Integration contracts: tests/test_main*.py, tests/test_bot_*.py
+    • Docs: README.md, docs/architecture/refactor-overview.md
+  • Related patterns:
+    • Dependency injection already exists via build_runtime(...) in
+    src/bot/app.py.
+    • Compatibility facades currently exist in src/config.py and
+    src/message_store.py.
+    • Large modules with mixed concerns still exist (notably src/main.py,
+    src/memory/summary_store.py, provider modules).
+  • Dependencies:
+    • No new runtime dependencies required.
+    • Optional dev-only dead-code tooling may be added if needed for safer
+    removal workflow.
 
-### Task 1: Build a Refactor Safety Net (Characterization Tests)
 
-**Files:**
-- Modify: `tests/test_main.py`
-- Modify: `tests/test_message_store.py`
-- Modify: `tests/test_config_openai.py`
-- Modify: `tests/test_provider_factory.py`
-- Create: `tests/test_main_flow_contracts.py`
-- Create: `tests/test_config_compat_contract.py`
+  ## Development Approach
 
-- [x] Add characterization tests for current externally observable behavior (message handling trigger matrix, summary command parsing forms, drafts fallback behavior, reaction gating, and context limits)
-- [x] Add config compatibility contract tests that lock current env var names/defaults and module-level config attribute access behavior
-- [x] Add tests that validate old callers of message_store and provider factory still behave identically
-- [x] Run `pytest -q` and fix regressions before task 2
+  • Testing approach: Regular (code first, then tests), with characterization
+  tests first for risky behavior.
+  • Complete each task fully before moving to the next.
+  • Preserve only configuration compatibility contract (env var
+  names/defaults/validation), as requested.
+  • API cleanup is allowed where it reduces complexity.
+  • CRITICAL: every task MUST include new/updated tests.
+  • CRITICAL: all tests must pass before starting next task.
 
-### Task 2: Isolate Configuration Parsing and Keep Legacy Compatibility Surface
+  ## Implementation Steps
 
-**Files:**
-- Modify: `src/config.py`
-- Create: `src/settings_models.py`
-- Create: `src/settings_loader.py`
-- Create: `tests/test_settings_loader.py`
+  ### Task 1: Define and lock the compatibility baseline
 
-- [x] Move parsing, validation, and cache internals out of `src/config.py` into focused loader/model modules
-- [x] Keep `src/config.py` as compatibility facade exposing `Settings`, `ModelSpec`, `get_settings(force=...)`, and legacy module attribute mapping (`__getattr__`)
-- [x] Preserve all existing env var names, defaults, and validation rules
-- [x] Write tests comparing legacy config behavior before/after extraction
-- [x] Run `pytest -q` and fix regressions before task 3
+  Files:
 
-### Task 3: Split Message Store Into Focused Components With Compatibility Wrappers
+  • Modify: tests/test_config_compat_contract.py
+  • Modify: tests/test_settings_loader.py
+  • Modify: tests/test_main_flow_contracts.py
+  • Modify: tests/test_provider_contracts.py
+  • Modify: tests/test_message_store.py
+  [x] Add/adjust characterization tests for the required non-negotiable
+  contract: configuration compatibility only.
+  [x] Explicitly mark legacy API tests that are no longer required (or rewrite
+  them to new intended behavior).
+  [x] Add a short contract note in tests describing what must remain stable vs
+  what may change.
+  [x] Run project tests for this scope before Task 2.
 
-**Files:**
-- Modify: `src/message_store.py`
-- Create: `src/memory/history_store.py`
-- Create: `src/memory/summary_store.py`
-- Create: `src/memory/context_builder.py`
-- Create: `tests/test_memory_history_store.py`
-- Create: `tests/test_memory_summary_store.py`
-- Create: `tests/test_memory_context_builder.py`
+  ### Task 2: Collapse duplicate runtime wiring and shrink entrypoint
 
-- [x] Extract JSONL history persistence and retrieval into `history_store`
-- [x] Extract summary state I/O and chunk rollup logic into `summary_store`
-- [x] Extract prompt context assembly logic into `context_builder`
-- [x] Keep `src/message_store.py` as a backward-compatible facade delegating to new modules
-- [x] Add targeted tests per module plus compatibility tests for existing `message_store` API
-- [x] Run `pytest -q` and fix regressions before task 4
+  Files:
 
-### Task 4: Decompose main.py Into Telegram Handlers and Application Services
+  • Modify: src/main.py
+  • Modify: src/bot/app.py
+  • Modify: tests/test_main.py
+  • Modify: tests/test_bot_app.py
+  [x] Make src/bot/app.py the single runtime composition location.
+  [x] Reduce src/main.py to a thin entrypoint (startup/logging/run), removing
+  duplicated handler/service wrappers.
+  [x] Remove duplicated reaction/runtime globals that are now owned by
+  service/runtime objects.
+  [x] Update runtime tests to validate behavior through one path.
+  [x] Run project tests for runtime/bot modules before Task 3.
 
-**Files:**
-- Modify: `src/main.py`
-- Create: `src/bot/app.py`
-- Create: `src/bot/handlers/message_handler.py`
-- Create: `src/bot/handlers/summary_handler.py`
-- Create: `src/bot/handlers/events_handler.py`
-- Create: `src/bot/handlers/common.py`
-- Create: `src/bot/services/reaction_service.py`
-- Create: `src/bot/services/reply_service.py`
-- Create: `src/bot/services/media_service.py`
-- Create: `tests/test_bot_message_handler.py`
-- Create: `tests/test_bot_summary_handler.py`
-- Create: `tests/test_bot_events_handler.py`
-- Create: `tests/test_bot_reply_service.py`
-- Create: `tests/test_bot_media_service.py`
+  ### Task 3: Simplify settings/config internals while preserving config
+  behavior
 
-- [x] Move mixed concerns from `main.py` into focused handler and service modules
-- [x] Replace global mutable runtime state with explicit service state objects where needed
-- [x] Keep `python -m src.main` as runtime entrypoint, delegating to bot app bootstrap module
-- [x] Preserve current user-visible behavior unless a deliberate API change is documented
-- [x] Add handler/service unit tests and one app-wiring smoke test
-- [x] Run `pytest -q` and fix regressions before task 5
+  Files:
 
-### Task 5: Simplify Provider Layer Boundaries and Wiring
+  • Modify: src/config.py
+  • Modify: src/settings_loader.py
+  • Modify: src/settings_models.py
+  • Modify: tests/test_config_compat_contract.py
+  • Modify: tests/test_config_openai.py
+  • Modify: tests/test_settings_loader.py
+  [x] Remove cache-state duplication between facade and loader by establishing
+  one source of truth.
+  [x] Keep env var names, defaults, parsing, and validation semantics
+  unchanged.
+  [x] Replace brittle/manual compatibility mapping with a clearer, tested
+  mapping mechanism.
+  [x] Keep only configuration-facing compatibility guarantees; remove
+  unnecessary legacy-only internals.
+  [x] Run config/settings tests before Task 4.
 
-**Files:**
-- Modify: `src/model_provider.py`
-- Modify: `src/provider_factory.py`
-- Modify: `src/openai_provider.py`
-- Modify: `src/gemini_provider.py`
-- Create: `src/providers/contracts.py`
-- Create: `tests/test_provider_contracts.py`
+  ### Task 4: Replace overgrown message facade with explicit memory APIs
 
-- [x] Define a clearer provider contract surface (typed inputs/outputs where practical)
-- [x] Keep fallback routing behavior equivalent to current `RoutedModelProvider` semantics
-- [x] Remove duplicated operation scaffolding where possible without changing behavior
-- [x] Ensure provider factory composition remains deterministic and testable
-- [x] Add or expand tests for routing, fallback, streaming, and reaction context propagation
-- [x] Run `pytest -q` and fix regressions before task 6
+  Files:
 
-### Task 6: Verify acceptance criteria
+  • Modify: src/message_store.py
+  • Modify: src/memory/history_store.py
+  • Modify: src/memory/context_builder.py
+  • Modify: src/memory/summary_store.py
+  • Modify: tests/test_message_store.py
+  • Modify: tests/test_memory_history_store.py
+  • Modify: tests/test_memory_context_builder.py
+  • Modify: tests/test_memory_summary_store.py
+  [x] Stop re-exporting private memory internals through src/message_store.py.
+  [x] Define a small explicit public memory API and move helper-only internals
+  behind module boundaries.
+  [x] Break large summary logic into smaller pure helpers where complexity is
+  highest.
+  [x] Remove dead/unused memory helpers after usage verification.
+  [x] Run memory/message-store tests before Task 5.
 
-- [x] Manual test: run the bot locally and verify key flows (standard text reply, voice/image extraction path, summary command, optional schedule events)
-- [x] run full test suite (`pytest -q`)
-- [x] run linter (`pylint src tests`)
-- [x] run type checks (`mypy src`)
-- [x] verify test coverage meets 80%+ (`coverage run -m pytest -q && coverage report --fail-under=80`)
-- [x] capture validation tooling config changes used by acceptance gates (`.pylintrc`, `mypy.ini`, `pytest.ini`, `.coveragerc`)
+  ### Task 5: Unify provider contracts and remove dead provider code
 
-### Task 7: Update documentation
+  Files:
 
-**Files:**
-- Modify: `README.md`
-- Modify: `CLAUDE.md` (if internal architecture conventions are updated)
-- Create: `docs/architecture/refactor-overview.md`
+  • Modify: src/model_provider.py
+  • Modify: src/providers/contracts.py
+  • Modify: src/provider_factory.py
+  • Modify: src/openai_provider.py
+  • Modify: src/gemini_provider.py
+  • Modify: src/openai_auth.py
+  • Modify: tests/test_provider_contracts.py
+  • Modify: tests/test_provider_factory.py
+  • Modify: tests/test_openai_provider.py
+  • Modify: tests/test_gemini_provider.py
+  [x] Choose one primary provider interface style (typed-first) and reduce
+  adapter indirection.
+  [x] Remove truly unused provider methods (for example currently unreferenced
+  helpers) only after test-backed confirmation.
+  [x] Keep routing/fallback semantics intact where they are still required for
+  behavior.
+  [x] Consolidate duplicated response/request handling logic in provider
+  implementations.
+  [x] Run provider tests before Task 6.
 
-- [x] update README.md if user-facing changes
-- [x] update CLAUDE.md if internal patterns changed
-- [x] document new module boundaries and extension points
-- [x] document config backward compatibility guarantees explicitly
-- [x] document intentional API changes and migration notes
-- [x] move this plan to `docs/plans/completed/`
+  ### Task 6: Repository-wide dead code sweep and readability cleanup
+
+  Files:
+
+  • Modify: src/**/*.py (targeted)
+  • Modify: tests/**/*.py (targeted)
+  • Optional create/modify: scripts/* (dead-code audit helper), requirements-
+  dev.txt (if tooling is added)
+  [x] Run dead-code/unused-symbol analysis and produce a reviewed deletion
+  list.
+  [x] Remove unused methods/imports/constants across runtime, memory, and
+  provider modules.
+  [x] Enforce simpler module boundaries and naming consistency (no hidden
+  cross-module private calls).
+  [x] Add or update tests for each deletion that could affect behavior.
+  [x] Run full project tests and static checks before Task 7.
+
+  ### Task 7: Verify acceptance criteria and update documentation
+
+  Files:
+
+  • Modify: README.md
+  • Modify: docs/architecture/refactor-overview.md
+  • Move: docs/plans/.md -> docs/plans/completed/
+  [x] Manual verification: bot still starts with python -m src.main and honors
+  existing env configuration.
+  [x] Manual verification: message handling, summary command, and provider
+  fallback still work with new structure.
+  [x] Run full test suite (pytest -q).
+  [x] Run linter/type checks (pylint src tests, mypy src).
+  [x] Verify test coverage is at least 80%.
+  [x] Update docs to reflect new architecture and removed legacy APIs.
+  [x] Move the completed plan file to docs/plans/completed/.

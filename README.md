@@ -221,8 +221,9 @@ The codebase has been modularized into focused components while preserving runti
 
 - Runtime entrypoint is still `python -m src.main`.
 - Telegram flow logic lives under `src/bot/handlers/*` and `src/bot/services/*`.
-- Memory internals live in `src/memory/*` and are exposed through compatibility facade `src/message_store.py`.
-- Settings parsing internals live in `src/settings_loader.py` and `src/settings_models.py`, with compatibility facade `src/config.py`.
+- Runtime composition and dependency wiring live in `src/bot/app.py`.
+- Memory internals live in `src/memory/*`; `src/message_store.py` now exposes a small explicit memory API.
+- Settings parsing internals live in `src/settings_loader.py` and `src/settings_models.py`; `src/config.py` is a thin facade.
 - Provider routing and typed contracts are in `src/provider_factory.py` and `src/providers/contracts.py`.
 
 Detailed module boundaries, extension points, compatibility guarantees, and migration notes:
@@ -230,9 +231,12 @@ Detailed module boundaries, extension points, compatibility guarantees, and migr
 
 ## Backward Compatibility Guarantees
 - Environment variable names/defaults and validation semantics are preserved.
-- Existing `src.config` API remains available (`Settings`, `ModelSpec`, `get_settings(force=...)`, legacy module attributes).
-- Existing `src.message_store` call surface remains available for history/context operations.
-- Provider routing behavior remains equivalent to previous `RoutedModelProvider` semantics.
+- Bot startup entrypoint remains `python -m src.main`.
+- Provider routing fallback behavior remains equivalent to previous `RoutedModelProvider` semantics.
+
+The refactor no longer guarantees broad legacy Python API compatibility. Internal module
+shapes and helper functions may change as long as runtime behavior and configuration
+contract remain stable.
 
 ## Migration Notes (Internal Integrations)
 - If you imported private internals from monolithic modules, migrate to new focused modules:
@@ -240,7 +244,10 @@ Detailed module boundaries, extension points, compatibility guarantees, and migr
   - Memory internals: `src/memory/history_store.py`, `src/memory/summary_store.py`, `src/memory/context_builder.py`
   - Settings internals: `src/settings_loader.py`, `src/settings_models.py`
 - Prefer typed provider request wrappers from `src/providers/contracts.py` for new provider integrations.
-- Keep compatibility facades (`src/main.py`, `src/config.py`, `src/message_store.py`) for legacy callers unless a deliberate breaking change is documented.
+- Do not rely on private module helpers or module-level legacy aliases.
+- For memory usage, rely on `src/message_store.py` exported functions only:
+  `add_message`, `get_last_message`, `get_all_messages`, `get_message_by_telegram_message_id`,
+  `get_summary_view_text`, `build_context`, `assemble_context`, `clear_memory_state`.
 
 ## Memory and Backfill
 

@@ -1,65 +1,51 @@
-# Refactor Overview: Modularization and Compatibility
+# Refactor Overview: Modularization and Current Contracts
 
 ## Goals
-- Reduce coupling in large modules (`main.py`, `message_store.py`, `config.py`, provider wiring).
-- Keep externally observable bot behavior stable.
-- Preserve existing configuration and compatibility entry points for legacy callers.
-- Make new features easier to add and test with explicit boundaries and dependency injection.
+- Reduce coupling in previously large modules (`main.py`, memory facade, config facade, provider routing).
+- Keep bot runtime behavior stable for end users.
+- Keep configuration compatibility stable (env names/defaults/parsing/validation).
+- Make wiring, provider fallback, and memory/context logic easier to test and evolve.
 
 ## Module Boundaries
-| Area | Primary Modules | Responsibility | Compatibility Surface |
+| Area | Primary Modules | Responsibility | Current Stable Contract |
 | --- | --- | --- | --- |
-| Runtime entrypoint | `src/main.py`, `src/bot/app.py` | Startup, app wiring, runtime object composition | `python -m src.main` remains the runtime command |
-| Telegram handlers | `src/bot/handlers/message_handler.py`, `src/bot/handlers/summary_handler.py`, `src/bot/handlers/events_handler.py`, `src/bot/handlers/common.py` | Update routing and user-facing command/message behavior | `src.main` still re-exports handler helpers used by legacy tests/callers |
-| Bot services | `src/bot/services/reply_service.py`, `src/bot/services/media_service.py`, `src/bot/services/reaction_service.py` | Focused operational logic: response sending, media parsing/transcription, reaction gating/state | Services are constructed by runtime wiring and remain transparent to users |
-| Settings | `src/settings_models.py`, `src/settings_loader.py`, `src/config.py` | Typed settings model + env parsing/cache internals + facade | `src.config` still exposes `Settings`, `ModelSpec`, `get_settings(force=...)`, and legacy `__getattr__` mapping |
-| Memory/context | `src/memory/history_store.py`, `src/memory/summary_store.py`, `src/memory/context_builder.py`, `src/message_store.py` | Message persistence, summary rollup/view, prompt context assembly | `src.message_store` remains the backward-compatible facade |
-| Providers | `src/providers/contracts.py`, `src/model_provider.py`, `src/provider_factory.py`, `src/openai_provider.py`, `src/gemini_provider.py` | Typed request contracts, legacy provider abstraction, deterministic routing/fallback | Legacy `ModelProvider` methods and provider factory behavior are preserved |
+| Runtime entrypoint | `src/main.py`, `src/bot/app.py` | Startup, logging bootstrap, runtime composition, polling | `python -m src.main` remains the runtime command |
+| Telegram handlers | `src/bot/handlers/*` | Command/message update routing (`/summary`, addressed messages, event photos) | User-facing command/message behavior |
+| Bot services | `src/bot/services/*` | Reply generation, media extraction/transcription, reaction gating/state | Runtime behavior covered by tests; service internals are not API |
+| Settings | `src/settings_loader.py`, `src/settings_models.py`, `src/config.py` | Typed settings model, env parsing/validation, cache | Env variable names/defaults/parsing/validation semantics |
+| Memory/context | `src/memory/*`, `src/message_store.py` | History persistence, summary rollup/view, prompt context assembly | Exported `src.message_store` functions only |
+| Providers | `src/model_provider.py`, `src/providers/contracts.py`, `src/provider_factory.py`, `src/openai_provider.py`, `src/gemini_provider.py` | Typed provider calls and deterministic fallback routing | OpenAI/Gemini routing and fallback semantics |
 
-## Extension Points
-- Add or swap model providers:
-  - Implement `ModelProvider` and/or typed methods in `TypedProviderContract`.
-  - Extend provider routing in `src/provider_factory.py`.
-- Customize bot behavior:
-  - Inject dependencies via `src/bot/app.py::build_runtime(...)` function arguments.
-  - Add new handlers under `src/bot/handlers/` and register in app wiring.
-- Extend memory strategy:
-  - Reuse `src/memory/*` primitives.
-  - Adjust context and summary policy via settings and `context_builder`.
-- Add settings safely:
-  - Add fields to `Settings` dataclass in `src/settings_models.py`.
-  - Parse/validate in `src/settings_loader.py`.
-  - Expose legacy mapping in `src/config.py` when compatibility is required.
+## Compatibility Scope
+The required compatibility contract is intentionally narrow:
 
-## Backward Compatibility Guarantees
-- Environment variable names, defaults, and validation behavior are preserved.
-- `src.config` public/legacy surface is preserved:
-  - `Settings`, `ModelSpec`
-  - `get_settings(force=False)`
-  - module-level attribute mapping via `__getattr__`
-- `src.message_store` public API remains available and delegates to extracted modules.
-- Routing semantics in `RoutedModelProvider` are preserved:
-  - OpenAI-primary mode can fall back to Gemini
-  - Gemini-primary mode can fall back to OpenAI
-  - streaming fallback keeps partial-output behavior
-- Runtime invocation remains `python -m src.main`.
+- Stable:
+  - Configuration behavior (environment variable names/defaults/parsing/validation).
+  - Runtime invocation via `python -m src.main`.
+  - Provider fallback behavior in `RoutedModelProvider`.
+- Not guaranteed:
+  - Legacy module-level aliases or private helper exports.
+  - Internal function/class layout inside runtime, memory, and provider modules.
+  - Characterization-only test snapshots of old internals.
 
-## Intentional API Changes and Migration Notes
-These are internal/API-shape changes, not user-facing behavior changes.
+## Intentional API Changes
+- `src/main.py` is a thin entrypoint; runtime composition moved to `src/bot/app.py`.
+- `src/message_store.py` now exposes an explicit, small API and no longer re-exports private memory internals.
+- Provider layer is typed-first; adapter indirection and dead helper methods were removed.
+- Settings/cache ownership is centralized in `src/settings_loader.py`; `src/config.py` is a facade.
 
-- Internal extraction from monoliths:
-  - Former mixed concerns in `src/main.py` now live in handlers/services under `src/bot/`.
-  - Former memory internals now live in `src/memory/`.
-  - Former settings internals now live in `src/settings_loader.py` and `src/settings_models.py`.
-- Provider typing enhancements:
-  - Typed request wrappers (`TextGenerationRequest`, `ReactionSelectionRequest`, and others) were introduced in `src/providers/contracts.py`.
-  - Legacy provider methods remain supported; wrappers delegate to legacy methods for compatibility.
-- Migration guidance for internal callers:
-  - If code imported private helper functions from monolithic files, migrate to the corresponding focused module.
-  - Keep using `src.config` and `src.message_store` for stable public compatibility entry points.
+## Migration Guidance (Internal Callers)
+- If you imported private helpers from monolithic modules, migrate to focused modules under:
+  - `src/bot/handlers/` and `src/bot/services/`
+  - `src/memory/`
+  - `src/settings_loader.py` and `src/settings_models.py`
+- For memory calls, rely only on exported `src.message_store` functions.
+- For provider integration, implement/consume typed request contracts in `src/providers/contracts.py`.
+- Avoid depending on underscore-prefixed helpers or module-level compatibility aliases.
 
-## Validation and Safety Net
-Behavior was locked with characterization and compatibility tests across:
-- message trigger matrix, summary command parsing forms, reaction gating, context limits
-- config env/default contract and legacy module attribute access
-- message store and provider factory compatibility behavior
+## Validation Summary
+Refactor acceptance is guarded by:
+- full test suite (`pytest -q`)
+- static checks (`pylint src tests`, `mypy src`)
+- coverage threshold (>=80%)
+- focused behavior verification for startup, summary/message handling, and provider fallback

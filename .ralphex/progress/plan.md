@@ -174,12 +174,12 @@ Refactor Plan: Simplify Architecture and Remove Dead Code (Config-
   • Modify: README.md
   • Modify: docs/architecture/refactor-overview.md
   • Move: docs/plans/.md -> docs/plans/completed/
-  [ ] Manual verification: bot still starts with python -m src.main and honors
+  [x] Manual verification: bot still starts with python -m src.main and honors
   existing env configuration.
-  [ ] Manual verification: message handling, summary command, and provider
+  [x] Manual verification: message handling, summary command, and provider
   fallback still work with new structure.
-  [ ] Run full test suite (pytest -q).
-  [ ] Run linter/type checks (pylint src tests, mypy src).
-  [ ] Verify test coverage is at least 80%.
-  [ ] Update docs to reflect new architecture and removed legacy APIs.
-  [ ] Move the completed plan file to docs/plans/completed/.
+  [x] Run full test suite (pytest -q).
+  [x] Run linter/type checks (pylint src tests, mypy src).
+  [x] Verify test coverage is at least 80%.
+  [x] Update docs to reflect new architecture and removed legacy APIs.
+  [x] Move the completed plan file to docs/plans/completed/.
