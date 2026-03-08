@@ -16,6 +16,7 @@ from src.bot.contracts import (
     ProviderGetter,
     SettingsGetter,
 )
+from src.providers.contracts import ImageToEventRequest
 from src.bot.services.media_service import IMAGE_MAX_BYTES
 
 
@@ -134,7 +135,9 @@ class EventsHandler:
 
             try:
                 provider = self._provider_getter()
-                event_data = provider.parse_image_to_event(temp_photo_path)
+                event_data = provider.parse_image_event(
+                    ImageToEventRequest(image_path=temp_photo_path)
+                )
 
                 confidence = _safe_float(event_data.get("confidence", 0))
                 if confidence < 0.5:

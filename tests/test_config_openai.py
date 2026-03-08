@@ -168,10 +168,7 @@ def test_message_handling_and_schedule_events_are_mutually_exclusive(
         config.get_settings(force=True)
 
 
-@pytest.mark.skip(
-    reason="Legacy module-level facade compatibility is not part of the required config contract."
-)
-def test_legacy_module_attributes_match_openai_settings(monkeypatch) -> None:
+def test_legacy_module_attributes_are_not_exposed(monkeypatch) -> None:
     monkeypatch.setattr(config, "_reload_env", lambda: None)
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "t")
     monkeypatch.setenv("ALLOWED_CHAT_IDS", "1,2")
@@ -181,10 +178,10 @@ def test_legacy_module_attributes_match_openai_settings(monkeypatch) -> None:
     monkeypatch.setenv("TELEGRAM_USE_MESSAGE_DRAFTS", "true")
     _reset_settings_cache()
 
-    settings = config.get_settings(force=True)
+    config.get_settings(force=True)
 
-    assert config.OPENAI_MODEL == settings.openai_model
-    assert config.OPENAI_LOW_COST_MODEL == settings.openai_low_cost_model
-    assert config.ALLOWED_CHAT_IDS == settings.allowed_chat_ids
-    assert config.MODEL_PROVIDER == settings.model_provider
-    assert config.TELEGRAM_USE_MESSAGE_DRAFTS == settings.telegram_use_message_drafts
+    with pytest.raises(AttributeError):
+        _ = getattr(config, "OPENAI_MODEL")
+
+    with pytest.raises(AttributeError):
+        _ = getattr(config, "MODEL_PROVIDER")

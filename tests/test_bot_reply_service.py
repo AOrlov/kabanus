@@ -1,7 +1,11 @@
 import asyncio
 from types import SimpleNamespace
 
-from src.bot.services.reply_service import ReplyService, message_drafts_unavailable_reason
+from src.bot.services.reply_service import (
+    ReplyService,
+    message_drafts_unavailable_reason,
+)
+from src.providers.contracts import TextGenerationRequest
 
 
 class _StreamingProvider:
@@ -9,13 +13,13 @@ class _StreamingProvider:
         self.snapshots = list(snapshots)
         self.prompts = []
 
-    def generate_stream(self, prompt: str):
-        self.prompts.append(prompt)
+    def generate_text_stream(self, request: TextGenerationRequest):
+        self.prompts.append(request.prompt)
         for snapshot in self.snapshots:
             yield snapshot
 
-    def generate(self, prompt: str) -> str:
-        self.prompts.append(prompt)
+    def generate_text(self, request: TextGenerationRequest) -> str:
+        self.prompts.append(request.prompt)
         return ""
 
 

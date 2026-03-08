@@ -1,9 +1,6 @@
-from dataclasses import fields
-
 import pytest
 
 from src import config
-from src.settings_models import LEGACY_ATTR_TO_SETTINGS_FIELD, Settings
 
 # Contract note for this refactor baseline:
 # - Stable: environment variable names/defaults/parsing/validation through config.get_settings().
@@ -12,13 +9,6 @@ from src.settings_models import LEGACY_ATTR_TO_SETTINGS_FIELD, Settings
 
 def _reset_settings_cache() -> None:
     config.reset_settings_cache()
-
-
-def test_legacy_attr_map_is_derived_from_settings_fields() -> None:
-    expected = {
-        model_field.name.upper(): model_field.name for model_field in fields(Settings)
-    }
-    assert LEGACY_ATTR_TO_SETTINGS_FIELD == expected
 
 
 def _set_base_openai_env(monkeypatch) -> None:
@@ -180,38 +170,13 @@ def test_config_validation_contract(
         config.get_settings(force=True)
 
 
-@pytest.mark.skip(
-    reason="Legacy module-level facade compatibility is not part of the required config contract."
-)
-def test_legacy_module_attribute_contract(monkeypatch) -> None:
-    _set_base_openai_env(monkeypatch)
-    monkeypatch.setenv("BOT_ALIASES", "kaban,helper")
-    monkeypatch.setenv("REACTION_ENABLED", "true")
-    _reset_settings_cache()
-    settings = config.get_settings(force=True)
-
-    assert config.TELEGRAM_BOT_TOKEN == settings.telegram_bot_token
-    assert config.MODEL_PROVIDER == settings.model_provider
-    assert config.OPENAI_MODEL == settings.openai_model
-    assert config.OPENAI_LOW_COST_MODEL == settings.openai_low_cost_model
-    assert config.OPENAI_REACTION_MODEL == settings.openai_reaction_model
-    assert config.ALLOWED_CHAT_IDS == settings.allowed_chat_ids
-    assert config.BOT_ALIASES == settings.bot_aliases
-    assert config.TOKEN_LIMIT == settings.token_limit
-    assert config.MEMORY_RECENT_TURNS == settings.memory_recent_turns
-    assert config.MEMORY_SUMMARY_ENABLED == settings.memory_summary_enabled
-    assert config.REACTION_ENABLED == settings.reaction_enabled
-    assert config.REACTION_CONTEXT_TURNS == settings.reaction_context_turns
-    assert config.TELEGRAM_USE_MESSAGE_DRAFTS == settings.telegram_use_message_drafts
-
-
-@pytest.mark.skip(
-    reason="Legacy module-level facade compatibility is not part of the required config contract."
-)
-def test_unknown_legacy_module_attribute_raises(monkeypatch) -> None:
+def test_legacy_module_level_attributes_are_not_exposed(monkeypatch) -> None:
     _set_base_openai_env(monkeypatch)
     _reset_settings_cache()
     config.get_settings(force=True)
 
     with pytest.raises(AttributeError):
-        _ = config.THIS_DOES_NOT_EXIST
+        _ = getattr(config, "OPENAI_MODEL")
+
+    with pytest.raises(AttributeError):
+        _ = getattr(config, "THIS_DOES_NOT_EXIST")

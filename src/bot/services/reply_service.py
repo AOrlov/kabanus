@@ -10,6 +10,7 @@ from telegram.error import BadRequest
 
 from src import utils
 from src.bot.contracts import AddMessageFn, BotSettings, LogContextFn, ProviderGetter
+from src.providers.contracts import TextGenerationRequest
 from src.telegram_drafts import send_message_draft
 
 
@@ -71,7 +72,9 @@ class ReplyService:
         chat = update.effective_chat
         provider = self._provider_getter()
         if chat is None:
-            return (provider.generate(prompt) or "").strip()
+            return (
+                provider.generate_text(TextGenerationRequest(prompt=prompt)) or ""
+            ).strip()
 
         draft_id = build_response_draft_id(update)
         last_sent_draft = ""
@@ -121,7 +124,9 @@ class ReplyService:
             last_sent_ts = time.monotonic()
 
         try:
-            for snapshot in provider.generate_stream(prompt):
+            for snapshot in provider.generate_text_stream(
+                TextGenerationRequest(prompt=prompt)
+            ):
                 stream_text = str(snapshot or "")
                 draft_text = stream_text[:4096]
                 if not draft_text.strip():
@@ -161,7 +166,9 @@ class ReplyService:
         final_text = stream_text.strip()
         if stream_error is not None and not final_text:
             try:
-                final_text = (provider.generate(prompt) or "").strip()
+                final_text = (
+                    provider.generate_text(TextGenerationRequest(prompt=prompt)) or ""
+                ).strip()
             except Exception as fallback_exc:
                 self._logger.warning(
                     "Fallback generation failed after stream error",

@@ -8,6 +8,7 @@ from telegram import Voice
 from telegram.ext import ContextTypes
 
 from src.bot.contracts import GetMessageByTelegramMessageIdFn, ProviderGetter
+from src.providers.contracts import AudioTranscriptionRequest, ImageToTextRequest
 
 NON_TEXT_REPLY_PLACEHOLDER = "[non-text message]"
 IMAGE_MAX_BYTES = 15 * 1024 * 1024
@@ -95,7 +96,9 @@ class MediaService:
 
     def transcribe_audio(self, audio_path: str) -> str:
         provider = self._provider_getter()
-        return provider.transcribe(audio_path)
+        return provider.transcribe_audio(
+            AudioTranscriptionRequest(audio_path=audio_path)
+        )
 
     async def transcribe_voice_message(
         self,
@@ -156,9 +159,11 @@ class MediaService:
                 extra={"file_size": len(image_bytes)},
             )
             return (getattr(message, "caption", "") or "").strip()
-        extracted = self._provider_getter().image_to_text(
-            image_bytes,
-            mime_type="image/jpeg",
+        extracted = self._provider_getter().extract_image_text(
+            ImageToTextRequest(
+                image_bytes=image_bytes,
+                mime_type="image/jpeg",
+            ),
         )
         return combine_caption_and_extracted(
             getattr(message, "caption", "") or "",
@@ -206,9 +211,11 @@ class MediaService:
                 extra={"file_size": len(image_bytes)},
             )
             return (getattr(message, "caption", "") or "").strip()
-        extracted = self._provider_getter().image_to_text(
-            image_bytes,
-            mime_type=effective_mime or "image/jpeg",
+        extracted = self._provider_getter().extract_image_text(
+            ImageToTextRequest(
+                image_bytes=image_bytes,
+                mime_type=effective_mime or "image/jpeg",
+            ),
         )
         return combine_caption_and_extracted(
             getattr(message, "caption", "") or "",

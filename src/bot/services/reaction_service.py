@@ -16,6 +16,7 @@ from src.bot.contracts import (
     ProviderGetter,
     StorageIdFn,
 )
+from src.providers.contracts import ReactionSelectionRequest
 
 REACTION_ALLOWED_SET = {emoji.value for emoji in ReactionEmoji}
 REACTION_ALLOWED_LIST = sorted(REACTION_ALLOWED_SET)
@@ -130,10 +131,12 @@ class ReactionService:
                 )
 
             provider = self._provider_getter()
-            reaction = provider.choose_reaction(
-                text,
-                self._allowed_reactions,
-                context_text=reaction_context,
+            reaction = provider.select_reaction(
+                ReactionSelectionRequest(
+                    message=text,
+                    allowed_reactions=self._allowed_reactions,
+                    context_text=reaction_context,
+                )
             ).strip()
             if not reaction:
                 return

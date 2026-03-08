@@ -23,7 +23,7 @@ def test_schedule_events_exits_when_feature_disabled() -> None:
 
     handler = EventsHandler(
         is_allowed_fn=lambda _update: True,
-        provider_getter=lambda: SimpleNamespace(parse_image_to_event=lambda _path: {}),
+        provider_getter=lambda: SimpleNamespace(parse_image_event=lambda _request: {}),
         notify_admin_fn=_notify_admin,
         log_context_fn=lambda _update: {},
         settings_getter=lambda: SimpleNamespace(features={"schedule_events": False}),
@@ -61,7 +61,7 @@ def test_schedule_events_exits_when_update_not_allowed() -> None:
 
     handler = EventsHandler(
         is_allowed_fn=lambda _update: False,
-        provider_getter=lambda: SimpleNamespace(parse_image_to_event=lambda _path: {}),
+        provider_getter=lambda: SimpleNamespace(parse_image_event=lambda _request: {}),
         notify_admin_fn=_notify_admin,
         log_context_fn=lambda _update: {},
         settings_getter=lambda: SimpleNamespace(features={"schedule_events": True}),
@@ -90,7 +90,7 @@ def test_schedule_events_exits_without_photo() -> None:
 
     handler = EventsHandler(
         is_allowed_fn=lambda _update: True,
-        provider_getter=lambda: SimpleNamespace(parse_image_to_event=lambda _path: {}),
+        provider_getter=lambda: SimpleNamespace(parse_image_event=lambda _request: {}),
         notify_admin_fn=_notify_admin,
         log_context_fn=lambda _update: {},
         settings_getter=lambda: SimpleNamespace(features={"schedule_events": True}),
@@ -131,7 +131,7 @@ def test_schedule_events_rejects_oversized_photo() -> None:
 
     handler = EventsHandler(
         is_allowed_fn=lambda _update: True,
-        provider_getter=lambda: SimpleNamespace(parse_image_to_event=lambda _path: {}),
+        provider_getter=lambda: SimpleNamespace(parse_image_event=lambda _request: {}),
         notify_admin_fn=_notify_admin,
         log_context_fn=lambda _update: {},
         settings_getter=lambda: SimpleNamespace(features={"schedule_events": True}),
@@ -201,7 +201,7 @@ def test_schedule_events_accepts_unknown_file_size_when_download_is_small(
     handler = EventsHandler(
         is_allowed_fn=lambda _update: True,
         provider_getter=lambda: SimpleNamespace(
-            parse_image_to_event=lambda _path: {
+            parse_image_event=lambda _request: {
                 "title": "Design Review",
                 "date": "2030-06-20",
                 "time": "14:00",
@@ -272,7 +272,7 @@ def test_schedule_events_rejects_oversized_download_when_size_unknown(
     handler = EventsHandler(
         is_allowed_fn=lambda _update: True,
         provider_getter=lambda: SimpleNamespace(
-            parse_image_to_event=lambda _path: parse_calls.update(
+            parse_image_event=lambda _request: parse_calls.update(
                 count=parse_calls["count"] + 1
             )
         ),
@@ -339,7 +339,7 @@ def test_schedule_events_creates_event_and_cleans_temp_file(monkeypatch) -> None
     handler = EventsHandler(
         is_allowed_fn=lambda _update: True,
         provider_getter=lambda: SimpleNamespace(
-            parse_image_to_event=lambda _path: {
+            parse_image_event=lambda _request: {
                 "title": "Design Review",
                 "date": "2030-06-20",
                 "time": "14:00",
@@ -412,7 +412,7 @@ def test_schedule_events_accepts_string_confidence(monkeypatch) -> None:
     handler = EventsHandler(
         is_allowed_fn=lambda _update: True,
         provider_getter=lambda: SimpleNamespace(
-            parse_image_to_event=lambda _path: {
+            parse_image_event=lambda _request: {
                 "title": "Design Review",
                 "date": "2030-06-20",
                 "time": "14:00",
@@ -483,7 +483,7 @@ def test_schedule_events_handles_all_day_events_without_time(monkeypatch) -> Non
     handler = EventsHandler(
         is_allowed_fn=lambda _update: True,
         provider_getter=lambda: SimpleNamespace(
-            parse_image_to_event=lambda _path: {
+            parse_image_event=lambda _request: {
                 "title": "All Day Event",
                 "date": "2030-07-20",
                 "location": "Office",
@@ -551,7 +551,7 @@ def test_schedule_events_reports_error_when_event_data_missing_date(
     handler = EventsHandler(
         is_allowed_fn=lambda _update: True,
         provider_getter=lambda: SimpleNamespace(
-            parse_image_to_event=lambda _path: {
+            parse_image_event=lambda _request: {
                 "title": "Missing Date",
                 "location": "Office",
                 "confidence": 0.55,
@@ -597,7 +597,7 @@ def test_schedule_events_handles_chat_file_download_failure(monkeypatch) -> None
 
     handler = EventsHandler(
         is_allowed_fn=lambda _update: True,
-        provider_getter=lambda: SimpleNamespace(parse_image_to_event=lambda _path: {}),
+        provider_getter=lambda: SimpleNamespace(parse_image_event=lambda _request: {}),
         notify_admin_fn=_notify_admin,
         log_context_fn=lambda _update: {},
         settings_getter=lambda: SimpleNamespace(features={"schedule_events": True}),

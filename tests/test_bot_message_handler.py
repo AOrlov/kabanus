@@ -8,6 +8,7 @@ from src.bot.handlers.message_handler import (
     build_prompt,
     is_bot_mentioned,
 )
+from src.providers.contracts import TextGenerationRequest
 
 
 class _Provider:
@@ -15,13 +16,14 @@ class _Provider:
         self.reply = reply
         self.prompts = []
 
-    def generate(self, prompt: str) -> str:
-        self.prompts.append(prompt)
+    def generate_text(self, request: TextGenerationRequest) -> str:
+        self.prompts.append(request.prompt)
         if isinstance(self.reply, list):
             return self.reply.pop(0)
         return self.reply
 
-    def generate_low_cost(self, prompt: str) -> str:
+    def generate_low_cost_text(self, request: TextGenerationRequest) -> str:
+        _ = request
         return "summary"
 
 
@@ -599,7 +601,9 @@ def test_handle_addressed_message_retries_when_model_returns_empty() -> None:
     assert len(provider.prompts) == 3
 
 
-def test_handle_addressed_message_uses_reply_target_context_when_mentioned_reply() -> None:
+def test_handle_addressed_message_uses_reply_target_context_when_mentioned_reply() -> (
+    None
+):
     provider = _Provider("clarified reply")
     sent = {}
     resolver_calls = []
@@ -686,9 +690,7 @@ def test_handle_addressed_message_uses_reply_target_context_when_mentioned_reply
             name="Alice",
             is_bot=False,
         ),
-        effective_chat=SimpleNamespace(
-            id=905, type="group", send_action=_send_action
-        ),
+        effective_chat=SimpleNamespace(id=905, type="group", send_action=_send_action),
         update_id=6,
     )
 

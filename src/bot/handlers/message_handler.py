@@ -23,6 +23,7 @@ from src.bot.services.media_service import (
     NON_TEXT_REPLY_PLACEHOLDER,
     is_image_document,
 )
+from src.providers.contracts import TextGenerationRequest
 
 
 def entity_type_value(entity: Any) -> str:
@@ -362,7 +363,9 @@ class MessageHandler:
         context_str = self._build_context(
             chat_id=chat_storage_id,
             latest_user_text=text,
-            summarize_fn=provider.generate_low_cost,
+            summarize_fn=lambda prompt: provider.generate_low_cost_text(
+                TextGenerationRequest(prompt=prompt)
+            ),
         )
         prompt = build_prompt(
             context_text=context_str,
@@ -410,7 +413,9 @@ class MessageHandler:
                     settings,
                 )
             else:
-                response = (provider.generate(prompt) or "").strip()
+                response = (
+                    provider.generate_text(TextGenerationRequest(prompt=prompt)) or ""
+                ).strip()
             if response:
                 break
 

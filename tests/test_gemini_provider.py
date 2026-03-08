@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from src import config
 from src import retry_utils
 from src.gemini_provider import GeminiProvider, _ModelUsage
+from src.providers.contracts import ReactionSelectionRequest
 
 
 def test_model_usage_exhausted_until_next_day() -> None:
@@ -52,10 +53,12 @@ def test_choose_reaction_includes_recent_context(monkeypatch) -> None:
 
     monkeypatch.setattr(retry_utils, "retry_with_item", _fake_retry_with_item)
 
-    reaction = provider.choose_reaction(
-        "ship it",
-        ["😀", "😴"],
-        context_text="Alice: deploy in 10 minutes",
+    reaction = provider.select_reaction(
+        ReactionSelectionRequest(
+            message="ship it",
+            allowed_reactions=["😀", "😴"],
+            context_text="Alice: deploy in 10 minutes",
+        )
     )
 
     assert reaction == "😀"

@@ -91,7 +91,7 @@ def test_routed_provider_falls_back_on_generate_error() -> None:
     provider = RoutedModelProvider(
         primary=_FailGenerateProvider(), fallback=_OkProvider()
     )
-    assert provider.generate("hello") == "g:hello"
+    assert provider.generate_text(TextGenerationRequest(prompt="hello")) == "g:hello"
 
 
 def test_routed_provider_uses_fallback_for_transcribe_when_forced() -> None:
@@ -100,7 +100,10 @@ def test_routed_provider_uses_fallback_for_transcribe_when_forced() -> None:
         fallback=_FallbackTranscribeProvider(),
         transcribe_use_fallback=True,
     )
-    assert provider.transcribe("voice.ogg") == "fallback:voice.ogg"
+    assert (
+        provider.transcribe_audio(AudioTranscriptionRequest(audio_path="voice.ogg"))
+        == "fallback:voice.ogg"
+    )
 
 
 def test_routed_provider_falls_back_on_generate_stream_error() -> None:
@@ -108,7 +111,9 @@ def test_routed_provider_falls_back_on_generate_stream_error() -> None:
         primary=_FailGenerateStreamProvider(), fallback=_OkProvider()
     )
 
-    assert list(provider.generate_stream("hello")) == ["g:hello"]
+    assert list(
+        provider.generate_text_stream(TextGenerationRequest(prompt="hello"))
+    ) == ["g:hello"]
 
 
 def test_routed_provider_returns_partial_stream_if_primary_fails_after_emitting() -> (
@@ -119,14 +124,22 @@ def test_routed_provider_returns_partial_stream_if_primary_fails_after_emitting(
         fallback=_OkProvider(),
     )
 
-    assert list(provider.generate_stream("hello")) == ["partial"]
+    assert list(
+        provider.generate_text_stream(TextGenerationRequest(prompt="hello"))
+    ) == ["partial"]
 
 
 def test_routed_provider_forwards_reaction_context_to_fallback() -> None:
     fallback = _CaptureReactionProvider()
     provider = RoutedModelProvider(primary=_FailReactionProvider(), fallback=fallback)
 
-    reaction = provider.choose_reaction("hello", ["😀"], context_text="Alice: hi")
+    reaction = provider.select_reaction(
+        ReactionSelectionRequest(
+            message="hello",
+            allowed_reactions=["😀"],
+            context_text="Alice: hi",
+        )
+    )
 
     assert reaction == "😀"
     assert fallback.last_context == "Alice: hi"
@@ -148,8 +161,11 @@ def test_build_provider_openai_uses_gemini_transcribe_fallback(monkeypatch) -> N
 
     routed = provider_factory.build_provider()
 
-    assert routed.generate("ping") == "openai:ping"
-    assert routed.transcribe("voice.ogg") == "gemini:voice.ogg"
+    assert routed.generate_text(TextGenerationRequest(prompt="ping")) == "openai:ping"
+    assert (
+        routed.transcribe_audio(AudioTranscriptionRequest(audio_path="voice.ogg"))
+        == "gemini:voice.ogg"
+    )
 
 
 def test_build_provider_openai_without_fallback_keeps_primary_transcribe(
@@ -170,8 +186,11 @@ def test_build_provider_openai_without_fallback_keeps_primary_transcribe(
 
     routed = provider_factory.build_provider()
 
-    assert routed.generate("ping") == "openai:ping"
-    assert routed.transcribe("voice.ogg") == "openai:voice.ogg"
+    assert routed.generate_text(TextGenerationRequest(prompt="ping")) == "openai:ping"
+    assert (
+        routed.transcribe_audio(AudioTranscriptionRequest(audio_path="voice.ogg"))
+        == "openai:voice.ogg"
+    )
 
 
 def test_build_provider_gemini_keeps_primary_transcribe_even_with_openai_fallback(
@@ -192,5 +211,8 @@ def test_build_provider_gemini_keeps_primary_transcribe_even_with_openai_fallbac
 
     routed = provider_factory.build_provider()
 
-    assert routed.generate("ping") == "gemini:ping"
-    assert routed.transcribe("voice.ogg") == "gemini:voice.ogg"
+    assert routed.generate_text(TextGenerationRequest(prompt="ping")) == "gemini:ping"
+    assert (
+        routed.transcribe_audio(AudioTranscriptionRequest(audio_path="voice.ogg"))
+        == "gemini:voice.ogg"
+    )

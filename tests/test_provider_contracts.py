@@ -130,16 +130,40 @@ def test_build_reaction_prompt_contract() -> None:
     assert with_context.endswith("Allowed reactions: 😀, 😴")
 
 
-def test_model_provider_legacy_wrappers_delegate_to_typed_methods() -> None:
+def test_model_provider_typed_contract_invocations() -> None:
     provider = _ContractSpyProvider()
 
-    assert provider.transcribe("voice.ogg") == "t:voice.ogg"
-    assert list(provider.generate_stream("hello")) == ["stream:hello"]
-    assert provider.generate("hello") == "g:hello"
-    assert provider.generate_low_cost("hello") == "lc:hello"
-    assert provider.choose_reaction("hello", ["😀", "😴"], context_text="Alice: hi") == "😀"
-    assert provider.parse_image_to_event("event.jpg") == {"path": "event.jpg"}
-    assert provider.image_to_text(b"abc", mime_type="image/png") == "image/png:3"
+    assert (
+        provider.transcribe_audio(AudioTranscriptionRequest(audio_path="voice.ogg"))
+        == "t:voice.ogg"
+    )
+    assert list(
+        provider.generate_text_stream(TextGenerationRequest(prompt="hello"))
+    ) == ["stream:hello"]
+    assert provider.generate_text(TextGenerationRequest(prompt="hello")) == "g:hello"
+    assert (
+        provider.generate_low_cost_text(TextGenerationRequest(prompt="hello"))
+        == "lc:hello"
+    )
+    assert (
+        provider.select_reaction(
+            ReactionSelectionRequest(
+                message="hello",
+                allowed_reactions=["😀", "😴"],
+                context_text="Alice: hi",
+            )
+        )
+        == "😀"
+    )
+    assert provider.parse_image_event(ImageToEventRequest(image_path="event.jpg")) == {
+        "path": "event.jpg"
+    }
+    assert (
+        provider.extract_image_text(
+            ImageToTextRequest(image_bytes=b"abc", mime_type="image/png")
+        )
+        == "image/png:3"
+    )
     assert provider.calls == [
         ("transcribe_audio", "voice.ogg"),
         ("generate_text_stream", "hello"),
@@ -211,10 +235,26 @@ def test_build_provider_for_settings_routes_operations_and_context() -> None:
     )
 
     assert build_order == ["openai", "gemini"]
-    assert provider.transcribe("voice.ogg") == "gemini:voice.ogg"
-    assert provider.generate("hello") == "gemini:hello"
-    assert list(provider.generate_stream("hello")) == ["gemini-full"]
-    assert provider.choose_reaction("hello", ["😀"], context_text="Alice: hi") == "😀"
+    assert (
+        provider.transcribe_audio(AudioTranscriptionRequest(audio_path="voice.ogg"))
+        == "gemini:voice.ogg"
+    )
+    assert (
+        provider.generate_text(TextGenerationRequest(prompt="hello")) == "gemini:hello"
+    )
+    assert list(
+        provider.generate_text_stream(TextGenerationRequest(prompt="hello"))
+    ) == ["gemini-full"]
+    assert (
+        provider.select_reaction(
+            ReactionSelectionRequest(
+                message="hello",
+                allowed_reactions=["😀"],
+                context_text="Alice: hi",
+            )
+        )
+        == "😀"
+    )
     assert gemini.reaction_contexts == ["Alice: hi"]
 
 
@@ -223,5 +263,7 @@ def test_routed_provider_keeps_partial_stream_without_fallback() -> None:
     fallback = _ConfigurableProvider("gemini")
     routed = RoutedModelProvider(primary=primary, fallback=fallback)
 
-    assert list(routed.generate_stream("hello")) == ["openai-partial"]
+    assert list(routed.generate_text_stream(TextGenerationRequest(prompt="hello"))) == [
+        "openai-partial"
+    ]
     assert fallback.stream_calls == 0

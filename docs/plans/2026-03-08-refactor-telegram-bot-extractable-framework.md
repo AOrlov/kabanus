@@ -121,11 +121,11 @@ This plan intentionally allows backward-incompatible internal API changes so the
 - Modify: `tests/test_provider_contracts.py`
 - Modify: `tests/test_config_compat_contract.py`
 
-- [ ] Remove legacy compatibility shims that encourage hidden coupling (module-level dynamic config attribute access, legacy provider convenience wrappers where no longer needed)
-- [ ] Migrate internal call sites to explicit typed contracts/interfaces
-- [ ] Keep only the runtime behavior contract and env parsing contract required for operation
-- [ ] write tests for this task
-- [ ] run project test suite - must pass before task 6
+- [x] Remove legacy compatibility shims that encourage hidden coupling (module-level dynamic config attribute access, legacy provider convenience wrappers where no longer needed)
+- [x] Migrate internal call sites to explicit typed contracts/interfaces
+- [x] Keep only the runtime behavior contract and env parsing contract required for operation
+- [x] write tests for this task
+- [x] run project test suite - must pass before task 6
 
 ### Task 6: Verify acceptance criteria
 

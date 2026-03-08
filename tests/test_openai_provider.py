@@ -3,6 +3,7 @@ import json
 from types import SimpleNamespace
 
 from src.openai_provider import OpenAIProvider
+from src.providers.contracts import ReactionSelectionRequest, TextGenerationRequest
 
 
 def _jwt_with_account_id(account_id: str) -> str:
@@ -18,7 +19,9 @@ def _jwt_with_account_id(account_id: str) -> str:
 def test_resolve_client_options_uses_codex_backend_for_auth_json(monkeypatch) -> None:
     provider = OpenAIProvider()
     token = _jwt_with_account_id("acct_123")
-    monkeypatch.setattr(provider, "_resolve_api_key", lambda _settings, force_refresh=False: token)
+    monkeypatch.setattr(
+        provider, "_resolve_api_key", lambda _settings, force_refresh=False: token
+    )
     monkeypatch.setattr(provider, "_get_auth_manager", lambda _settings: object())
     settings = SimpleNamespace(openai_codex_base_url="https://chatgpt.com/backend-api")
 
@@ -33,7 +36,11 @@ def test_resolve_client_options_uses_codex_backend_for_auth_json(monkeypatch) ->
 
 def test_resolve_client_options_falls_back_without_account_id(monkeypatch) -> None:
     provider = OpenAIProvider()
-    monkeypatch.setattr(provider, "_resolve_api_key", lambda _settings, force_refresh=False: "plain-token")
+    monkeypatch.setattr(
+        provider,
+        "_resolve_api_key",
+        lambda _settings, force_refresh=False: "plain-token",
+    )
     monkeypatch.setattr(provider, "_get_auth_manager", lambda _settings: object())
     settings = SimpleNamespace(openai_codex_base_url="https://chatgpt.com/backend-api")
 
@@ -193,7 +200,9 @@ def test_responses_create_sets_instructions_in_codex_mode(monkeypatch) -> None:
         openai_auth_json_path="x",
         openai_codex_default_model="gpt-5.3-codex",
     )
-    monkeypatch.setattr(provider, "_get_client", lambda force_refresh=False: (client, settings))
+    monkeypatch.setattr(
+        provider, "_get_client", lambda force_refresh=False: (client, settings)
+    )
 
     result = provider._responses_create(
         model="gpt-5.3-codex",
@@ -215,7 +224,9 @@ def test_responses_create_retries_with_codex_default_model(monkeypatch) -> None:
         openai_auth_json_path="x",
         openai_codex_default_model="gpt-5.3-codex",
     )
-    monkeypatch.setattr(provider, "_get_client", lambda force_refresh=False: (client, settings))
+    monkeypatch.setattr(
+        provider, "_get_client", lambda force_refresh=False: (client, settings)
+    )
 
     result = provider._responses_create(
         model="legacy-unsupported-model",
@@ -235,9 +246,11 @@ def test_generate_stream_yields_progressive_snapshots(monkeypatch) -> None:
         openai_model="gpt-5.3-codex",
         openai_codex_default_model="gpt-5.3-codex",
     )
-    monkeypatch.setattr(provider, "_get_client", lambda force_refresh=False: (client, settings))
+    monkeypatch.setattr(
+        provider, "_get_client", lambda force_refresh=False: (client, settings)
+    )
 
-    snapshots = list(provider.generate_stream("hi"))
+    snapshots = list(provider.generate_text_stream(TextGenerationRequest(prompt="hi")))
 
     assert snapshots == ["he", "hello"]
     assert fake.calls
@@ -254,9 +267,11 @@ def test_generate_stream_retries_with_codex_default_model(monkeypatch) -> None:
         openai_model="legacy-unsupported-model",
         openai_codex_default_model="gpt-5.3-codex",
     )
-    monkeypatch.setattr(provider, "_get_client", lambda force_refresh=False: (client, settings))
+    monkeypatch.setattr(
+        provider, "_get_client", lambda force_refresh=False: (client, settings)
+    )
 
-    snapshots = list(provider.generate_stream("hi"))
+    snapshots = list(provider.generate_text_stream(TextGenerationRequest(prompt="hi")))
 
     assert snapshots == ["ok"]
     assert fake.models == ["legacy-unsupported-model", "gpt-5.3-codex"]
@@ -282,7 +297,7 @@ def test_generate_stream_refreshes_auth_once(monkeypatch) -> None:
 
     monkeypatch.setattr(provider, "_get_client", _fake_get_client)
 
-    snapshots = list(provider.generate_stream("hi"))
+    snapshots = list(provider.generate_text_stream(TextGenerationRequest(prompt="hi")))
 
     assert snapshots == ["ok"]
     assert calls == [False, True]
@@ -305,10 +320,12 @@ def test_choose_reaction_includes_recent_context(monkeypatch) -> None:
 
     monkeypatch.setattr(provider, "_responses_create", _fake_responses_create)
 
-    reaction = provider.choose_reaction(
-        "ship it",
-        ["😀", "😴"],
-        context_text="Alice: deploy in 10 minutes",
+    reaction = provider.select_reaction(
+        ReactionSelectionRequest(
+            message="ship it",
+            allowed_reactions=["😀", "😴"],
+            context_text="Alice: deploy in 10 minutes",
+        )
     )
 
     assert reaction == "😀"

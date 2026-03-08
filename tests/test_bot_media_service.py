@@ -3,6 +3,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from src.bot.services import media_service
+from src.providers.contracts import AudioTranscriptionRequest, ImageToTextRequest
 
 
 class _Provider:
@@ -10,12 +11,14 @@ class _Provider:
         self.transcribe_paths = []
         self.image_calls = []
 
-    def transcribe(self, audio_path: str) -> str:
-        self.transcribe_paths.append(audio_path)
+    def transcribe_audio(self, request: AudioTranscriptionRequest) -> str:
+        self.transcribe_paths.append(request.audio_path)
         return "voice transcript"
 
-    def image_to_text(self, image_bytes: bytes, mime_type: str = "image/jpeg") -> str:
-        self.image_calls.append({"bytes": image_bytes, "mime_type": mime_type})
+    def extract_image_text(self, request: ImageToTextRequest) -> str:
+        self.image_calls.append(
+            {"bytes": request.image_bytes, "mime_type": request.mime_type}
+        )
         return "ocr result"
 
 
