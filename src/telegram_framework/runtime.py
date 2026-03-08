@@ -23,11 +23,7 @@ def supports_force_kwarg(settings_getter: Callable[..., Any]) -> bool:
         return True
 
     return any(
-        parameter.kind
-        in (
-            inspect.Parameter.VAR_POSITIONAL,
-            inspect.Parameter.VAR_KEYWORD,
-        )
+        parameter.kind == inspect.Parameter.VAR_KEYWORD
         for parameter in getter_signature.parameters.values()
     )
 
@@ -57,8 +53,8 @@ class PollingRuntime:
         self._build_application_fn = build_application_fn
         self._logger = logger_override or logger
         self._startup_log_message = startup_log_message
-        self._startup_log_value_fn = (
-            startup_log_value_fn or (lambda settings: getattr(settings, "features", {}))
+        self._startup_log_value_fn = startup_log_value_fn or (
+            lambda settings: getattr(settings, "features", {})
         )
 
     def get_settings(self, force: bool = False) -> Any:

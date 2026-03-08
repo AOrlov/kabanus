@@ -37,6 +37,20 @@ def test_settings_resolver_supports_no_arg_getter() -> None:
     assert resolver.get(force=True) is settings
 
 
+def test_settings_resolver_does_not_pass_force_kwarg_to_varargs_getter() -> None:
+    calls = []
+    settings = SimpleNamespace(value="ok")
+
+    def _settings_getter(*args):
+        calls.append(args)
+        return settings
+
+    resolver = SettingsResolver(_settings_getter)
+
+    assert resolver.get(force=True) is settings
+    assert calls == [()]
+
+
 def test_framework_build_application_uses_hook_points() -> None:
     class _FakeApp:
         def __init__(self) -> None:
@@ -167,3 +181,18 @@ def test_notify_admin_about_exception_formats_payload_without_context_data() -> 
     assert "context.user_data" not in sent["text"]
     assert "secret-chat-token" not in sent["text"]
     assert "secret-user-token" not in sent["text"]
+
+
+def test_build_error_report_message_truncation_keeps_valid_html_tags() -> None:
+    long_error = RuntimeError("<boom>" * 2000)
+
+    message = error_reporting.build_error_report_message(
+        update="opaque update payload",
+        error=long_error,
+        max_len=512,
+    )
+
+    assert len(message) <= 512
+    assert message.count("<pre>") >= 1
+    assert message.count("<pre>") == message.count("</pre>")
+    assert "<boom>" not in message

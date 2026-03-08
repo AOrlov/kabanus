@@ -114,12 +114,16 @@ def test_build_runtime_uses_injected_provider(monkeypatch) -> None:
     settings = SimpleNamespace(admin_chat_id=None, debug_mode=False)
     provider = SimpleNamespace()
 
-    def _forbidden_build_provider():
+    def _forbidden_build_provider_for_settings(_settings):
         raise AssertionError(
             "build_provider should not be used when provider is injected"
         )
 
-    monkeypatch.setattr(bot_app, "build_provider", _forbidden_build_provider)
+    monkeypatch.setattr(
+        bot_app,
+        "build_provider_for_settings",
+        _forbidden_build_provider_for_settings,
+    )
 
     runtime = bot_app.build_runtime(
         settings_getter=lambda force=False: settings,
@@ -128,6 +132,30 @@ def test_build_runtime_uses_injected_provider(monkeypatch) -> None:
 
     assert runtime.provider() is provider
     assert runtime.reaction_service._provider_getter() is provider
+
+
+def test_build_runtime_builds_provider_from_injected_settings_getter(
+    monkeypatch,
+) -> None:
+    settings = SimpleNamespace(admin_chat_id=None, debug_mode=False)
+    provider = SimpleNamespace()
+    captured = {}
+
+    def _fake_build_provider_for_settings(configured_settings):
+        captured["settings"] = configured_settings
+        return provider
+
+    monkeypatch.setattr(
+        bot_app,
+        "build_provider_for_settings",
+        _fake_build_provider_for_settings,
+    )
+
+    runtime = bot_app.build_runtime(settings_getter=lambda force=False: settings)
+
+    assert runtime.provider() is provider
+    assert runtime.reaction_service._provider_getter() is provider
+    assert captured["settings"] is settings
 
 
 def test_build_application_routes_commands_and_feature_handlers(monkeypatch) -> None:

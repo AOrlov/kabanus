@@ -212,9 +212,11 @@ python -m src.main
 - `scripts/dump_chat.py`: Dump Telegram chat history to JSONL (see script for usage).
 - `scripts/backfill_summaries.py`: Backfill `*.summary.json` from existing JSONL history.
 - `scripts/view_summary.py`: Inspect summary files quickly from CLI.
+- `scripts/dead_code_audit.py`: Run dead-code and boundary checks (`python3 scripts/dead_code_audit.py`).
 - `scripts/onboard_openai.py`: Interactive OpenAI onboarding and auth JSON generation.
 - `scripts/openai_codex_oauth.py`: OpenAI Codex OAuth login and auth.json writer.
 - `scripts/README.md`: Detailed script usage and examples.
+- Dev tooling includes `vulture` in `requirements-dev.txt` for dead-code auditing.
 
 ## Architecture
 The codebase now separates a reusable Telegram framework layer from Kabanus product code.

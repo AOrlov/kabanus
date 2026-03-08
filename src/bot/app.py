@@ -24,7 +24,7 @@ from src.message_store import (
     get_summary_view_text,
 )
 from src.model_provider import ModelProvider
-from src.provider_factory import build_provider
+from src.provider_factory import build_provider, build_provider_for_settings
 from src.telegram_framework import application as framework_application
 from src.telegram_framework import error_reporting as framework_error_reporting
 from src.telegram_framework import policy as framework_policy
@@ -174,7 +174,12 @@ def build_runtime(
     runtime: Optional[BotRuntime] = None
     if provider_getter is None:
         if provider_instance is None:
-            provider_instance = build_provider()
+            if settings_getter is config.get_settings:
+                provider_instance = build_provider()
+            else:
+                provider_instance = build_provider_for_settings(
+                    SettingsResolver(settings_getter).get()
+                )
 
         def provider_getter() -> ModelProvider:
             assert provider_instance is not None
