@@ -42,7 +42,12 @@ def test_add_message_persists_and_lookup_by_telegram_id(monkeypatch, tmp_path) -
     assert found["text"] == "hello"
     assert found["telegram_message_id"] == 100
 
-    lines = (tmp_path / "messages_c2.jsonl").read_text(encoding="utf-8").strip().splitlines()
+    lines = (
+        (tmp_path / "messages_c2.jsonl")
+        .read_text(encoding="utf-8")
+        .strip()
+        .splitlines()
+    )
     assert len(lines) == 2
 
 
@@ -69,3 +74,15 @@ def test_get_all_messages_returns_copy(monkeypatch, tmp_path) -> None:
 def test_ensure_loaded_requires_chat_id() -> None:
     with pytest.raises(ValueError, match="chat_id is required"):
         history_store._ensure_loaded("")
+
+
+def test_get_store_path_rejects_unsafe_chat_id(monkeypatch, tmp_path) -> None:
+    store_base = tmp_path / "messages.jsonl"
+    monkeypatch.setattr(
+        history_store.config,
+        "get_settings",
+        lambda: _settings(chat_messages_store_path=str(store_base)),
+    )
+
+    with pytest.raises(ValueError, match="unsafe path characters"):
+        history_store._get_store_path("../escape")

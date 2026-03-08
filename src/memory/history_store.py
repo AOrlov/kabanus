@@ -17,14 +17,23 @@ _chat_lock_by_id: Dict[str, threading.RLock] = {}
 _chat_lock_guard = threading.Lock()
 
 
-def _get_chat_lock(chat_id: str) -> threading.RLock:
-    if not chat_id:
+def _normalize_chat_id(chat_id: str) -> str:
+    safe_chat_id = str(chat_id).strip()
+    if not safe_chat_id:
         raise ValueError("chat_id is required for message storage")
+    # Prevent path traversal and path separator injection when deriving store paths.
+    if "/" in safe_chat_id or "\\" in safe_chat_id or ".." in safe_chat_id:
+        raise ValueError("chat_id contains unsafe path characters")
+    return safe_chat_id
+
+
+def _get_chat_lock(chat_id: str) -> threading.RLock:
+    safe_chat_id = _normalize_chat_id(chat_id)
     with _chat_lock_guard:
-        lock = _chat_lock_by_id.get(chat_id)
+        lock = _chat_lock_by_id.get(safe_chat_id)
         if lock is None:
             lock = threading.RLock()
-            _chat_lock_by_id[chat_id] = lock
+            _chat_lock_by_id[safe_chat_id] = lock
     return lock
 
 
@@ -70,8 +79,7 @@ def _get_store_path(chat_id: str) -> str:
         )
         base_path = os.path.normpath(base_path)
 
-    if not chat_id:
-        raise ValueError("chat_id is required for message storage")
+    safe_chat_id = _normalize_chat_id(chat_id)
 
     root, ext = os.path.splitext(base_path)
     if ext:
@@ -81,7 +89,6 @@ def _get_store_path(chat_id: str) -> str:
         base_dir = base_path
         stem = "messages"
 
-    safe_chat_id = str(chat_id).strip()
     path = os.path.join(base_dir, f"{stem}_{safe_chat_id}.jsonl")
 
     if not os.path.exists(path):

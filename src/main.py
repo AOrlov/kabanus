@@ -186,21 +186,27 @@ async def _extract_text_from_photo_message(
     message: Any,
     context: ContextTypes.DEFAULT_TYPE,
 ) -> str:
-    return await _build_media_service().extract_text_from_photo_message(message, context)
+    return await _build_media_service().extract_text_from_photo_message(
+        message, context
+    )
 
 
 async def _extract_text_from_image_document(
     message: Any,
     context: ContextTypes.DEFAULT_TYPE,
 ) -> Optional[str]:
-    return await _build_media_service().extract_text_from_image_document(message, context)
+    return await _build_media_service().extract_text_from_image_document(
+        message, context
+    )
 
 
 async def _extract_reply_target_text(
     reply_message: Any,
     context: ContextTypes.DEFAULT_TYPE,
 ) -> Tuple[str, str]:
-    return await _build_media_service().extract_reply_target_text(reply_message, context)
+    return await _build_media_service().extract_reply_target_text(
+        reply_message, context
+    )
 
 
 async def _resolve_reply_target_context(
@@ -345,14 +351,21 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
         context.error,
         context.error.__traceback__,
     )
-    tb_string = "".join(tb_list)
-    update_str = update.to_dict() if isinstance(update, Update) else str(update)
+    tb_string = "".join(tb_list[-8:])
+    if isinstance(update, Update):
+        update_meta = {
+            "update_id": update.update_id,
+            "chat_id": getattr(update.effective_chat, "id", None),
+            "user_id": getattr(update.effective_user, "id", None),
+            "has_message": update.message is not None,
+        }
+    else:
+        update_meta = {"type": type(update).__name__}
     message = (
         "An exception was raised while handling an update\n"
-        f"<pre>update = {html.escape(json.dumps(update_str, indent=2, ensure_ascii=False))}"
-        "</pre>\n\n"
-        f"<pre>context.chat_data = {html.escape(str(context.chat_data))}</pre>\n\n"
-        f"<pre>context.user_data = {html.escape(str(context.user_data))}</pre>\n\n"
+        f"<pre>update_meta = {html.escape(json.dumps(update_meta, ensure_ascii=False))}</pre>\n\n"
+        f"<pre>error = {html.escape(type(context.error).__name__)}: "
+        f"{html.escape(str(context.error))}</pre>\n\n"
         f"<pre>{html.escape(tb_string)}</pre>"
     )
     max_len = 3500
@@ -380,7 +393,7 @@ async def notify_admin(context: ContextTypes.DEFAULT_TYPE, message: str) -> None
         return
     await context.bot.send_message(
         chat_id=active_settings.admin_chat_id,
-        text=html.escape(message),
+        text=message,
         parse_mode=ParseMode.HTML,
     )
 

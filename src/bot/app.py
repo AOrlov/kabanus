@@ -23,7 +23,10 @@ from src.bot.handlers.message_handler import MessageHandler as AddressedMessageH
 from src.bot.handlers.summary_handler import SummaryHandler
 from src.bot.services.media_service import MediaService
 from src.bot.services.reaction_service import ReactionService, ReactionState
-from src.bot.services.reply_service import ReplyService, message_drafts_unavailable_reason
+from src.bot.services.reply_service import (
+    ReplyService,
+    message_drafts_unavailable_reason,
+)
 from src.message_store import (
     add_message,
     assemble_context,
@@ -51,7 +54,7 @@ class BotRuntime:
         provider_getter: Callable[[], ModelProvider],
         reaction_service: ReactionService,
         summary_handler: SummaryHandler,
-        message_handler: MessageHandler,
+        message_handler: AddressedMessageHandler,
         events_handler: EventsHandler,
         log_level_state: Optional[LogLevelState] = None,
         is_allowed_fn: Optional[Callable[[Update], bool]] = None,
@@ -64,7 +67,9 @@ class BotRuntime:
         self.message_handler = message_handler
         self.events_handler = events_handler
         self.log_level_state = log_level_state or LogLevelState()
-        self._is_allowed = is_allowed_fn or (lambda update: common.is_allowed(update, settings_getter=settings_getter))
+        self._is_allowed = is_allowed_fn or (
+            lambda update: common.is_allowed(update, settings_getter=settings_getter)
+        )
         self._log_context = log_context_fn
 
     def provider(self) -> ModelProvider:
@@ -124,7 +129,7 @@ class BotRuntime:
             return
         await context.bot.send_message(
             chat_id=settings.admin_chat_id,
-            text=html.escape(message),
+            text=message,
             parse_mode=ParseMode.HTML,
         )
 
@@ -148,14 +153,21 @@ class BotRuntime:
             context.error,
             context.error.__traceback__,
         )
-        tb_string = "".join(tb_list)
-        update_str = update.to_dict() if isinstance(update, Update) else str(update)
+        tb_string = "".join(tb_list[-8:])
+        if isinstance(update, Update):
+            update_meta = {
+                "update_id": update.update_id,
+                "chat_id": getattr(update.effective_chat, "id", None),
+                "user_id": getattr(update.effective_user, "id", None),
+                "has_message": update.message is not None,
+            }
+        else:
+            update_meta = {"type": type(update).__name__}
         message = (
             "An exception was raised while handling an update\n"
-            f"<pre>update = {html.escape(json.dumps(update_str, indent=2, ensure_ascii=False))}"
-            "</pre>\n\n"
-            f"<pre>context.chat_data = {html.escape(str(context.chat_data))}</pre>\n\n"
-            f"<pre>context.user_data = {html.escape(str(context.user_data))}</pre>\n\n"
+            f"<pre>update_meta = {html.escape(json.dumps(update_meta, ensure_ascii=False))}</pre>\n\n"
+            f"<pre>error = {html.escape(type(context.error).__name__)}: "
+            f"{html.escape(str(context.error))}</pre>\n\n"
             f"<pre>{html.escape(tb_string)}</pre>"
         )
         max_len = 3500
@@ -190,13 +202,16 @@ def build_runtime(
     build_context_fn: Callable[..., str] = build_context,
     get_all_messages_fn: Callable[[str], list] = get_all_messages,
     get_summary_view_text_fn: Callable[..., str] = get_summary_view_text,
-    get_message_by_telegram_message_id_fn: Callable[[str, int], Optional[dict]] = get_message_by_telegram_message_id,
+    get_message_by_telegram_message_id_fn: Callable[
+        [str, int], Optional[dict]
+    ] = get_message_by_telegram_message_id,
     assemble_context_fn: Callable[..., str] = assemble_context,
     is_allowed_fn: Optional[Callable[[Update], bool]] = None,
     log_context_fn: Callable[[Optional[Update]], dict] = common.log_context,
     storage_id_fn: Callable[[Update], Optional[str]] = common.storage_id,
 ) -> BotRuntime:
     provider_instance = provider
+    runtime: Optional[BotRuntime] = None
     if provider_getter is None:
         if provider_instance is None:
             provider_instance = build_provider()
@@ -206,6 +221,7 @@ def build_runtime(
             return provider_instance
 
     if is_allowed_fn is None:
+
         def is_allowed_fn(update: Update) -> bool:
             return common.is_allowed(
                 update,
@@ -246,10 +262,18 @@ def build_runtime(
         get_summary_view_text_fn=get_summary_view_text_fn,
     )
 
+    async def _notify_admin_proxy(
+        context: ContextTypes.DEFAULT_TYPE,
+        message: str,
+    ) -> None:
+        if runtime is None:
+            return
+        await runtime.notify_admin(context, message)
+
     events_handler = EventsHandler(
         is_allowed_fn=is_allowed_fn,
         provider_getter=provider_getter,
-        notify_admin_fn=lambda context, message: runtime.notify_admin(context, message),
+        notify_admin_fn=_notify_admin_proxy,
         log_context_fn=log_context_fn,
         settings_getter=settings_getter,
         logger_override=logger,
@@ -282,7 +306,6 @@ def build_runtime(
         is_allowed_fn=is_allowed_fn,
         log_context_fn=log_context_fn,
     )
-    events_handler._notify_admin = runtime.notify_admin
     return runtime
 
 
@@ -297,7 +320,9 @@ def build_application(
     runtime.apply_log_level(active_settings)
 
     app.add_handler(CommandHandler("hi", runtime.hi))
-    app.add_handler(CommandHandler(["summary", "tldr"], runtime.summary_handler.view_summary))
+    app.add_handler(
+        CommandHandler(["summary", "tldr"], runtime.summary_handler.view_summary)
+    )
 
     if active_settings.features["message_handling"]:
         app.add_handler(
@@ -310,7 +335,9 @@ def build_application(
             )
         )
     if active_settings.features["schedule_events"]:
-        app.add_handler(MessageHandler(filters.PHOTO, runtime.events_handler.schedule_events))
+        app.add_handler(
+            MessageHandler(filters.PHOTO, runtime.events_handler.schedule_events)
+        )
 
     return app
 

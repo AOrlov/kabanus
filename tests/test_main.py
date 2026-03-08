@@ -237,7 +237,11 @@ def test_maybe_react_uses_recent_context_window(monkeypatch) -> None:
     reaction = main._REACTION_ALLOWED_LIST[0]
     provider = _ReactionRecorderProvider(reaction)
     monkeypatch.setattr(main, "model_provider", provider)
-    monkeypatch.setattr(main.config, "get_settings", lambda: _reaction_settings(reaction_context_turns=2))
+    monkeypatch.setattr(
+        main.config,
+        "get_settings",
+        lambda: _reaction_settings(reaction_context_turns=2),
+    )
     monkeypatch.setattr(
         main,
         "get_all_messages",
@@ -279,7 +283,9 @@ def test_maybe_react_respects_reaction_context_token_limit(monkeypatch) -> None:
     monkeypatch.setattr(
         main.config,
         "get_settings",
-        lambda: _reaction_settings(reaction_context_turns=10, reaction_context_token_limit=30),
+        lambda: _reaction_settings(
+            reaction_context_turns=10, reaction_context_token_limit=30
+        ),
     )
     monkeypatch.setattr(
         main,
@@ -406,7 +412,9 @@ def test_message_drafts_unavailable_reason(monkeypatch) -> None:
         main._message_drafts_unavailable_reason(update_group, openai_settings)
         == "chat_type_group"
     )
-    assert main._message_drafts_unavailable_reason(update_private, openai_settings) is None
+    assert (
+        main._message_drafts_unavailable_reason(update_private, openai_settings) is None
+    )
 
 
 def test_generate_response_with_drafts_streams_updates(monkeypatch) -> None:
@@ -439,10 +447,15 @@ def test_generate_response_with_drafts_streams_updates(monkeypatch) -> None:
     assert sent_updates
     assert sent_updates[0]["text"] == "he"
     assert sent_updates[-1]["text"] == "hello world"
-    assert all(isinstance(item["draft_id"], int) and item["draft_id"] > 0 for item in sent_updates)
+    assert all(
+        isinstance(item["draft_id"], int) and item["draft_id"] > 0
+        for item in sent_updates
+    )
 
 
-def test_generate_response_with_drafts_disables_updates_after_error(monkeypatch) -> None:
+def test_generate_response_with_drafts_disables_updates_after_error(
+    monkeypatch,
+) -> None:
     main = _load_main(monkeypatch)
     provider = _StreamingProvider(["he", "hello"])
     monkeypatch.setattr(main, "model_provider", provider)
@@ -471,7 +484,9 @@ def test_generate_response_with_drafts_disables_updates_after_error(monkeypatch)
     assert send_calls["count"] == 1
 
 
-def test_generate_response_with_drafts_keeps_partial_output_on_stream_error(monkeypatch) -> None:
+def test_generate_response_with_drafts_keeps_partial_output_on_stream_error(
+    monkeypatch,
+) -> None:
     main = _load_main(monkeypatch)
     provider = _FailingStreamProvider(["partial", RuntimeError("stream failed")])
     monkeypatch.setattr(main, "model_provider", provider)
@@ -502,7 +517,9 @@ def test_generate_response_with_drafts_keeps_partial_output_on_stream_error(monk
     assert sent_updates[-1]["text"] == "partial"
 
 
-def test_generate_response_with_drafts_falls_back_to_generate_when_stream_empty(monkeypatch) -> None:
+def test_generate_response_with_drafts_falls_back_to_generate_when_stream_empty(
+    monkeypatch,
+) -> None:
     main = _load_main(monkeypatch)
     provider = _FailingStreamProvider(
         [RuntimeError("stream failed")],
@@ -536,7 +553,9 @@ def test_generate_response_with_drafts_falls_back_to_generate_when_stream_empty(
     assert sent_updates[-1]["text"] == "fallback response"
 
 
-def test_generate_response_with_drafts_starts_sending_before_next_chunk(monkeypatch) -> None:
+def test_generate_response_with_drafts_starts_sending_before_next_chunk(
+    monkeypatch,
+) -> None:
     main = _load_main(monkeypatch)
     first_draft_sent = threading.Event()
     provider = _DraftSchedulingProbeProvider(first_draft_sent)
@@ -576,3 +595,56 @@ def test_build_response_draft_id_is_positive_int(monkeypatch) -> None:
 
     assert isinstance(draft_id, int)
     assert draft_id > 0
+
+
+def test_notify_admin_preserves_html(monkeypatch) -> None:
+    main = _load_main(monkeypatch)
+    sent = {}
+
+    async def _send_message(*, chat_id, text, parse_mode):
+        sent["chat_id"] = chat_id
+        sent["text"] = text
+        sent["parse_mode"] = parse_mode
+
+    monkeypatch.setattr(
+        main.config,
+        "get_settings",
+        lambda force=False: SimpleNamespace(admin_chat_id="42"),
+    )
+    context = SimpleNamespace(bot=SimpleNamespace(send_message=_send_message))
+
+    asyncio.run(main.notify_admin(context, "<b>alert</b>"))
+
+    assert sent["chat_id"] == "42"
+    assert sent["text"] == "<b>alert</b>"
+
+
+def test_error_handler_redacts_context_payload(monkeypatch) -> None:
+    main = _load_main(monkeypatch)
+    sent = {}
+
+    async def _send_message(*, chat_id, text, parse_mode):
+        sent["chat_id"] = chat_id
+        sent["text"] = text
+        sent["parse_mode"] = parse_mode
+
+    monkeypatch.setattr(
+        main.config,
+        "get_settings",
+        lambda force=False: SimpleNamespace(admin_chat_id="42"),
+    )
+    context = SimpleNamespace(
+        error=RuntimeError("boom"),
+        chat_data={"token": "secret-chat-token"},
+        user_data={"token": "secret-user-token"},
+        bot=SimpleNamespace(send_message=_send_message),
+    )
+
+    asyncio.run(main.error_handler("opaque update payload", context))
+
+    assert sent["chat_id"] == "42"
+    assert "update_meta" in sent["text"]
+    assert "context.chat_data" not in sent["text"]
+    assert "context.user_data" not in sent["text"]
+    assert "secret-chat-token" not in sent["text"]
+    assert "secret-user-token" not in sent["text"]

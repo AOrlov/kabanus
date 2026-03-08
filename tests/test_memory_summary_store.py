@@ -62,12 +62,33 @@ def test_summary_state_save_and_load_roundtrip(monkeypatch, tmp_path) -> None:
     assert (tmp_path / "messages_chat1.summary.json").exists()
 
 
+def test_load_summary_state_quarantines_corrupt_json(monkeypatch, tmp_path) -> None:
+    store_base = tmp_path / "messages.jsonl"
+    monkeypatch.setattr(
+        summary_store.config,
+        "get_settings",
+        lambda: _settings(chat_messages_store_path=str(store_base)),
+    )
+    summary_store._summary_store_by_chat.clear()
+    corrupt_path = tmp_path / "messages_chat-corrupt.summary.json"
+    corrupt_path.write_text("{not json", encoding="utf-8")
+
+    loaded = summary_store._load_summary_state("chat-corrupt")
+
+    assert loaded == {"version": 1, "last_message_count": 0, "chunks": []}
+    quarantined = list(tmp_path.glob("messages_chat-corrupt.summary.json.corrupt*"))
+    assert quarantined
+    assert not corrupt_path.exists()
+
+
 def test_maybe_rollup_summary_creates_fallback_chunks(monkeypatch, tmp_path) -> None:
     store_base = tmp_path / "messages.jsonl"
     monkeypatch.setattr(
         summary_store.config,
         "get_settings",
-        lambda: _settings(chat_messages_store_path=str(store_base), memory_summary_chunk_size=2),
+        lambda: _settings(
+            chat_messages_store_path=str(store_base), memory_summary_chunk_size=2
+        ),
     )
     summary_store._summary_store_by_chat.clear()
 
@@ -79,7 +100,9 @@ def test_maybe_rollup_summary_creates_fallback_chunks(monkeypatch, tmp_path) -> 
         {"id": "e", "sender": "Alice", "text": "five"},
     ]
 
-    created = summary_store.maybe_rollup_summary("chat2", messages=messages, summarize_fn=None, max_chunks=2)
+    created = summary_store.maybe_rollup_summary(
+        "chat2", messages=messages, summarize_fn=None, max_chunks=2
+    )
     state = summary_store._load_summary_state("chat2")
 
     assert created == 2
@@ -89,12 +112,16 @@ def test_maybe_rollup_summary_creates_fallback_chunks(monkeypatch, tmp_path) -> 
     assert state["chunks"][1]["source_message_ids"] == ["c", "d"]
 
 
-def test_maybe_rollup_summary_resets_if_processed_exceeds_message_count(monkeypatch, tmp_path) -> None:
+def test_maybe_rollup_summary_resets_if_processed_exceeds_message_count(
+    monkeypatch, tmp_path
+) -> None:
     store_base = tmp_path / "messages.jsonl"
     monkeypatch.setattr(
         summary_store.config,
         "get_settings",
-        lambda: _settings(chat_messages_store_path=str(store_base), memory_summary_chunk_size=2),
+        lambda: _settings(
+            chat_messages_store_path=str(store_base), memory_summary_chunk_size=2
+        ),
     )
     summary_store._summary_store_by_chat.clear()
     summary_store._summary_store_by_chat["chat3"] = {
@@ -107,7 +134,9 @@ def test_maybe_rollup_summary_resets_if_processed_exceeds_message_count(monkeypa
         {"id": "a", "sender": "Alice", "text": "one"},
         {"id": "b", "sender": "Bob", "text": "two"},
     ]
-    created = summary_store.maybe_rollup_summary("chat3", messages=messages, summarize_fn=None)
+    created = summary_store.maybe_rollup_summary(
+        "chat3", messages=messages, summarize_fn=None
+    )
     state = summary_store._load_summary_state("chat3")
 
     assert created == 1

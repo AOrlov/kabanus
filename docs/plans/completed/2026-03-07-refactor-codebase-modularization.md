@@ -102,6 +102,7 @@ Refactor the codebase to reduce complexity and improve maintainability by splitt
 - Create: `tests/test_bot_summary_handler.py`
 - Create: `tests/test_bot_events_handler.py`
 - Create: `tests/test_bot_reply_service.py`
+- Create: `tests/test_bot_media_service.py`
 
 - [x] Move mixed concerns from `main.py` into focused handler and service modules
 - [x] Replace global mutable runtime state with explicit service state objects where needed
@@ -134,6 +135,7 @@ Refactor the codebase to reduce complexity and improve maintainability by splitt
 - [x] run linter (`pylint src tests`)
 - [x] run type checks (`mypy src`)
 - [x] verify test coverage meets 80%+ (`coverage run -m pytest -q && coverage report --fail-under=80`)
+- [x] capture validation tooling config changes used by acceptance gates (`.pylintrc`, `mypy.ini`, `pytest.ini`, `.coveragerc`)
 
 ### Task 7: Update documentation
 

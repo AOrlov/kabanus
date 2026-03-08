@@ -20,6 +20,24 @@ _summary_lock_by_chat: Dict[str, threading.RLock] = {}
 _summary_lock_guard = threading.Lock()
 
 
+def _default_summary_state() -> Dict:
+    return {"version": 1, "last_message_count": 0, "chunks": []}
+
+
+def _quarantine_corrupt_summary(path: str) -> Optional[str]:
+    for index in range(100):
+        suffix = ".corrupt" if index == 0 else f".corrupt.{index}"
+        target = path + suffix
+        if os.path.exists(target):
+            continue
+        try:
+            os.replace(path, target)
+        except OSError:
+            return None
+        return target
+    return None
+
+
 def _get_summary_lock(chat_id: str) -> threading.RLock:
     if not chat_id:
         raise ValueError("chat_id is required for summary storage")
@@ -59,11 +77,33 @@ def _load_summary_state_unlocked(chat_id: str) -> Dict:
         return _summary_store_by_chat[chat_id]
 
     path = _get_summary_store_path(chat_id)
+    state = _default_summary_state()
     if os.path.exists(path):
-        with open(path, "r", encoding="utf-8") as handle:
-            state = json.load(handle)
-    else:
-        state = {"version": 1, "last_message_count": 0, "chunks": []}
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                loaded = json.load(handle)
+            if isinstance(loaded, dict):
+                state = loaded
+            else:
+                raise ValueError("summary state must be a JSON object")
+        except (OSError, json.JSONDecodeError, ValueError) as exc:
+            quarantined = _quarantine_corrupt_summary(path)
+            logger.warning(
+                "Failed to load summary state; reinitializing",
+                extra={
+                    "chat_id": chat_id,
+                    "path": path,
+                    "quarantined_path": quarantined,
+                    "error": str(exc),
+                },
+            )
+
+    if not isinstance(state.get("chunks"), list):
+        state["chunks"] = []
+    if not isinstance(state.get("last_message_count"), int):
+        state["last_message_count"] = 0
+    if not isinstance(state.get("version"), int):
+        state["version"] = 1
     _summary_store_by_chat[chat_id] = state
     return state
 

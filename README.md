@@ -173,6 +173,7 @@ instead of `OPENAI_API_KEY`.
   (default `https://auth.openai.com/oauth/token`) with `grant_type`, `refresh_token`,
   and optional `client_id`.
 - Refreshed tokens are written back into the same `auth.json`.
+- Refresh writes are atomic and enforce private file mode (`0600`) on best effort.
 
 Supported shapes include top-level keys and `tokens.*` keys. Minimal recommended shape:
 

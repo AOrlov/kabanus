@@ -72,7 +72,9 @@ class _CaptureReactionProvider(_OkProvider):
         context_text: str = "",
     ) -> str:
         self.last_context = context_text
-        return super().choose_reaction(message, allowed_reactions, context_text=context_text)
+        return super().choose_reaction(
+            message, allowed_reactions, context_text=context_text
+        )
 
 
 class _OpenAIProvider(_OkProvider):
@@ -91,8 +93,46 @@ class _GeminiProvider(_OkProvider):
         return f"gemini:{prompt}"
 
 
+class _LegacyOnlyProvider:
+    def __init__(self, name: str, *, fail_generate: bool = False) -> None:
+        self.name = name
+        self.fail_generate = fail_generate
+
+    def transcribe(self, audio_path: str) -> str:
+        return f"{self.name}:{audio_path}"
+
+    def generate(self, prompt: str) -> str:
+        if self.fail_generate:
+            raise RuntimeError("boom")
+        return f"{self.name}:{prompt}"
+
+    def generate_stream(self, prompt: str):
+        yield f"{self.name}:{prompt}"
+
+    def generate_low_cost(self, prompt: str) -> str:
+        return f"{self.name}-low:{prompt}"
+
+    def choose_reaction(
+        self,
+        message: str,
+        allowed_reactions: list[str],
+        context_text: str = "",
+    ) -> str:
+        _ = message
+        _ = context_text
+        return allowed_reactions[0]
+
+    def parse_image_to_event(self, image_path: str) -> dict:
+        return {"provider": self.name, "path": image_path}
+
+    def image_to_text(self, image_bytes: bytes, mime_type: str = "image/jpeg") -> str:
+        return f"{self.name}:{mime_type}:{len(image_bytes)}"
+
+
 def test_routed_provider_falls_back_on_generate_error() -> None:
-    provider = RoutedModelProvider(primary=_FailGenerateProvider(), fallback=_OkProvider())
+    provider = RoutedModelProvider(
+        primary=_FailGenerateProvider(), fallback=_OkProvider()
+    )
     assert provider.generate("hello") == "g:hello"
 
 
@@ -106,12 +146,16 @@ def test_routed_provider_uses_fallback_for_transcribe_when_forced() -> None:
 
 
 def test_routed_provider_falls_back_on_generate_stream_error() -> None:
-    provider = RoutedModelProvider(primary=_FailGenerateStreamProvider(), fallback=_OkProvider())
+    provider = RoutedModelProvider(
+        primary=_FailGenerateStreamProvider(), fallback=_OkProvider()
+    )
 
     assert list(provider.generate_stream("hello")) == ["g:hello"]
 
 
-def test_routed_provider_returns_partial_stream_if_primary_fails_after_emitting() -> None:
+def test_routed_provider_returns_partial_stream_if_primary_fails_after_emitting() -> (
+    None
+):
     provider = RoutedModelProvider(
         primary=_PartialFailGenerateStreamProvider(),
         fallback=_OkProvider(),
@@ -128,6 +172,27 @@ def test_routed_provider_forwards_reaction_context_to_fallback() -> None:
 
     assert reaction == "😀"
     assert fallback.last_context == "Alice: hi"
+
+
+def test_routed_provider_supports_legacy_only_providers() -> None:
+    provider = RoutedModelProvider(
+        primary=_LegacyOnlyProvider("primary", fail_generate=True),
+        fallback=_LegacyOnlyProvider("fallback"),
+    )
+
+    assert provider.generate("hello") == "fallback:hello"
+    assert provider.generate_low_cost("hello") == "primary-low:hello"
+    assert provider.choose_reaction("hello", ["😀"], context_text="ctx") == "😀"
+
+
+def test_routed_provider_transcribe_uses_fallback_for_legacy_only_provider() -> None:
+    provider = RoutedModelProvider(
+        primary=_LegacyOnlyProvider("primary"),
+        fallback=_LegacyOnlyProvider("fallback"),
+        transcribe_use_fallback=True,
+    )
+
+    assert provider.transcribe("voice.ogg") == "fallback:voice.ogg"
 
 
 def test_build_provider_openai_uses_gemini_transcribe_fallback(monkeypatch) -> None:

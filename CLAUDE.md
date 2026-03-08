@@ -3,6 +3,7 @@
 ## Current Architecture Baseline
 - Keep `python -m src.main` as the entrypoint.
 - Treat `src/main.py`, `src/config.py`, and `src/message_store.py` as compatibility facades.
+- Keep runtime composition and handler registration in `src/bot/app.py` (`build_runtime`, `build_application`, `run_polling`).
 - Add new bot behavior in focused modules:
   - Handlers: `src/bot/handlers/*`
   - Services: `src/bot/services/*`
@@ -30,6 +31,7 @@
   - `pylint src tests`
   - `mypy src`
   - `coverage run -m pytest -q && coverage report --fail-under=80`
+- Current tooling config includes `pylint` `errors-only = yes` and targeted mypy `ignore_errors = True` module overrides; avoid adding broader suppressions.
 
 ## Refactor Documentation
 - See `docs/architecture/refactor-overview.md` for boundaries, extension points, and migration notes.

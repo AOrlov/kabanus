@@ -20,6 +20,78 @@ T = TypeVar("T")
 R = TypeVar("R")
 
 
+def _provider_transcribe_audio(
+    provider: ModelProvider, request: AudioTranscriptionRequest
+) -> str:
+    typed_fn = getattr(provider, "transcribe_audio", None)
+    if callable(typed_fn):
+        return typed_fn(request)
+    return provider.transcribe(request.audio_path)
+
+
+def _provider_generate_text(
+    provider: ModelProvider, request: TextGenerationRequest
+) -> str:
+    typed_fn = getattr(provider, "generate_text", None)
+    if callable(typed_fn):
+        return typed_fn(request)
+    return provider.generate(request.prompt)
+
+
+def _provider_generate_text_stream(
+    provider: ModelProvider, request: TextGenerationRequest
+):
+    typed_fn = getattr(provider, "generate_text_stream", None)
+    if callable(typed_fn):
+        return typed_fn(request)
+    return provider.generate_stream(request.prompt)
+
+
+def _provider_generate_low_cost_text(
+    provider: ModelProvider,
+    request: TextGenerationRequest,
+) -> str:
+    typed_fn = getattr(provider, "generate_low_cost_text", None)
+    if callable(typed_fn):
+        return typed_fn(request)
+    return provider.generate_low_cost(request.prompt)
+
+
+def _provider_select_reaction(
+    provider: ModelProvider,
+    request: ReactionSelectionRequest,
+) -> str:
+    typed_fn = getattr(provider, "select_reaction", None)
+    if callable(typed_fn):
+        return typed_fn(request)
+    return provider.choose_reaction(
+        message=request.message,
+        allowed_reactions=list(request.allowed_reactions),
+        context_text=request.context_text,
+    )
+
+
+def _provider_parse_image_event(
+    provider: ModelProvider, request: ImageToEventRequest
+) -> dict:
+    typed_fn = getattr(provider, "parse_image_event", None)
+    if callable(typed_fn):
+        return typed_fn(request)
+    return provider.parse_image_to_event(request.image_path)
+
+
+def _provider_extract_image_text(
+    provider: ModelProvider, request: ImageToTextRequest
+) -> str:
+    typed_fn = getattr(provider, "extract_image_text", None)
+    if callable(typed_fn):
+        return typed_fn(request)
+    return provider.image_to_text(
+        image_bytes=request.image_bytes,
+        mime_type=request.mime_type,
+    )
+
+
 class RoutedModelProvider(ModelProvider):
     def __init__(
         self,
@@ -53,20 +125,26 @@ class RoutedModelProvider(ModelProvider):
     def transcribe(self, audio_path: str) -> str:
         request = AudioTranscriptionRequest(audio_path=audio_path)
         if self._transcribe_use_fallback and self._fallback is not None:
-            return self._fallback.transcribe_audio(request)
-        return self._primary.transcribe_audio(request)
+            return _provider_transcribe_audio(self._fallback, request)
+        return _provider_transcribe_audio(self._primary, request)
 
     def generate(self, prompt: str) -> str:
         request = TextGenerationRequest(prompt=prompt)
         fallback_fn = (
-            (lambda provider, typed_request: provider.generate_text(typed_request))
+            (
+                lambda provider, typed_request: _provider_generate_text(
+                    provider, typed_request
+                )
+            )
             if self._fallback is not None
             else None
         )
         return self._call(
             "generate",
             request,
-            lambda provider, typed_request: provider.generate_text(typed_request),
+            lambda provider, typed_request: _provider_generate_text(
+                provider, typed_request
+            ),
             fallback_fn,
         )
 
@@ -74,7 +152,7 @@ class RoutedModelProvider(ModelProvider):
         request = TextGenerationRequest(prompt=prompt)
         emitted = False
         try:
-            for chunk in self._primary.generate_text_stream(request):
+            for chunk in _provider_generate_text_stream(self._primary, request):
                 emitted = True
                 yield chunk
             return
@@ -91,15 +169,15 @@ class RoutedModelProvider(ModelProvider):
                 "Primary provider operation failed, falling back",
                 extra={"operation": "generate_stream", "error": str(exc)},
             )
-            for chunk in self._fallback.generate_text_stream(request):
+            for chunk in _provider_generate_text_stream(self._fallback, request):
                 yield chunk
 
     def generate_low_cost(self, prompt: str) -> str:
         request = TextGenerationRequest(prompt=prompt)
         fallback_fn = (
             (
-                lambda provider, typed_request: provider.generate_low_cost_text(
-                    typed_request
+                lambda provider, typed_request: _provider_generate_low_cost_text(
+                    provider, typed_request
                 )
             )
             if self._fallback is not None
@@ -108,8 +186,9 @@ class RoutedModelProvider(ModelProvider):
         return self._call(
             "generate_low_cost",
             request,
-            lambda provider, typed_request: provider.generate_low_cost_text(
-                typed_request
+            lambda provider, typed_request: _provider_generate_low_cost_text(
+                provider,
+                typed_request,
             ),
             fallback_fn,
         )
@@ -126,42 +205,60 @@ class RoutedModelProvider(ModelProvider):
             context_text=context_text,
         )
         fallback_fn = (
-            (lambda provider, typed_request: provider.select_reaction(typed_request))
+            (
+                lambda provider, typed_request: _provider_select_reaction(
+                    provider, typed_request
+                )
+            )
             if self._fallback is not None
             else None
         )
         return self._call(
             "choose_reaction",
             request,
-            lambda provider, typed_request: provider.select_reaction(typed_request),
+            lambda provider, typed_request: _provider_select_reaction(
+                provider, typed_request
+            ),
             fallback_fn,
         )
 
     def parse_image_to_event(self, image_path: str) -> dict:
         request = ImageToEventRequest(image_path=image_path)
         fallback_fn = (
-            (lambda provider, typed_request: provider.parse_image_event(typed_request))
+            (
+                lambda provider, typed_request: _provider_parse_image_event(
+                    provider, typed_request
+                )
+            )
             if self._fallback is not None
             else None
         )
         return self._call(
             "parse_image_to_event",
             request,
-            lambda provider, typed_request: provider.parse_image_event(typed_request),
+            lambda provider, typed_request: _provider_parse_image_event(
+                provider, typed_request
+            ),
             fallback_fn,
         )
 
     def image_to_text(self, image_bytes: bytes, mime_type: str = "image/jpeg") -> str:
         request = ImageToTextRequest(image_bytes=image_bytes, mime_type=mime_type)
         fallback_fn = (
-            (lambda provider, typed_request: provider.extract_image_text(typed_request))
+            (
+                lambda provider, typed_request: _provider_extract_image_text(
+                    provider, typed_request
+                )
+            )
             if self._fallback is not None
             else None
         )
         return self._call(
             "image_to_text",
             request,
-            lambda provider, typed_request: provider.extract_image_text(typed_request),
+            lambda provider, typed_request: _provider_extract_image_text(
+                provider, typed_request
+            ),
             fallback_fn,
         )
 
