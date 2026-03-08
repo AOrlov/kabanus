@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 from src.bot import app as bot_app
 from src.bot.handlers.events_handler import EventsHandler
+from src.bot.services.media_service import IMAGE_MAX_BYTES
 
 
 def test_schedule_events_exits_when_feature_disabled() -> None:
@@ -61,6 +62,56 @@ def test_schedule_events_exits_without_photo() -> None:
     asyncio.run(handler.schedule_events(update, context))
 
     assert notifications == []
+
+
+def test_schedule_events_rejects_oversized_photo() -> None:
+    notifications = []
+    responses = []
+    bot_calls = {"get_file": 0}
+
+    async def _notify_admin(context, message):
+        notifications.append((context, message))
+
+    class _FakeMessage:
+        async def reply_text(self, text: str) -> None:
+            responses.append(text)
+
+    class _FakeBot:
+        async def get_file(self, _file_id: str):
+            bot_calls["get_file"] += 1
+            raise AssertionError("oversized photo should not be downloaded")
+
+    async def _send_action(**kwargs):
+        return None
+
+    handler = EventsHandler(
+        is_allowed_fn=lambda _update: True,
+        provider_getter=lambda: SimpleNamespace(parse_image_to_event=lambda _path: {}),
+        notify_admin_fn=_notify_admin,
+        log_context_fn=lambda _update: {},
+        settings_getter=lambda: SimpleNamespace(features={"schedule_events": True}),
+    )
+
+    update = SimpleNamespace(
+        message=SimpleNamespace(
+            photo=[
+                SimpleNamespace(
+                    file_id="photo",
+                    file_size=IMAGE_MAX_BYTES + 1,
+                )
+            ],
+            reply_text=_FakeMessage().reply_text,
+        ),
+        effective_chat=SimpleNamespace(send_action=_send_action),
+        effective_user=SimpleNamespace(id=1),
+    )
+    context = SimpleNamespace(bot=_FakeBot())
+
+    asyncio.run(handler.schedule_events(update, context))
+
+    assert notifications == []
+    assert bot_calls["get_file"] == 0
+    assert any("too large" in text for text in responses)
 
 
 def test_schedule_events_creates_event_and_cleans_temp_file(monkeypatch) -> None:

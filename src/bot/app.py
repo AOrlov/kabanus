@@ -127,9 +127,10 @@ class BotRuntime:
         settings = self._settings_getter()
         if not settings.admin_chat_id:
             return
+        safe_message = html.escape(message or "")
         await context.bot.send_message(
             chat_id=settings.admin_chat_id,
-            text=message,
+            text=safe_message,
             parse_mode=ParseMode.HTML,
         )
 

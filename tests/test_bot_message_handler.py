@@ -1,6 +1,8 @@
 import asyncio
 from types import SimpleNamespace
 
+import pytest
+
 from src.bot.handlers.message_handler import (
     MessageHandler,
     build_prompt,
@@ -282,7 +284,7 @@ def test_handle_addressed_message_uses_voice_transcription_flow() -> None:
     assert len(provider.prompts) == 1
 
 
-def test_handle_addressed_message_reports_unavailable_voice_transcription() -> None:
+def test_handle_addressed_message_propagates_voice_transcription_error() -> None:
     provider = _Provider("should-not-run")
     sent = []
 
@@ -292,10 +294,6 @@ def test_handle_addressed_message_reports_unavailable_voice_transcription() -> N
     async def _send_ai_response(update, outgoing_text: str, storage_id: str):
         sent.append((outgoing_text, storage_id))
 
-    async def _reply_text(text: str):
-        replies.append(text)
-
-    replies = []
     message_handler = MessageHandler(
         settings_getter=lambda: SimpleNamespace(
             features={"message_handling": True},
@@ -331,7 +329,6 @@ def test_handle_addressed_message_reports_unavailable_voice_transcription() -> N
         document=None,
         reply_to_message=None,
         message_id=99,
-        reply_text=_reply_text,
     )
     update = SimpleNamespace(
         message=message,
@@ -351,11 +348,9 @@ def test_handle_addressed_message_reports_unavailable_voice_transcription() -> N
 
     context = SimpleNamespace(bot=_Bot())
 
-    asyncio.run(message_handler.handle_addressed_message(update, context))
+    with pytest.raises(NotImplementedError, match="transcribe unavailable"):
+        asyncio.run(message_handler.handle_addressed_message(update, context))
 
-    assert replies == [
-        "Voice transcription is not available for the current model provider."
-    ]
     assert sent == []
     assert provider.prompts == []
 

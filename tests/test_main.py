@@ -597,7 +597,7 @@ def test_build_response_draft_id_is_positive_int(monkeypatch) -> None:
     assert draft_id > 0
 
 
-def test_notify_admin_preserves_html(monkeypatch) -> None:
+def test_notify_admin_escapes_html(monkeypatch) -> None:
     main = _load_main(monkeypatch)
     sent = {}
 
@@ -616,7 +616,7 @@ def test_notify_admin_preserves_html(monkeypatch) -> None:
     asyncio.run(main.notify_admin(context, "<b>alert</b>"))
 
     assert sent["chat_id"] == "42"
-    assert sent["text"] == "<b>alert</b>"
+    assert sent["text"] == "&lt;b&gt;alert&lt;/b&gt;"
 
 
 def test_error_handler_redacts_context_payload(monkeypatch) -> None:

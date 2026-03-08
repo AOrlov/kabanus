@@ -124,6 +124,34 @@ def test_extract_text_from_photo_message_combines_caption_and_ocr() -> None:
     assert provider.image_calls == [{"bytes": b"img-bytes", "mime_type": "image/jpeg"}]
 
 
+def test_extract_text_from_photo_message_skips_oversized_photo() -> None:
+    provider = _Provider()
+    service = media_service.MediaService(provider_getter=lambda: provider)
+    bot_calls = {"get_file": 0}
+
+    class _Bot:
+        async def get_file(self, _file_id: str):
+            bot_calls["get_file"] += 1
+            raise AssertionError("oversized photo should not be downloaded")
+
+    context = SimpleNamespace(bot=_Bot())
+    message = SimpleNamespace(
+        photo=[
+            SimpleNamespace(
+                file_id="photo-too-large",
+                file_size=media_service.IMAGE_MAX_BYTES + 1,
+            )
+        ],
+        caption="Large poster",
+    )
+
+    extracted = asyncio.run(service.extract_text_from_photo_message(message, context))
+
+    assert extracted == "Large poster"
+    assert bot_calls["get_file"] == 0
+    assert provider.image_calls == []
+
+
 def test_extract_text_from_image_document_handles_non_image_and_image() -> None:
     provider = _Provider()
     service = media_service.MediaService(provider_getter=lambda: provider)

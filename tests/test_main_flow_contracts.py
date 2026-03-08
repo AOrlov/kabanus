@@ -155,6 +155,17 @@ class _ReactionRecorderProvider(_DummyProvider):
         return self.reaction
 
 
+class _FailingReactionProvider(_DummyProvider):
+    def choose_reaction(
+        self,
+        message: str,
+        allowed_reactions: list[str],
+        context_text: str = "",
+    ) -> str:
+        del message, allowed_reactions, context_text
+        raise RuntimeError("reaction unavailable")
+
+
 class _ReactionMessage:
     def __init__(self) -> None:
         self.applied = []
@@ -241,6 +252,29 @@ def test_maybe_react_gating_contract(
 
     assert len(provider.calls) == expected_provider_calls
     assert len(message.applied) == expected_reactions
+
+
+def test_maybe_react_propagates_reaction_provider_errors(monkeypatch) -> None:
+    main = _load_main(monkeypatch)
+    monkeypatch.setattr(main, "model_provider", _FailingReactionProvider())
+    monkeypatch.setattr(main.config, "get_settings", lambda: _reaction_settings())
+    monkeypatch.setattr(main, "get_all_messages", lambda _chat_id: [])
+
+    main._REACTION_DAY = datetime.now().date()
+    main._REACTION_COUNT = 0
+    main._REACTION_LAST_TS = 0.0
+    main._MESSAGES_SINCE_LAST_REACTION = 0
+
+    message = _ReactionMessage()
+    update = SimpleNamespace(
+        message=message,
+        effective_user=SimpleNamespace(id=7),
+        effective_chat=SimpleNamespace(id=9, type="group"),
+        update_id=2,
+    )
+
+    with pytest.raises(RuntimeError, match="reaction unavailable"):
+        asyncio.run(main.maybe_react(update, "latest"))
 
 
 class _GenerateRecorderProvider(_DummyProvider):

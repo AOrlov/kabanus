@@ -1,3 +1,4 @@
+import asyncio
 import html
 import json
 import logging
@@ -79,6 +80,7 @@ _REACTION_ALLOWED_LIST = list(REACTION_ALLOWED_LIST)
 _MESSAGES_SINCE_LAST_REACTION = 0
 _NON_TEXT_REPLY_PLACEHOLDER = NON_TEXT_REPLY_PLACEHOLDER
 _IMAGE_MAX_BYTES = IMAGE_MAX_BYTES
+_LEGACY_REACTION_LOCK: Optional[asyncio.Lock] = None
 
 
 def _log_context(update: Optional[Update]) -> dict:
@@ -157,6 +159,13 @@ def _reaction_state_from_globals() -> ReactionState:
     )
 
 
+def _get_legacy_reaction_lock() -> asyncio.Lock:
+    global _LEGACY_REACTION_LOCK
+    if _LEGACY_REACTION_LOCK is None:
+        _LEGACY_REACTION_LOCK = asyncio.Lock()
+    return _LEGACY_REACTION_LOCK
+
+
 def _reset_reaction_budget_if_needed(now: datetime) -> None:
     global _REACTION_DAY, _REACTION_COUNT
     today = now.date()
@@ -233,21 +242,22 @@ def is_allowed(update: Update) -> bool:
 
 
 async def maybe_react(update: Update, text: str):
-    state = _reaction_state_from_globals()
-    service = ReactionService(
-        state=state,
-        provider_getter=lambda: model_provider,
-        settings_getter=config.get_settings,
-        get_all_messages_fn=get_all_messages,
-        assemble_context_fn=assemble_context,
-        storage_id_fn=_storage_id,
-        log_context_fn=_log_context,
-        logger_override=logger,
-    )
-    try:
-        await service.maybe_react(update, text)
-    finally:
-        _sync_reaction_state_to_globals(service.state)
+    async with _get_legacy_reaction_lock():
+        state = _reaction_state_from_globals()
+        service = ReactionService(
+            state=state,
+            provider_getter=lambda: model_provider,
+            settings_getter=config.get_settings,
+            get_all_messages_fn=get_all_messages,
+            assemble_context_fn=assemble_context,
+            storage_id_fn=_storage_id,
+            log_context_fn=_log_context,
+            logger_override=logger,
+        )
+        try:
+            await service.maybe_react(update, text)
+        finally:
+            _sync_reaction_state_to_globals(service.state)
 
 
 async def hi(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -391,9 +401,10 @@ async def notify_admin(context: ContextTypes.DEFAULT_TYPE, message: str) -> None
     active_settings = config.get_settings()
     if not active_settings.admin_chat_id:
         return
+    safe_message = html.escape(message or "")
     await context.bot.send_message(
         chat_id=active_settings.admin_chat_id,
-        text=message,
+        text=safe_message,
         parse_mode=ParseMode.HTML,
     )
 

@@ -17,7 +17,7 @@ def _runtime(settings):
     )
 
 
-def test_bot_runtime_notify_admin_preserves_html() -> None:
+def test_bot_runtime_notify_admin_escapes_html() -> None:
     settings = SimpleNamespace(admin_chat_id="99")
     runtime = _runtime(settings)
     sent = {}
@@ -31,7 +31,7 @@ def test_bot_runtime_notify_admin_preserves_html() -> None:
     asyncio.run(runtime.notify_admin(context, "<b>alert</b>"))
 
     assert sent["chat_id"] == "99"
-    assert sent["text"] == "<b>alert</b>"
+    assert sent["text"] == "&lt;b&gt;alert&lt;/b&gt;"
 
 
 def test_bot_runtime_error_handler_redacts_context_data() -> None:

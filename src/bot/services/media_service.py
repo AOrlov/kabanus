@@ -111,6 +111,14 @@ class MediaService:
             return ""
 
         photo = message.photo[-1]
+        photo_size = getattr(photo, "file_size", None)
+        if photo_size is not None and photo_size > IMAGE_MAX_BYTES:
+            self._logger.warning(
+                "Photo too large for OCR",
+                extra={"file_size": photo_size},
+            )
+            return (getattr(message, "caption", "") or "").strip()
+
         file = await context.bot.get_file(photo.file_id)
         bio = io.BytesIO()
         await file.download_to_memory(bio)

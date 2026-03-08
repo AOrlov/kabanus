@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import time
 from dataclasses import dataclass
@@ -43,6 +44,7 @@ class ReactionService:
         self._storage_id = storage_id_fn
         self._log_context = log_context_fn
         self._logger = logger_override or logging.getLogger(__name__)
+        self._state_lock = asyncio.Lock()
 
     @property
     def state(self) -> ReactionState:
@@ -74,64 +76,66 @@ class ReactionService:
 
     async def maybe_react(self, update: Update, text: str) -> None:
         self._logger.debug("maybe_react called", extra=self._log_context(update))
-        settings = self._settings_getter()
+        async with self._state_lock:
+            settings = self._settings_getter()
 
-        if update.message is None or not settings.reaction_enabled:
-            return
-
-        self._state.messages_since_last_reaction += 1
-        self._reset_reaction_budget_if_needed(datetime.now())
-
-        if settings.reaction_daily_budget <= 0 or self._state.count >= settings.reaction_daily_budget:
-            return
-
-        if settings.reaction_cooldown_secs > 0:
-            if time.monotonic() - self._state.last_ts < settings.reaction_cooldown_secs:
+            if update.message is None or not settings.reaction_enabled:
                 return
 
-        if self._state.messages_since_last_reaction < settings.reaction_messages_threshold:
-            return
+            self._state.messages_since_last_reaction += 1
+            self._reset_reaction_budget_if_needed(datetime.now())
 
-        chat_storage_id = self._storage_id(update)
-        reaction_context = self._build_reaction_context(chat_storage_id, settings)
-        if settings.debug_mode:
-            self._logger.debug(
-                "Built reaction context",
-                extra={
-                    **self._log_context(update),
-                    "has_context": bool(reaction_context),
-                    "context_chars": len(reaction_context),
-                    "context_preview": reaction_context[:256],
-                },
-            )
+            if (
+                settings.reaction_daily_budget <= 0
+                or self._state.count >= settings.reaction_daily_budget
+            ):
+                return
 
-        provider = self._provider_getter()
-        try:
+            if settings.reaction_cooldown_secs > 0:
+                if (
+                    time.monotonic() - self._state.last_ts
+                    < settings.reaction_cooldown_secs
+                ):
+                    return
+
+            if (
+                self._state.messages_since_last_reaction
+                < settings.reaction_messages_threshold
+            ):
+                return
+
+            chat_storage_id = self._storage_id(update)
+            reaction_context = self._build_reaction_context(chat_storage_id, settings)
+            if settings.debug_mode:
+                self._logger.debug(
+                    "Built reaction context",
+                    extra={
+                        **self._log_context(update),
+                        "has_context": bool(reaction_context),
+                        "context_chars": len(reaction_context),
+                        "context_preview": reaction_context[:256],
+                    },
+                )
+
+            provider = self._provider_getter()
             reaction = provider.choose_reaction(
                 text,
                 REACTION_ALLOWED_LIST,
                 context_text=reaction_context,
             ).strip()
-        except Exception as exc:
-            self._logger.warning(
-                "Failed to choose reaction: %s",
-                exc,
-                extra=self._log_context(update),
-            )
-            return
-        if not reaction:
-            return
+            if not reaction:
+                return
 
-        if reaction not in REACTION_ALLOWED_SET:
-            self._logger.warning("Model returned unsupported reaction: %s", reaction)
-            return
+            if reaction not in REACTION_ALLOWED_SET:
+                self._logger.warning("Model returned unsupported reaction: %s", reaction)
+                return
 
-        try:
-            await update.message.set_reaction(reaction)
-        except Exception as exc:
-            self._logger.warning("Failed to set reaction: %s", exc)
-            return
+            try:
+                await update.message.set_reaction(reaction)
+            except Exception as exc:
+                self._logger.warning("Failed to set reaction: %s", exc)
+                return
 
-        self._state.count += 1
-        self._state.last_ts = time.monotonic()
-        self._state.messages_since_last_reaction = 0
+            self._state.count += 1
+            self._state.last_ts = time.monotonic()
+            self._state.messages_since_last_reaction = 0

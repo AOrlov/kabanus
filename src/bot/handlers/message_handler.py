@@ -179,20 +179,10 @@ class MessageHandler:
         is_transcribe_text = False
         authored_text = (update.message.text or (update.message.caption or "")).strip()
         if update.message.voice:
-            try:
-                text = await self._media_service.transcribe_voice_message(
-                    update.message.voice,
-                    context,
-                )
-            except NotImplementedError as exc:
-                self._logger.warning(
-                    "Voice transcription is unavailable",
-                    extra={**self._log_context(update), "error": str(exc)},
-                )
-                await update.message.reply_text(
-                    "Voice transcription is not available for the current model provider."
-                )
-                return
+            text = await self._media_service.transcribe_voice_message(
+                update.message.voice,
+                context,
+            )
             self._logger.debug(
                 "Received voice message",
                 extra={**self._log_context(update), "message_preview": text[:256]},

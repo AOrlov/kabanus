@@ -10,6 +10,7 @@ from telegram.constants import ChatAction
 from telegram.ext import ContextTypes
 
 from src import config
+from src.bot.services.media_service import IMAGE_MAX_BYTES
 from src.calendar_provider import CalendarProvider
 from src.model_provider import ModelProvider
 
@@ -58,6 +59,16 @@ class EventsHandler:
         temp_photo_path: Optional[str] = None
         try:
             photo = update.message.photo[-1]
+            photo_size = getattr(photo, "file_size", None)
+            if photo_size is not None and photo_size > IMAGE_MAX_BYTES:
+                self._logger.warning(
+                    "Photo too large for event scheduling",
+                    extra={**self._log_context(update), "file_size": photo_size},
+                )
+                await update.message.reply_text(
+                    "Sorry, this photo is too large to process."
+                )
+                return
             file = await context.bot.get_file(photo.file_id)
 
             with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as temp_photo:
