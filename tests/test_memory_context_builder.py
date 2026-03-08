@@ -24,7 +24,9 @@ def test_collect_recent_lines_respects_turn_and_budget_limits() -> None:
         {"sender": "Alice", "text": "three"},
     ]
 
-    lines, _ = context_builder._collect_recent_lines(messages, max_turns=2, token_limit=200)
+    lines, _ = context_builder._collect_recent_lines(
+        messages, max_turns=2, token_limit=200
+    )
 
     assert lines == ["Bob: two", "Alice: three"]
 
@@ -42,13 +44,17 @@ def test_assemble_context_uses_token_limit() -> None:
 
 
 def test_build_context_uses_legacy_assemble_when_memory_disabled(monkeypatch) -> None:
-    monkeypatch.setattr(context_builder.config, "get_settings", lambda: _settings(memory_enabled=False))
+    monkeypatch.setattr(
+        context_builder.config, "get_settings", lambda: _settings(memory_enabled=False)
+    )
     messages = [
         {"sender": "Alice", "text": "hello"},
         {"sender": "Bob", "text": "world"},
     ]
 
-    context = context_builder.build_context(chat_id="c1", messages=messages, token_limit=200)
+    context = context_builder.build_context(
+        chat_id="c1", messages=messages, token_limit=200
+    )
 
     assert context == "Alice: hello\nBob: world"
 
@@ -70,14 +76,25 @@ def test_build_context_merges_recent_and_summary_sections(monkeypatch) -> None:
     calls = []
 
     def _fake_rollup(chat_id, messages=None, summarize_fn=None, max_chunks=None):
-        calls.append({"chat_id": chat_id, "max_chunks": max_chunks, "messages": list(messages or [])})
+        calls.append(
+            {
+                "chat_id": chat_id,
+                "max_chunks": max_chunks,
+                "messages": list(messages or []),
+            }
+        )
         return 0
 
-    monkeypatch.setattr(context_builder.summary_store, "maybe_rollup_summary", _fake_rollup)
+    monkeypatch.setattr(
+        context_builder.summary_store, "maybe_rollup_summary", _fake_rollup
+    )
     monkeypatch.setattr(
         context_builder.summary_store,
-        "_build_summary_lines",
-        lambda chat_id, latest_user_text, token_limit, max_items: (["- summary line"], 3),
+        "build_summary_lines",
+        lambda chat_id, latest_user_text, token_limit, max_items: (
+            ["- summary line"],
+            3,
+        ),
     )
 
     messages = [
@@ -102,7 +119,9 @@ def test_build_context_merges_recent_and_summary_sections(monkeypatch) -> None:
 
 
 def test_build_context_returns_empty_on_non_positive_token_limit(monkeypatch) -> None:
-    monkeypatch.setattr(context_builder.config, "get_settings", lambda: _settings(token_limit=0))
+    monkeypatch.setattr(
+        context_builder.config, "get_settings", lambda: _settings(token_limit=0)
+    )
 
     context = context_builder.build_context(chat_id="c3", token_limit=0, messages=[])
 

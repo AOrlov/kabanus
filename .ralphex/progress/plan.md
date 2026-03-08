@@ -118,13 +118,13 @@ Refactor Plan: Simplify Architecture and Remove Dead Code (Config-
   • Modify: tests/test_memory_history_store.py
   • Modify: tests/test_memory_context_builder.py
   • Modify: tests/test_memory_summary_store.py
-  [ ] Stop re-exporting private memory internals through src/message_store.py.
-  [ ] Define a small explicit public memory API and move helper-only internals
+  [x] Stop re-exporting private memory internals through src/message_store.py.
+  [x] Define a small explicit public memory API and move helper-only internals
   behind module boundaries.
-  [ ] Break large summary logic into smaller pure helpers where complexity is
+  [x] Break large summary logic into smaller pure helpers where complexity is
   highest.
-  [ ] Remove dead/unused memory helpers after usage verification.
-  [ ] Run memory/message-store tests before Task 5.
+  [x] Remove dead/unused memory helpers after usage verification.
+  [x] Run memory/message-store tests before Task 5.
 
   ### Task 5: Unify provider contracts and remove dead provider code
 

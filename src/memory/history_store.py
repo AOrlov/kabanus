@@ -71,7 +71,18 @@ def make_message(
     return message
 
 
-def _get_store_path(chat_id: str) -> str:
+def clear_cache(chat_id: Optional[str] = None) -> None:
+    with _chat_lock_guard:
+        if chat_id is None:
+            _message_store_by_chat.clear()
+            _chat_lock_by_id.clear()
+            return
+        safe_chat_id = _normalize_chat_id(chat_id)
+        _message_store_by_chat.pop(safe_chat_id, None)
+        _chat_lock_by_id.pop(safe_chat_id, None)
+
+
+def get_store_path(chat_id: str) -> str:
     settings = config.get_settings()
     if os.path.isabs(settings.chat_messages_store_path):
         base_path = settings.chat_messages_store_path
@@ -102,7 +113,7 @@ def _get_store_path(chat_id: str) -> str:
 
 
 def _load_messages(chat_id: str) -> List[Dict]:
-    path = _get_store_path(chat_id)
+    path = get_store_path(chat_id)
     logger.debug("Loading messages from file", extra={"chat_id": chat_id, "path": path})
 
     messages = []
@@ -129,17 +140,9 @@ def _load_messages(chat_id: str) -> List[Dict]:
 
 
 def _append_message(msg: Dict, chat_id: str) -> None:
-    path = _get_store_path(chat_id)
+    path = get_store_path(chat_id)
     with open(path, "a", encoding="utf-8") as handle:
         handle.write(json.dumps(msg, ensure_ascii=False) + "\n")
-
-
-def _ensure_loaded(chat_id: str) -> List[Dict]:
-    if not chat_id:
-        raise ValueError("chat_id is required for message storage")
-    lock = _get_chat_lock(chat_id)
-    with lock:
-        return _ensure_loaded_unlocked(chat_id)
 
 
 def _ensure_loaded_unlocked(chat_id: str) -> List[Dict]:

@@ -19,7 +19,9 @@ def _format_message_line(msg: Dict) -> str:
     return f"{sender}: {text}"
 
 
-def _collect_recent_lines(messages: List[Dict], max_turns: int, token_limit: int) -> Tuple[List[str], int]:
+def _collect_recent_lines(
+    messages: List[Dict], max_turns: int, token_limit: int
+) -> Tuple[List[str], int]:
     context_lines = []
     total_tokens = 0
     turns_used = 0
@@ -52,7 +54,11 @@ def build_context(
     if token_limit <= 0:
         return ""
 
-    source_messages = list(messages) if messages is not None else history_store.get_all_messages(chat_id)
+    source_messages = (
+        list(messages)
+        if messages is not None
+        else history_store.get_all_messages(chat_id)
+    )
 
     if not settings.memory_enabled:
         return assemble_context(source_messages, token_limit=token_limit)
@@ -64,7 +70,9 @@ def build_context(
         max_chunks=settings.memory_summary_max_chunks_per_run,
     )
 
-    summary_budget_ratio = settings.memory_summary_budget_ratio if settings.memory_summary_enabled else 0.0
+    summary_budget_ratio = (
+        settings.memory_summary_budget_ratio if settings.memory_summary_enabled else 0.0
+    )
     summary_budget = int(token_limit * summary_budget_ratio)
     summary_budget = min(summary_budget, token_limit)
     recent_budget = max(0, token_limit - summary_budget)
@@ -82,7 +90,7 @@ def build_context(
 
     if settings.memory_summary_enabled and summary_budget > 0:
         remaining = max(0, token_limit - used_tokens)
-        summary_lines, summary_tokens = summary_store._build_summary_lines(
+        summary_lines, summary_tokens = summary_store.build_summary_lines(
             chat_id=chat_id,
             latest_user_text=latest_user_text,
             token_limit=min(summary_budget, remaining),
@@ -110,7 +118,9 @@ def build_context(
 def assemble_context(messages: list, token_limit: Optional[int] = None) -> str:
     if token_limit is None:
         token_limit = config.get_settings().token_limit
-    logger.debug("Assembling context with token limit", extra={"token_limit": token_limit})
+    logger.debug(
+        "Assembling context with token limit", extra={"token_limit": token_limit}
+    )
     context_lines, total_tokens = _collect_recent_lines(
         list(messages),
         max_turns=len(messages),

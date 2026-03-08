@@ -49,6 +49,18 @@ def _get_summary_lock(chat_id: str) -> threading.RLock:
     return lock
 
 
+def clear_cache(chat_id: Optional[str] = None) -> None:
+    with _summary_lock_guard:
+        if chat_id is None:
+            _summary_store_by_chat.clear()
+            _summary_lock_by_chat.clear()
+            return
+        if not chat_id:
+            raise ValueError("chat_id is required for summary storage")
+        _summary_store_by_chat.pop(chat_id, None)
+        _summary_lock_by_chat.pop(chat_id, None)
+
+
 def _estimate_token_count(text: str) -> int:
     return max(1, len(text) // 4)
 
@@ -59,14 +71,14 @@ def _format_message_line(msg: Dict) -> str:
     return f"{sender}: {text}"
 
 
-def _get_summary_store_path(chat_id: str) -> str:
-    path = history_store._get_store_path(chat_id)
+def get_summary_store_path(chat_id: str) -> str:
+    path = history_store.get_store_path(chat_id)
     if path.endswith(".jsonl"):
         return path[:-6] + ".summary.json"
     return path + ".summary.json"
 
 
-def _load_summary_state(chat_id: str) -> Dict:
+def load_summary_state(chat_id: str) -> Dict:
     lock = _get_summary_lock(chat_id)
     with lock:
         return _load_summary_state_unlocked(chat_id)
@@ -76,7 +88,7 @@ def _load_summary_state_unlocked(chat_id: str) -> Dict:
     if chat_id in _summary_store_by_chat:
         return _summary_store_by_chat[chat_id]
 
-    path = _get_summary_store_path(chat_id)
+    path = get_summary_store_path(chat_id)
     state = _default_summary_state()
     if os.path.exists(path):
         try:
@@ -108,14 +120,14 @@ def _load_summary_state_unlocked(chat_id: str) -> Dict:
     return state
 
 
-def _save_summary_state(chat_id: str, state: Dict) -> None:
+def save_summary_state(chat_id: str, state: Dict) -> None:
     lock = _get_summary_lock(chat_id)
     with lock:
         _save_summary_state_unlocked(chat_id, state)
 
 
 def _save_summary_state_unlocked(chat_id: str, state: Dict) -> None:
-    path = _get_summary_store_path(chat_id)
+    path = get_summary_store_path(chat_id)
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     fd, temp_path = tempfile.mkstemp(
         prefix=".summary-state-",
@@ -189,7 +201,7 @@ def get_summary_view_text(
         if not isinstance(chunks_raw, list):
             raise RuntimeError("'chunks' must be a list")
         chunks = list(chunks_raw)
-        summary_path = _get_summary_store_path(chat_id)
+        summary_path = get_summary_store_path(chat_id)
         version = state.get("version")
         processed = state.get("last_message_count")
 
@@ -326,6 +338,49 @@ def _build_summary_prompt(chunk_lines: List[str], target_lang: str) -> str:
     )
 
 
+def _parse_summary_payload(raw: str) -> Dict:
+    parsed = json.loads(utils.strip_markdown_to_json(raw))
+    if not isinstance(parsed, dict):
+        raise ValueError("summary payload must be an object")
+    return parsed
+
+
+def _combined_summary_text(parsed: Dict) -> str:
+    return " ".join(
+        [
+            str(parsed.get("summary", "")),
+            " ".join(_clean_string_list(parsed.get("facts"))),
+            " ".join(_clean_string_list(parsed.get("decisions"))),
+            " ".join(_clean_string_list(parsed.get("open_items"))),
+        ]
+    )
+
+
+def _build_language_retry_prompt(prompt: str, target_lang: str) -> str:
+    strict_language_rule = (
+        "Respond strictly in Russian."
+        if target_lang == "ru"
+        else "Respond strictly in English."
+    )
+    return (
+        prompt
+        + "\n\nIMPORTANT: Your previous answer used the wrong language. "
+        + strict_language_rule
+    )
+
+
+def _finalize_chunk_summary(fallback: Dict, parsed: Dict) -> Dict:
+    summary_text = str(parsed.get("summary", "")).strip() or fallback["summary"]
+    return {
+        "id": fallback["id"],
+        "source_message_ids": fallback["source_message_ids"],
+        "summary": summary_text,
+        "facts": _clean_string_list(parsed.get("facts")),
+        "decisions": _clean_string_list(parsed.get("decisions")),
+        "open_items": _clean_string_list(parsed.get("open_items")),
+    }
+
+
 def _summarize_chunk(
     chat_id: str,
     chunk: List[Dict],
@@ -345,44 +400,15 @@ def _summarize_chunk(
         if not raw:
             return fallback
 
-        parsed = json.loads(utils.strip_markdown_to_json(raw))
-        combined_text = " ".join(
-            [
-                str(parsed.get("summary", "")),
-                " ".join(_clean_string_list(parsed.get("facts"))),
-                " ".join(_clean_string_list(parsed.get("decisions"))),
-                " ".join(_clean_string_list(parsed.get("open_items"))),
-            ]
-        )
+        parsed = _parse_summary_payload(raw)
+        combined_text = _combined_summary_text(parsed)
         if not _contains_language_markers(combined_text, target_lang):
-            stricter = (
-                prompt
-                + "\n\nIMPORTANT: Your previous answer used the wrong language. "
-                + (
-                    "Respond strictly in Russian."
-                    if target_lang == "ru"
-                    else "Respond strictly in English."
-                )
-            )
+            stricter = _build_language_retry_prompt(prompt, target_lang)
             raw_retry = summarize_fn(stricter).strip()
             if raw_retry:
-                parsed_retry = json.loads(utils.strip_markdown_to_json(raw_retry))
-                if isinstance(parsed_retry, dict):
-                    parsed = parsed_retry
+                parsed = _parse_summary_payload(raw_retry)
 
-        if not isinstance(parsed, dict):
-            return fallback
-        summary_text = str(parsed.get("summary", "")).strip()
-        if not summary_text:
-            summary_text = fallback["summary"]
-        return {
-            "id": fallback["id"],
-            "source_message_ids": fallback["source_message_ids"],
-            "summary": summary_text,
-            "facts": _clean_string_list(parsed.get("facts")),
-            "decisions": _clean_string_list(parsed.get("decisions")),
-            "open_items": _clean_string_list(parsed.get("open_items")),
-        }
+        return _finalize_chunk_summary(fallback, parsed)
     except (json.JSONDecodeError, TypeError, ValueError) as exc:
         logger.warning(
             "Failed to parse chunk summary JSON: %s", exc, extra={"chat_id": chat_id}
@@ -501,7 +527,7 @@ def maybe_rollup_summary(
         return created
 
 
-def _build_summary_lines(
+def build_summary_lines(
     chat_id: str,
     latest_user_text: str,
     token_limit: int,

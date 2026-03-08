@@ -1,6 +1,7 @@
+import json
 from types import SimpleNamespace
 
-from src.memory import history_store, summary_store
+from src.memory import summary_store
 
 
 def _settings(**overrides) -> SimpleNamespace:
@@ -50,13 +51,13 @@ def test_summary_state_save_and_load_roundtrip(monkeypatch, tmp_path) -> None:
         "get_settings",
         lambda: _settings(chat_messages_store_path=str(store_base)),
     )
-    summary_store._summary_store_by_chat.clear()
+    summary_store.clear_cache()
 
     state = {"version": 1, "last_message_count": 2, "chunks": _seed_chunks()[:1]}
-    summary_store._save_summary_state("chat1", state)
-    summary_store._summary_store_by_chat.clear()
+    summary_store.save_summary_state("chat1", state)
+    summary_store.clear_cache()
 
-    loaded = summary_store._load_summary_state("chat1")
+    loaded = summary_store.load_summary_state("chat1")
 
     assert loaded == state
     assert (tmp_path / "messages_chat1.summary.json").exists()
@@ -69,11 +70,11 @@ def test_load_summary_state_quarantines_corrupt_json(monkeypatch, tmp_path) -> N
         "get_settings",
         lambda: _settings(chat_messages_store_path=str(store_base)),
     )
-    summary_store._summary_store_by_chat.clear()
+    summary_store.clear_cache()
     corrupt_path = tmp_path / "messages_chat-corrupt.summary.json"
     corrupt_path.write_text("{not json", encoding="utf-8")
 
-    loaded = summary_store._load_summary_state("chat-corrupt")
+    loaded = summary_store.load_summary_state("chat-corrupt")
 
     assert loaded == {"version": 1, "last_message_count": 0, "chunks": []}
     quarantined = list(tmp_path.glob("messages_chat-corrupt.summary.json.corrupt*"))
@@ -90,7 +91,7 @@ def test_maybe_rollup_summary_creates_fallback_chunks(monkeypatch, tmp_path) -> 
             chat_messages_store_path=str(store_base), memory_summary_chunk_size=2
         ),
     )
-    summary_store._summary_store_by_chat.clear()
+    summary_store.clear_cache()
 
     messages = [
         {"id": "a", "sender": "Alice", "text": "one"},
@@ -103,7 +104,7 @@ def test_maybe_rollup_summary_creates_fallback_chunks(monkeypatch, tmp_path) -> 
     created = summary_store.maybe_rollup_summary(
         "chat2", messages=messages, summarize_fn=None, max_chunks=2
     )
-    state = summary_store._load_summary_state("chat2")
+    state = summary_store.load_summary_state("chat2")
 
     assert created == 2
     assert state["last_message_count"] == 4
@@ -123,12 +124,15 @@ def test_maybe_rollup_summary_resets_if_processed_exceeds_message_count(
             chat_messages_store_path=str(store_base), memory_summary_chunk_size=2
         ),
     )
-    summary_store._summary_store_by_chat.clear()
-    summary_store._summary_store_by_chat["chat3"] = {
-        "version": 1,
-        "last_message_count": 100,
-        "chunks": [{"id": "old"}],
-    }
+    summary_store.clear_cache()
+    summary_store.save_summary_state(
+        "chat3",
+        {
+            "version": 1,
+            "last_message_count": 100,
+            "chunks": [{"id": "old"}],
+        },
+    )
 
     messages = [
         {"id": "a", "sender": "Alice", "text": "one"},
@@ -137,7 +141,7 @@ def test_maybe_rollup_summary_resets_if_processed_exceeds_message_count(
     created = summary_store.maybe_rollup_summary(
         "chat3", messages=messages, summarize_fn=None
     )
-    state = summary_store._load_summary_state("chat3")
+    state = summary_store.load_summary_state("chat3")
 
     assert created == 1
     assert state["last_message_count"] == 2
@@ -152,18 +156,20 @@ def test_get_summary_view_text_and_summary_lines(monkeypatch, tmp_path) -> None:
         "get_settings",
         lambda: _settings(chat_messages_store_path=str(store_base)),
     )
-    summary_store._summary_store_by_chat.clear()
-    history_store._message_store_by_chat.clear()
-    summary_store._summary_store_by_chat["chat4"] = {
-        "version": 1,
-        "last_message_count": 6,
-        "chunks": _seed_chunks(),
-    }
+    summary_store.clear_cache()
+    summary_store.save_summary_state(
+        "chat4",
+        {
+            "version": 1,
+            "last_message_count": 6,
+            "chunks": _seed_chunks(),
+        },
+    )
 
     head_tail = summary_store.get_summary_view_text("chat4", head=1, tail=1)
     by_index = summary_store.get_summary_view_text("chat4", index=1)
     with_grep = summary_store.get_summary_view_text("chat4", grep="budget", head=2)
-    lines, _ = summary_store._build_summary_lines(
+    lines, _ = summary_store.build_summary_lines(
         chat_id="chat4",
         latest_user_text="budget monday",
         token_limit=200,
@@ -176,3 +182,63 @@ def test_get_summary_view_text_and_summary_lines(monkeypatch, tmp_path) -> None:
     assert "Matches for 'budget': 1" in with_grep
     assert lines
     assert lines[0].startswith("- Budget was discussed")
+
+
+def test_summarize_chunk_retries_when_language_mismatch() -> None:
+    prompts = []
+
+    def _summarize(prompt: str) -> str:
+        prompts.append(prompt)
+        if len(prompts) == 1:
+            return json.dumps(
+                {
+                    "summary": "Привет мир",
+                    "facts": [],
+                    "decisions": [],
+                    "open_items": [],
+                }
+            )
+        return json.dumps(
+            {
+                "summary": "Hello world",
+                "facts": ["prefers concise updates"],
+                "decisions": [],
+                "open_items": [],
+            }
+        )
+
+    chunk = [
+        {"id": "m1", "sender": "Alice", "text": "Need weekly status updates"},
+        {"id": "m2", "sender": "Bob", "text": "Okay, every Monday"},
+    ]
+
+    summary = summary_store._summarize_chunk(
+        chat_id="chat5",
+        chunk=chunk,
+        start=0,
+        end=1,
+        summarize_fn=_summarize,
+    )
+
+    assert len(prompts) == 2
+    assert "IMPORTANT: Your previous answer used the wrong language" in prompts[1]
+    assert summary["summary"] == "Hello world"
+    assert summary["facts"] == ["prefers concise updates"]
+
+
+def test_clear_cache_drops_single_chat(monkeypatch, tmp_path) -> None:
+    store_base = tmp_path / "messages.jsonl"
+    monkeypatch.setattr(
+        summary_store.config,
+        "get_settings",
+        lambda: _settings(chat_messages_store_path=str(store_base)),
+    )
+    summary_store.clear_cache()
+
+    summary_store.load_summary_state("chat6")
+    summary_store.load_summary_state("chat7")
+
+    summary_store.clear_cache("chat6")
+
+    assert "chat6" not in summary_store._summary_store_by_chat
+    assert "chat7" in summary_store._summary_store_by_chat
