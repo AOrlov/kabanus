@@ -6,6 +6,7 @@ from telegram.ext import Application, ContextTypes, MessageHandler, filters
 
 from src import config
 from src.bot.handlers.events_handler import EventsHandler
+from src.calendar_provider import CalendarProvider
 from src.model_provider import ModelProvider
 
 MessageCallback = Callable[[Update, ContextTypes.DEFAULT_TYPE], Awaitable[None]]
@@ -26,6 +27,7 @@ def build_events_handler(
         notify_admin_fn=notify_admin_fn,
         log_context_fn=log_context_fn,
         settings_getter=settings_getter,
+        calendar_provider_factory=CalendarProvider,
         logger_override=logger_override,
     )
 

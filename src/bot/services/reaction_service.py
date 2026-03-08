@@ -8,8 +8,14 @@ from typing import Callable, Optional
 from telegram import Update
 from telegram.constants import ReactionEmoji
 
-from src import config
-from src.model_provider import ModelProvider
+from src.bot.contracts import (
+    AssembleContextFn,
+    BotSettings,
+    GetAllMessagesFn,
+    LogContextFn,
+    ProviderGetter,
+    StorageIdFn,
+)
 
 REACTION_ALLOWED_SET = {emoji.value for emoji in ReactionEmoji}
 REACTION_ALLOWED_LIST = sorted(REACTION_ALLOWED_SET)
@@ -28,14 +34,14 @@ class ReactionService:
         self,
         *,
         state: ReactionState,
-        provider_getter: Callable[[], ModelProvider],
-        settings_getter: Callable[[], config.Settings] = config.get_settings,
-        get_all_messages_fn: Callable[[str], list],
-        assemble_context_fn: Callable[..., str],
-        storage_id_fn: Callable[[Update], Optional[str]],
+        provider_getter: ProviderGetter,
+        settings_getter: Callable[[], BotSettings],
+        get_all_messages_fn: GetAllMessagesFn,
+        assemble_context_fn: AssembleContextFn,
+        storage_id_fn: StorageIdFn,
         allowed_reactions: Optional[list[str]] = None,
         allowed_reaction_set: Optional[set[str]] = None,
-        log_context_fn: Callable[[Optional[Update]], dict],
+        log_context_fn: LogContextFn,
         logger_override: Optional[logging.Logger] = None,
     ) -> None:
         self._state = state
@@ -61,7 +67,7 @@ class ReactionService:
             self._state.count = 0
 
     def _build_reaction_context(
-        self, chat_id: Optional[str], settings: config.Settings
+        self, chat_id: Optional[str], settings: BotSettings
     ) -> str:
         if (
             not chat_id

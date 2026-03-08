@@ -7,14 +7,22 @@ from telegram import Update
 from telegram.constants import ChatAction
 from telegram.ext import ContextTypes
 
-from src import config
+from src.bot.contracts import (
+    AddMessageFn,
+    BotSettings,
+    BuildContextFn,
+    GetMessageByTelegramMessageIdFn,
+    IsAllowedFn,
+    LogContextFn,
+    ProviderGetter,
+    StorageIdFn,
+)
 from src.bot.services.media_service import (
     IMAGE_MAX_BYTES,
     MediaService,
     NON_TEXT_REPLY_PLACEHOLDER,
     is_image_document,
 )
-from src.model_provider import ModelProvider
 
 
 def entity_type_value(entity: Any) -> str:
@@ -144,23 +152,23 @@ class MessageHandler:
     def __init__(
         self,
         *,
-        settings_getter: Callable[[], config.Settings],
-        is_allowed_fn: Callable[[Update], bool],
-        storage_id_fn: Callable[[Update], Optional[str]],
-        add_message_fn: Callable[..., None],
-        get_message_by_telegram_message_id_fn: Callable[[str, int], Optional[Dict]],
-        build_context_fn: Callable[..., str],
-        provider_getter: Callable[[], ModelProvider],
+        settings_getter: Callable[[], BotSettings],
+        is_allowed_fn: IsAllowedFn,
+        storage_id_fn: StorageIdFn,
+        add_message_fn: AddMessageFn,
+        get_message_by_telegram_message_id_fn: GetMessageByTelegramMessageIdFn,
+        build_context_fn: BuildContextFn,
+        provider_getter: ProviderGetter,
         media_service: MediaService,
         maybe_react_fn: Callable[[Update, str], Awaitable[None]],
         send_ai_response_fn: Callable[[Update, str, str], Awaitable[None]],
         generate_response_with_drafts_fn: Callable[
-            [Update, str, config.Settings], Awaitable[str]
+            [Update, str, BotSettings], Awaitable[str]
         ],
         message_drafts_unavailable_reason_fn: Callable[
-            [Update, config.Settings], Optional[str]
+            [Update, BotSettings], Optional[str]
         ],
-        log_context_fn: Callable[[Optional[Update]], dict],
+        log_context_fn: LogContextFn,
         sleep_fn: Callable[[float], Awaitable[None]] = asyncio.sleep,
         logger_override: Optional[logging.Logger] = None,
     ) -> None:

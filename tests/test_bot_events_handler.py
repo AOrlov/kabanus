@@ -7,6 +7,10 @@ from src.bot.handlers.events_handler import EventsHandler
 from src.bot.services.media_service import IMAGE_MAX_BYTES
 
 
+def _noop_calendar_factory():
+    return SimpleNamespace(create_event=lambda **_kwargs: None)
+
+
 def test_schedule_events_exits_when_feature_disabled() -> None:
     notifications = []
     sent_actions = []
@@ -23,6 +27,7 @@ def test_schedule_events_exits_when_feature_disabled() -> None:
         notify_admin_fn=_notify_admin,
         log_context_fn=lambda _update: {},
         settings_getter=lambda: SimpleNamespace(features={"schedule_events": False}),
+        calendar_provider_factory=_noop_calendar_factory,
     )
 
     update = SimpleNamespace(
@@ -60,6 +65,7 @@ def test_schedule_events_exits_when_update_not_allowed() -> None:
         notify_admin_fn=_notify_admin,
         log_context_fn=lambda _update: {},
         settings_getter=lambda: SimpleNamespace(features={"schedule_events": True}),
+        calendar_provider_factory=_noop_calendar_factory,
     )
 
     update = SimpleNamespace(
@@ -88,6 +94,7 @@ def test_schedule_events_exits_without_photo() -> None:
         notify_admin_fn=_notify_admin,
         log_context_fn=lambda _update: {},
         settings_getter=lambda: SimpleNamespace(features={"schedule_events": True}),
+        calendar_provider_factory=_noop_calendar_factory,
     )
 
     update = SimpleNamespace(
@@ -128,6 +135,7 @@ def test_schedule_events_rejects_oversized_photo() -> None:
         notify_admin_fn=_notify_admin,
         log_context_fn=lambda _update: {},
         settings_getter=lambda: SimpleNamespace(features={"schedule_events": True}),
+        calendar_provider_factory=_noop_calendar_factory,
     )
 
     update = SimpleNamespace(
@@ -271,6 +279,7 @@ def test_schedule_events_rejects_oversized_download_when_size_unknown(
         notify_admin_fn=_notify_admin,
         log_context_fn=lambda _update: {},
         settings_getter=lambda: SimpleNamespace(features={"schedule_events": True}),
+        calendar_provider_factory=_noop_calendar_factory,
     )
 
     update = SimpleNamespace(
@@ -551,6 +560,7 @@ def test_schedule_events_reports_error_when_event_data_missing_date(
         notify_admin_fn=_notify_admin,
         log_context_fn=lambda _update: {},
         settings_getter=lambda: SimpleNamespace(features={"schedule_events": True}),
+        calendar_provider_factory=_noop_calendar_factory,
     )
 
     update = SimpleNamespace(
@@ -591,6 +601,7 @@ def test_schedule_events_handles_chat_file_download_failure(monkeypatch) -> None
         notify_admin_fn=_notify_admin,
         log_context_fn=lambda _update: {},
         settings_getter=lambda: SimpleNamespace(features={"schedule_events": True}),
+        calendar_provider_factory=_noop_calendar_factory,
     )
 
     class _FailingBot:

@@ -26,6 +26,12 @@ REVIEWED_FINDINGS: Dict[str, str] = {
     "src/bot/app.py:refresh_settings_job": (
         "Runtime callback is referenced by scheduler wiring and runtime tests."
     ),
+    "src/bot/contracts.py:description": (
+        "Protocol parameter name used as part of calendar event contract."
+    ),
+    "src/bot/contracts.py:location": (
+        "Protocol parameter name used as part of calendar event contract."
+    ),
     "src/memory/history_store.py:clear_cache": (
         "Public cache-control API used by message_store and tests."
     ),

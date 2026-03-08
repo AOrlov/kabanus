@@ -7,7 +7,7 @@ from typing import Any, Callable, Dict, Optional, Tuple
 from telegram import Voice
 from telegram.ext import ContextTypes
 
-from src.model_provider import ModelProvider
+from src.bot.contracts import GetMessageByTelegramMessageIdFn, ProviderGetter
 
 NON_TEXT_REPLY_PLACEHOLDER = "[non-text message]"
 IMAGE_MAX_BYTES = 15 * 1024 * 1024
@@ -85,7 +85,7 @@ class MediaService:
     def __init__(
         self,
         *,
-        provider_getter: Callable[[], ModelProvider],
+        provider_getter: ProviderGetter,
         logger_override: Optional[logging.Logger] = None,
         log_context_fn: Optional[Callable[[Any], dict]] = None,
     ) -> None:
@@ -283,7 +283,7 @@ class MediaService:
         *,
         chat_id: str,
         context: ContextTypes.DEFAULT_TYPE,
-        get_message_by_telegram_message_id_fn: Callable[[str, int], Optional[Dict]],
+        get_message_by_telegram_message_id_fn: GetMessageByTelegramMessageIdFn,
     ) -> Optional[Dict[str, str]]:
         reply_message = getattr(message, "reply_to_message", None)
         if reply_message is None:

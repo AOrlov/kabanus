@@ -9,10 +9,14 @@ from telegram import Update
 from telegram.constants import ChatAction
 from telegram.ext import ContextTypes
 
-from src import config
+from src.bot.contracts import (
+    CalendarProviderFactory,
+    IsAllowedFn,
+    LogContextFn,
+    ProviderGetter,
+    SettingsGetter,
+)
 from src.bot.services.media_service import IMAGE_MAX_BYTES
-from src.calendar_provider import CalendarProvider
-from src.model_provider import ModelProvider
 
 
 def _safe_int(value: Any) -> Optional[int]:
@@ -38,12 +42,12 @@ class EventsHandler:
     def __init__(
         self,
         *,
-        is_allowed_fn: Callable[[Update], bool],
-        provider_getter: Callable[[], ModelProvider],
+        is_allowed_fn: IsAllowedFn,
+        provider_getter: ProviderGetter,
         notify_admin_fn: Callable[[ContextTypes.DEFAULT_TYPE, str], Awaitable[None]],
-        log_context_fn: Callable[[Optional[Update]], dict],
-        settings_getter: Callable[[], config.Settings] = config.get_settings,
-        calendar_provider_factory: Callable[[], CalendarProvider] = CalendarProvider,
+        log_context_fn: LogContextFn,
+        settings_getter: SettingsGetter,
+        calendar_provider_factory: CalendarProviderFactory,
         logger_override: Optional[logging.Logger] = None,
     ) -> None:
         self._is_allowed = is_allowed_fn

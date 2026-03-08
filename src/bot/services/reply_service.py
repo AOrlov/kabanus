@@ -8,8 +8,8 @@ from telegram import Update
 from telegram.constants import ParseMode
 from telegram.error import BadRequest
 
-from src import config, utils
-from src.model_provider import ModelProvider
+from src import utils
+from src.bot.contracts import AddMessageFn, BotSettings, LogContextFn, ProviderGetter
 from src.telegram_drafts import send_message_draft
 
 
@@ -23,7 +23,7 @@ def chunk_string(value: str, chunk_size: int) -> list[str]:
 
 def message_drafts_unavailable_reason(
     update: Update,
-    settings: config.Settings,
+    settings: BotSettings,
 ) -> Optional[str]:
     if not settings.telegram_use_message_drafts:
         return "feature_disabled"
@@ -48,11 +48,11 @@ class ReplyService:
     def __init__(
         self,
         *,
-        provider_getter: Callable[[], ModelProvider],
-        settings_getter: Callable[[], config.Settings] = config.get_settings,
-        add_message_fn: Callable[..., None],
+        provider_getter: ProviderGetter,
+        settings_getter: Callable[[], BotSettings],
+        add_message_fn: AddMessageFn,
         send_message_draft_fn: Callable[..., object] = send_message_draft,
-        log_context_fn: Callable[[Optional[Update]], dict] = lambda _update: {},
+        log_context_fn: LogContextFn = lambda _update: {},
         logger_override: Optional[logging.Logger] = None,
     ) -> None:
         self._provider_getter = provider_getter
@@ -66,7 +66,7 @@ class ReplyService:
         self,
         update: Update,
         prompt: str,
-        settings: config.Settings,
+        settings: BotSettings,
     ) -> str:
         chat = update.effective_chat
         provider = self._provider_getter()

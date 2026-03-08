@@ -4,6 +4,7 @@ from typing import Any, Callable, Dict, Optional, Tuple
 from telegram import Update
 from telegram.ext import ContextTypes
 
+from src.bot.contracts import GetSummaryViewTextFn, IsAllowedFn, StorageIdFn
 from src.bot.services.reply_service import chunk_string
 
 
@@ -124,9 +125,9 @@ class SummaryHandler:
     def __init__(
         self,
         *,
-        is_allowed_fn: Callable[[Update], bool],
-        storage_id_fn: Callable[[Update], Optional[str]],
-        get_summary_view_text_fn: Callable[..., str],
+        is_allowed_fn: IsAllowedFn,
+        storage_id_fn: StorageIdFn,
+        get_summary_view_text_fn: GetSummaryViewTextFn,
         parse_summary_args_fn: Callable[[list[str]], Tuple[Optional[Dict], Optional[str]]] = parse_summary_command_args,
         summary_usage_fn: Callable[[], str] = summary_command_usage,
         command_args_from_text_fn: Callable[[str], list[str]] = command_args_from_message_text,

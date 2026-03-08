@@ -106,11 +106,11 @@ This plan intentionally allows backward-incompatible internal API changes so the
 - Modify: `tests/test_bot_summary_handler.py`
 - Modify: `tests/test_bot_media_service.py`
 
-- [ ] Introduce explicit product contracts/protocols for settings, provider access, and message-store operations
-- [ ] Remove direct config lookups from reusable path code; pass dependencies through constructors
-- [ ] Ensure framework-side code has zero dependency on product config/provider modules
-- [ ] write tests for this task
-- [ ] run project test suite - must pass before task 5
+- [x] Introduce explicit product contracts/protocols for settings, provider access, and message-store operations
+- [x] Remove direct config lookups from reusable path code; pass dependencies through constructors
+- [x] Ensure framework-side code has zero dependency on product config/provider modules
+- [x] write tests for this task
+- [x] run project test suite - must pass before task 5
 
 ### Task 5: Make breaking API cleanup explicit for extraction readiness
 
