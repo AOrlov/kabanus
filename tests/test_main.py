@@ -66,6 +66,23 @@ def test_is_bot_mentioned_with_mention_entity(monkeypatch) -> None:
     )
 
 
+def test_is_bot_mentioned_with_utf16_mention_offset(monkeypatch) -> None:
+    main = _load_main(monkeypatch)
+    message = SimpleNamespace(
+        text="😀 @kaban explain",
+        entities=[SimpleNamespace(type="mention", offset=3, length=6)],
+        caption="",
+        caption_entities=[],
+    )
+
+    assert main._is_bot_mentioned(
+        message,
+        bot_username="kaban",
+        bot_id=42,
+        aliases=[],
+    )
+
+
 def test_is_bot_mentioned_with_text_mention_entity(monkeypatch) -> None:
     main = _load_main(monkeypatch)
     message = SimpleNamespace(
@@ -273,6 +290,37 @@ def test_maybe_react_uses_recent_context_window(monkeypatch) -> None:
     assert "Bob: two" in context
     assert "Carol: three" in context
     assert "Alice: one" not in context
+
+
+def test_maybe_react_uses_legacy_allowed_reaction_globals(monkeypatch) -> None:
+    main = _load_main(monkeypatch)
+    custom_allowed = [main._REACTION_ALLOWED_LIST[0]]
+    main._REACTION_ALLOWED_LIST = list(custom_allowed)
+    main._REACTION_ALLOWED_SET = set(custom_allowed)
+
+    provider = _ReactionRecorderProvider(custom_allowed[0])
+    monkeypatch.setattr(main, "model_provider", provider)
+    monkeypatch.setattr(main.config, "get_settings", lambda: _reaction_settings())
+    monkeypatch.setattr(main, "get_all_messages", lambda _chat_id: [])
+
+    main._REACTION_DAY = None
+    main._REACTION_COUNT = 0
+    main._REACTION_LAST_TS = 0.0
+    main._MESSAGES_SINCE_LAST_REACTION = 0
+
+    message = _ReactionMessage()
+    update = SimpleNamespace(
+        message=message,
+        effective_user=SimpleNamespace(id=1),
+        effective_chat=SimpleNamespace(id=2, type="group"),
+        update_id=111,
+    )
+
+    asyncio.run(main.maybe_react(update, "latest"))
+
+    assert len(provider.calls) == 1
+    assert provider.calls[0]["allowed_reactions"] == custom_allowed
+    assert message.reaction == custom_allowed[0]
 
 
 def test_maybe_react_respects_reaction_context_token_limit(monkeypatch) -> None:

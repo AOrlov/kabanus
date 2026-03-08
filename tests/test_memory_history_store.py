@@ -76,7 +76,7 @@ def test_ensure_loaded_requires_chat_id() -> None:
         history_store._ensure_loaded("")
 
 
-def test_get_store_path_rejects_unsafe_chat_id(monkeypatch, tmp_path) -> None:
+def test_get_store_path_sanitizes_chat_id_for_file_name(monkeypatch, tmp_path) -> None:
     store_base = tmp_path / "messages.jsonl"
     monkeypatch.setattr(
         history_store.config,
@@ -84,5 +84,27 @@ def test_get_store_path_rejects_unsafe_chat_id(monkeypatch, tmp_path) -> None:
         lambda: _settings(chat_messages_store_path=str(store_base)),
     )
 
-    with pytest.raises(ValueError, match="unsafe path characters"):
-        history_store._get_store_path("../escape")
+    path = history_store._get_store_path("../escape")
+
+    assert path.endswith("messages_..%2Fescape.jsonl")
+    assert (tmp_path / "messages_..%2Fescape.jsonl").exists()
+
+
+def test_add_message_does_not_cache_on_append_error(monkeypatch, tmp_path) -> None:
+    store_base = tmp_path / "messages.jsonl"
+    monkeypatch.setattr(
+        history_store.config,
+        "get_settings",
+        lambda: _settings(chat_messages_store_path=str(store_base)),
+    )
+    history_store._message_store_by_chat.clear()
+
+    def _boom(*_args, **_kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(history_store, "_append_message", _boom)
+
+    with pytest.raises(OSError, match="disk full"):
+        history_store.add_message("Alice", "hello", chat_id="c4")
+
+    assert history_store.get_all_messages("c4") == []

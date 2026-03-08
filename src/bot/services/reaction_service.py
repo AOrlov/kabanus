@@ -33,6 +33,8 @@ class ReactionService:
         get_all_messages_fn: Callable[[str], list],
         assemble_context_fn: Callable[..., str],
         storage_id_fn: Callable[[Update], Optional[str]],
+        allowed_reactions: Optional[list[str]] = None,
+        allowed_reaction_set: Optional[set[str]] = None,
         log_context_fn: Callable[[Optional[Update]], dict],
         logger_override: Optional[logging.Logger] = None,
     ) -> None:
@@ -42,6 +44,8 @@ class ReactionService:
         self._get_all_messages = get_all_messages_fn
         self._assemble_context = assemble_context_fn
         self._storage_id = storage_id_fn
+        self._allowed_reactions = list(allowed_reactions or REACTION_ALLOWED_LIST)
+        self._allowed_reaction_set = set(allowed_reaction_set or REACTION_ALLOWED_SET)
         self._log_context = log_context_fn
         self._logger = logger_override or logging.getLogger(__name__)
         self._state_lock = asyncio.Lock()
@@ -56,7 +60,9 @@ class ReactionService:
             self._state.day = today
             self._state.count = 0
 
-    def _build_reaction_context(self, chat_id: Optional[str], settings: config.Settings) -> str:
+    def _build_reaction_context(
+        self, chat_id: Optional[str], settings: config.Settings
+    ) -> str:
         if (
             not chat_id
             or settings.reaction_context_turns <= 0
@@ -120,14 +126,16 @@ class ReactionService:
             provider = self._provider_getter()
             reaction = provider.choose_reaction(
                 text,
-                REACTION_ALLOWED_LIST,
+                self._allowed_reactions,
                 context_text=reaction_context,
             ).strip()
             if not reaction:
                 return
 
-            if reaction not in REACTION_ALLOWED_SET:
-                self._logger.warning("Model returned unsupported reaction: %s", reaction)
+            if reaction not in self._allowed_reaction_set:
+                self._logger.warning(
+                    "Model returned unsupported reaction: %s", reaction
+                )
                 return
 
             try:

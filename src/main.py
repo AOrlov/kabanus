@@ -3,6 +3,7 @@ import html
 import json
 import logging
 import traceback
+import weakref
 from datetime import datetime
 from typing import Any, Dict, Optional, Tuple
 
@@ -80,7 +81,9 @@ _REACTION_ALLOWED_LIST = list(REACTION_ALLOWED_LIST)
 _MESSAGES_SINCE_LAST_REACTION = 0
 _NON_TEXT_REPLY_PLACEHOLDER = NON_TEXT_REPLY_PLACEHOLDER
 _IMAGE_MAX_BYTES = IMAGE_MAX_BYTES
-_LEGACY_REACTION_LOCK: Optional[asyncio.Lock] = None
+_LEGACY_REACTION_LOCKS: (
+    "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Lock]"
+) = weakref.WeakKeyDictionary()
 
 
 def _log_context(update: Optional[Update]) -> dict:
@@ -160,10 +163,12 @@ def _reaction_state_from_globals() -> ReactionState:
 
 
 def _get_legacy_reaction_lock() -> asyncio.Lock:
-    global _LEGACY_REACTION_LOCK
-    if _LEGACY_REACTION_LOCK is None:
-        _LEGACY_REACTION_LOCK = asyncio.Lock()
-    return _LEGACY_REACTION_LOCK
+    loop = asyncio.get_running_loop()
+    lock = _LEGACY_REACTION_LOCKS.get(loop)
+    if lock is None:
+        lock = asyncio.Lock()
+        _LEGACY_REACTION_LOCKS[loop] = lock
+    return lock
 
 
 def _reset_reaction_budget_if_needed(now: datetime) -> None:
@@ -251,6 +256,8 @@ async def maybe_react(update: Update, text: str):
             get_all_messages_fn=get_all_messages,
             assemble_context_fn=assemble_context,
             storage_id_fn=_storage_id,
+            allowed_reactions=_REACTION_ALLOWED_LIST,
+            allowed_reaction_set=_REACTION_ALLOWED_SET,
             log_context_fn=_log_context,
             logger_override=logger,
         )

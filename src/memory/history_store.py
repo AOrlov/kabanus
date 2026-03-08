@@ -6,6 +6,7 @@ import os
 import threading
 import time
 from typing import Dict, List, Optional
+from urllib.parse import quote
 
 from src import config
 
@@ -21,10 +22,11 @@ def _normalize_chat_id(chat_id: str) -> str:
     safe_chat_id = str(chat_id).strip()
     if not safe_chat_id:
         raise ValueError("chat_id is required for message storage")
-    # Prevent path traversal and path separator injection when deriving store paths.
-    if "/" in safe_chat_id or "\\" in safe_chat_id or ".." in safe_chat_id:
-        raise ValueError("chat_id contains unsafe path characters")
     return safe_chat_id
+
+
+def _chat_id_path_token(chat_id: str) -> str:
+    return quote(chat_id, safe="._-")
 
 
 def _get_chat_lock(chat_id: str) -> threading.RLock:
@@ -80,6 +82,7 @@ def _get_store_path(chat_id: str) -> str:
         base_path = os.path.normpath(base_path)
 
     safe_chat_id = _normalize_chat_id(chat_id)
+    path_chat_id = _chat_id_path_token(safe_chat_id)
 
     root, ext = os.path.splitext(base_path)
     if ext:
@@ -89,7 +92,7 @@ def _get_store_path(chat_id: str) -> str:
         base_dir = base_path
         stem = "messages"
 
-    path = os.path.join(base_dir, f"{stem}_{safe_chat_id}.jsonl")
+    path = os.path.join(base_dir, f"{stem}_{path_chat_id}.jsonl")
 
     if not os.path.exists(path):
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
@@ -174,8 +177,8 @@ def add_message(
     lock = _get_chat_lock(chat_id)
     with lock:
         messages = _ensure_loaded_unlocked(chat_id)
-        messages.append(msg)
         _append_message(msg, chat_id)
+        messages.append(msg)
 
 
 def get_all_messages(chat_id: str) -> List[Dict]:

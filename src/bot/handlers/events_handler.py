@@ -15,6 +15,25 @@ from src.calendar_provider import CalendarProvider
 from src.model_provider import ModelProvider
 
 
+def _safe_int(value: object) -> Optional[int]:
+    if value is None:
+        return None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    if parsed < 0:
+        return None
+    return parsed
+
+
+def _safe_float(value: object, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 class EventsHandler:
     def __init__(
         self,
@@ -59,7 +78,7 @@ class EventsHandler:
         temp_photo_path: Optional[str] = None
         try:
             photo = update.message.photo[-1]
-            photo_size = getattr(photo, "file_size", None)
+            photo_size = _safe_int(getattr(photo, "file_size", None))
             if photo_size is not None and photo_size > IMAGE_MAX_BYTES:
                 self._logger.warning(
                     "Photo too large for event scheduling",
@@ -70,6 +89,21 @@ class EventsHandler:
                 )
                 return
             file = await context.bot.get_file(photo.file_id)
+            resolved_file_size = _safe_int(getattr(file, "file_size", None))
+            if resolved_file_size is None:
+                resolved_file_size = photo_size
+            if resolved_file_size is None or resolved_file_size > IMAGE_MAX_BYTES:
+                self._logger.warning(
+                    "Photo too large for event scheduling",
+                    extra={
+                        **self._log_context(update),
+                        "file_size": resolved_file_size,
+                    },
+                )
+                await update.message.reply_text(
+                    "Sorry, this photo is too large to process."
+                )
+                return
 
             with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as temp_photo:
                 temp_photo_path = temp_photo.name
@@ -79,7 +113,8 @@ class EventsHandler:
                 provider = self._provider_getter()
                 event_data = provider.parse_image_to_event(temp_photo_path)
 
-                if event_data.get("confidence", 0) < 0.5:
+                confidence = _safe_float(event_data.get("confidence", 0))
+                if confidence < 0.5:
                     await update.message.reply_text(
                         "I'm not very confident about the event details, but I'll create it anyway."
                     )

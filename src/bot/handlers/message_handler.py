@@ -52,6 +52,20 @@ def contains_alias_token(text: str, aliases: Iterable[str]) -> bool:
     return False
 
 
+def _extract_utf16_entity_text(text: str, offset: int, length: int) -> str:
+    if offset < 0 or length <= 0:
+        return ""
+    encoded = str(text).encode("utf-16-le")
+    start = offset * 2
+    end = (offset + length) * 2
+    if start < 0 or end > len(encoded):
+        return ""
+    try:
+        return encoded[start:end].decode("utf-16-le")
+    except UnicodeDecodeError:
+        return ""
+
+
 def is_bot_mentioned(
     message: Any,
     *,
@@ -74,9 +88,10 @@ def is_bot_mentioned(
                     length = int(getattr(entity, "length", 0))
                 except (TypeError, ValueError):
                     continue
-                if offset < 0 or length <= 0 or offset + length > len(source_text):
+                mention_text = _extract_utf16_entity_text(source_text, offset, length)
+                if not mention_text:
                     continue
-                mention = source_text[offset : offset + length].strip().lower().lstrip("@")
+                mention = mention_text.strip().lower().lstrip("@")
                 if mention and mention in normalized:
                     return True
             elif entity_type == "text_mention":
@@ -139,8 +154,12 @@ class MessageHandler:
         media_service: MediaService,
         maybe_react_fn: Callable[[Update, str], Awaitable[None]],
         send_ai_response_fn: Callable[[Update, str, str], Awaitable[None]],
-        generate_response_with_drafts_fn: Callable[[Update, str, config.Settings], Awaitable[str]],
-        message_drafts_unavailable_reason_fn: Callable[[Update, config.Settings], Optional[str]],
+        generate_response_with_drafts_fn: Callable[
+            [Update, str, config.Settings], Awaitable[str]
+        ],
+        message_drafts_unavailable_reason_fn: Callable[
+            [Update, config.Settings], Optional[str]
+        ],
         log_context_fn: Callable[[Optional[Update]], dict],
         sleep_fn: Callable[[float], Awaitable[None]] = asyncio.sleep,
         logger_override: Optional[logging.Logger] = None,
@@ -166,7 +185,9 @@ class MessageHandler:
         update: Update,
         context: ContextTypes.DEFAULT_TYPE,
     ) -> None:
-        self._logger.debug("handle_addressed_message called", extra=self._log_context(update))
+        self._logger.debug(
+            "handle_addressed_message called", extra=self._log_context(update)
+        )
         settings = self._settings_getter()
         if not self._is_allowed(update) or not settings.features["message_handling"]:
             return
@@ -219,9 +240,11 @@ class MessageHandler:
                 )
                 return
 
-            text_from_document = await self._media_service.extract_text_from_image_document(
-                update.message,
-                context,
+            text_from_document = (
+                await self._media_service.extract_text_from_image_document(
+                    update.message,
+                    context,
+                )
             )
             if text_from_document is None:
                 self._logger.debug(
@@ -320,7 +343,9 @@ class MessageHandler:
                     extra={
                         **self._log_context(update),
                         "source": reply_target_context.get("source", ""),
-                        "reply_target_preview": reply_target_context.get("text", "")[:256],
+                        "reply_target_preview": reply_target_context.get("text", "")[
+                            :256
+                        ],
                     },
                 )
 
@@ -352,7 +377,9 @@ class MessageHandler:
                     extra={**self._log_context(update), "prompt": prompt},
                 )
 
-        draft_unavailable_reason = self._message_drafts_unavailable_reason(update, settings)
+        draft_unavailable_reason = self._message_drafts_unavailable_reason(
+            update, settings
+        )
         use_message_drafts = draft_unavailable_reason is None
         if settings.telegram_use_message_drafts and not use_message_drafts:
             self._logger.debug(

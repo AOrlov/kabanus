@@ -125,6 +125,22 @@ def test_is_bot_mentioned_with_mention_entity() -> None:
     )
 
 
+def test_is_bot_mentioned_with_utf16_mention_offset() -> None:
+    message = SimpleNamespace(
+        text="😀 @kaban explain",
+        entities=[SimpleNamespace(type="mention", offset=3, length=6)],
+        caption="",
+        caption_entities=[],
+    )
+
+    assert is_bot_mentioned(
+        message,
+        bot_username="kaban",
+        bot_id=42,
+        aliases=[],
+    )
+
+
 def test_build_prompt_with_reply_target_context() -> None:
     prompt = build_prompt(
         context_text="[RECENT_DIALOGUE]\nAlice: hello",
@@ -267,7 +283,9 @@ def test_handle_addressed_message_uses_voice_transcription_flow() -> None:
             name="Alice",
             is_bot=False,
         ),
-        effective_chat=SimpleNamespace(id=901, type="private", send_action=_send_action),
+        effective_chat=SimpleNamespace(
+            id=901, type="private", send_action=_send_action
+        ),
         update_id=2,
     )
 
@@ -338,7 +356,9 @@ def test_handle_addressed_message_propagates_voice_transcription_error() -> None
             name="Alice",
             is_bot=False,
         ),
-        effective_chat=SimpleNamespace(id=901, type="private", send_action=_send_action),
+        effective_chat=SimpleNamespace(
+            id=901, type="private", send_action=_send_action
+        ),
         update_id=2,
     )
 
@@ -410,7 +430,9 @@ def test_handle_addressed_message_uses_photo_path() -> None:
             name="Alice",
             is_bot=False,
         ),
-        effective_chat=SimpleNamespace(id=902, type="private", send_action=_send_action),
+        effective_chat=SimpleNamespace(
+            id=902, type="private", send_action=_send_action
+        ),
         update_id=3,
     )
 
@@ -480,7 +502,9 @@ def test_handle_addressed_message_ignores_unmentioned_text() -> None:
             name="Alice",
             is_bot=False,
         ),
-        effective_chat=SimpleNamespace(id=903, type="private", send_action=_send_action),
+        effective_chat=SimpleNamespace(
+            id=903, type="private", send_action=_send_action
+        ),
         update_id=4,
     )
 
@@ -556,7 +580,9 @@ def test_handle_addressed_message_retries_when_model_returns_empty() -> None:
             name="Alice",
             is_bot=False,
         ),
-        effective_chat=SimpleNamespace(id=904, type="private", send_action=_send_action),
+        effective_chat=SimpleNamespace(
+            id=904, type="private", send_action=_send_action
+        ),
         update_id=5,
     )
 

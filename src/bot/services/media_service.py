@@ -62,6 +62,25 @@ def message_sender_name(message: Any) -> str:
     return str(user_id)
 
 
+def _safe_file_size(value: Any) -> Optional[int]:
+    if value is None:
+        return None
+    try:
+        size = int(value)
+    except (TypeError, ValueError):
+        return None
+    if size < 0:
+        return None
+    return size
+
+
+def _resolve_file_size(primary: Any, fallback: Any) -> Optional[int]:
+    primary_size = _safe_file_size(primary)
+    if primary_size is not None:
+        return primary_size
+    return _safe_file_size(fallback)
+
+
 class MediaService:
     def __init__(
         self,
@@ -111,7 +130,7 @@ class MediaService:
             return ""
 
         photo = message.photo[-1]
-        photo_size = getattr(photo, "file_size", None)
+        photo_size = _safe_file_size(getattr(photo, "file_size", None))
         if photo_size is not None and photo_size > IMAGE_MAX_BYTES:
             self._logger.warning(
                 "Photo too large for OCR",
@@ -120,6 +139,17 @@ class MediaService:
             return (getattr(message, "caption", "") or "").strip()
 
         file = await context.bot.get_file(photo.file_id)
+        resolved_size = _resolve_file_size(getattr(file, "file_size", None), photo_size)
+        if resolved_size is None:
+            self._logger.warning("Skipping OCR for photo with unknown file size")
+            return (getattr(message, "caption", "") or "").strip()
+        if resolved_size > IMAGE_MAX_BYTES:
+            self._logger.warning(
+                "Photo too large for OCR",
+                extra={"file_size": resolved_size},
+            )
+            return (getattr(message, "caption", "") or "").strip()
+
         bio = io.BytesIO()
         await file.download_to_memory(bio)
         image_bytes = bio.getvalue()
@@ -145,7 +175,30 @@ class MediaService:
         if not image_doc:
             return None
 
+        document_size = _safe_file_size(getattr(document, "file_size", None))
+        if document_size is not None and document_size > IMAGE_MAX_BYTES:
+            self._logger.warning(
+                "Image document too large for OCR",
+                extra={"file_size": document_size},
+            )
+            return (getattr(message, "caption", "") or "").strip()
+
         file = await context.bot.get_file(document.file_id)
+        resolved_size = _resolve_file_size(
+            getattr(file, "file_size", None), document_size
+        )
+        if resolved_size is None:
+            self._logger.warning(
+                "Skipping OCR for image document with unknown file size"
+            )
+            return (getattr(message, "caption", "") or "").strip()
+        if resolved_size > IMAGE_MAX_BYTES:
+            self._logger.warning(
+                "Image document too large for OCR",
+                extra={"file_size": resolved_size},
+            )
+            return (getattr(message, "caption", "") or "").strip()
+
         bio = io.BytesIO()
         await file.download_to_memory(bio)
         image_bytes = bio.getvalue()
