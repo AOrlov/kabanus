@@ -84,11 +84,11 @@ This plan intentionally allows backward-incompatible internal API changes so the
 - Modify: `tests/test_main.py`
 - Create: `tests/test_bot_feature_registration.py`
 
-- [ ] Replace ad-hoc handler wiring with explicit product feature registration modules
-- [ ] Keep Kabanus-specific wiring (provider, memory, calendar, prompt logic) in product modules only
-- [ ] Make `src/main.py` a thin startup entrypoint that delegates composition to product app wiring
-- [ ] write tests for this task
-- [ ] run project test suite - must pass before task 4
+- [x] Replace ad-hoc handler wiring with explicit product feature registration modules
+- [x] Keep Kabanus-specific wiring (provider, memory, calendar, prompt logic) in product modules only
+- [x] Make `src/main.py` a thin startup entrypoint that delegates composition to product app wiring
+- [x] write tests for this task
+- [x] run project test suite - must pass before task 4
 
 ### Task 4: Remove implicit globals at framework boundaries
 

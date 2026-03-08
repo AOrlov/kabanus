@@ -6,22 +6,15 @@ from telegram import Update
 from telegram.ext import (
     Application,
     ApplicationBuilder,
-    CommandHandler,
     ContextTypes,
-    MessageHandler,
-    filters,
 )
 
 from src import config, logging_utils
+from src.bot import features as bot_features
 from src.bot.handlers.events_handler import EventsHandler
 from src.bot.handlers.message_handler import MessageHandler as AddressedMessageHandler
 from src.bot.handlers.summary_handler import SummaryHandler
-from src.bot.services.media_service import MediaService
-from src.bot.services.reaction_service import ReactionService, ReactionState
-from src.bot.services.reply_service import (
-    ReplyService,
-    message_drafts_unavailable_reason,
-)
+from src.bot.services.reaction_service import ReactionService
 from src.message_store import (
     add_message,
     assemble_context,
@@ -57,7 +50,9 @@ class BotRuntime:
         events_handler: EventsHandler,
         log_level_state: Optional[LogLevelState] = None,
         is_allowed_fn: Optional[Callable[[Update], bool]] = None,
-        log_context_fn: Callable[[Optional[Update]], dict] = framework_policy.log_context,
+        log_context_fn: Callable[
+            [Optional[Update]], dict
+        ] = framework_policy.log_context,
     ) -> None:
         self._settings = SettingsResolver(settings_getter)
         self._provider_getter = provider_getter
@@ -195,33 +190,7 @@ def build_runtime(
                 log_context_fn=log_context_fn,
             )
 
-    reaction_state = ReactionState()
-    reaction_service = ReactionService(
-        state=reaction_state,
-        provider_getter=provider_getter,
-        settings_getter=settings_getter,
-        get_all_messages_fn=get_all_messages_fn,
-        assemble_context_fn=assemble_context_fn,
-        storage_id_fn=storage_id_fn,
-        log_context_fn=log_context_fn,
-        logger_override=logger,
-    )
-
-    media_service = MediaService(
-        provider_getter=provider_getter,
-        logger_override=logger,
-        log_context_fn=log_context_fn,
-    )
-
-    reply_service = ReplyService(
-        provider_getter=provider_getter,
-        settings_getter=settings_getter,
-        add_message_fn=add_message_fn,
-        log_context_fn=log_context_fn,
-        logger_override=logger,
-    )
-
-    summary_handler = SummaryHandler(
+    summary_handler = bot_features.build_summary_handler(
         is_allowed_fn=is_allowed_fn,
         storage_id_fn=storage_id_fn,
         get_summary_view_text_fn=get_summary_view_text_fn,
@@ -235,28 +204,25 @@ def build_runtime(
             return
         await runtime.notify_admin(context, message)
 
-    events_handler = EventsHandler(
+    events_handler = bot_features.build_events_handler(
         is_allowed_fn=is_allowed_fn,
         provider_getter=provider_getter,
         notify_admin_fn=_notify_admin_proxy,
         log_context_fn=log_context_fn,
-        settings_getter=settings_getter,
+        settings_getter=lambda: settings_getter(),
         logger_override=logger,
     )
 
-    message_handler = AddressedMessageHandler(
-        settings_getter=lambda: settings_getter(),
+    message_flow = bot_features.build_message_flow(
+        settings_getter=settings_getter,
+        provider_getter=provider_getter,
         is_allowed_fn=is_allowed_fn,
         storage_id_fn=storage_id_fn,
         add_message_fn=add_message_fn,
+        get_all_messages_fn=get_all_messages_fn,
         get_message_by_telegram_message_id_fn=get_message_by_telegram_message_id_fn,
         build_context_fn=build_context_fn,
-        provider_getter=provider_getter,
-        media_service=media_service,
-        maybe_react_fn=reaction_service.maybe_react,
-        send_ai_response_fn=reply_service.send_ai_response,
-        generate_response_with_drafts_fn=reply_service.generate_response_with_drafts,
-        message_drafts_unavailable_reason_fn=message_drafts_unavailable_reason,
+        assemble_context_fn=assemble_context_fn,
         log_context_fn=log_context_fn,
         logger_override=logger,
     )
@@ -264,9 +230,9 @@ def build_runtime(
     runtime = BotRuntime(
         settings_getter=settings_getter,
         provider_getter=provider_getter,
-        reaction_service=reaction_service,
+        reaction_service=message_flow.reaction_service,
         summary_handler=summary_handler,
-        message_handler=message_handler,
+        message_handler=message_flow.message_handler,
         events_handler=events_handler,
         is_allowed_fn=is_allowed_fn,
         log_context_fn=log_context_fn,
@@ -280,25 +246,11 @@ def register_handlers(
     *,
     settings: config.Settings,
 ) -> None:
-    app.add_handler(CommandHandler("hi", runtime.hi))
-    app.add_handler(
-        CommandHandler(["summary", "tldr"], runtime.summary_handler.view_summary)
+    bot_features.register_handlers(
+        app,
+        runtime=runtime,
+        settings=settings,
     )
-
-    if settings.features["message_handling"]:
-        app.add_handler(
-            MessageHandler(
-                (filters.TEXT & ~filters.COMMAND)
-                | filters.VOICE
-                | filters.PHOTO
-                | filters.Document.IMAGE,
-                runtime.message_handler.handle_addressed_message,
-            )
-        )
-    if settings.features["schedule_events"]:
-        app.add_handler(
-            MessageHandler(filters.PHOTO, runtime.events_handler.schedule_events)
-        )
 
 
 def build_application(
@@ -333,3 +285,13 @@ def run_polling(runtime: Optional[BotRuntime] = None) -> None:
         startup_log_value_fn=lambda settings: settings.features,
     )
     polling_runtime.run_polling()
+
+
+def run(
+    *,
+    settings_getter: Callable[..., config.Settings] = config.get_settings,
+    runtime: Optional[BotRuntime] = None,
+) -> None:
+    active_runtime = runtime or build_runtime(settings_getter=settings_getter)
+    logging_utils.configure_logging(active_runtime.get_settings())
+    run_polling(runtime=active_runtime)

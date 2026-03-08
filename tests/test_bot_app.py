@@ -63,7 +63,9 @@ def test_bot_runtime_error_handler_redacts_context_data() -> None:
     assert "secret-user-token" not in sent["text"]
 
 
-def test_bot_runtime_error_handler_skips_admin_notification_without_admin_chat_id() -> None:
+def test_bot_runtime_error_handler_skips_admin_notification_without_admin_chat_id() -> (
+    None
+):
     settings = SimpleNamespace(admin_chat_id=None)
     runtime = _runtime(settings)
     send_calls = []
@@ -205,8 +207,7 @@ def test_build_application_routes_commands_and_feature_handlers(monkeypatch) -> 
         for handler in command_handlers
     )
     assert any(
-        set(handler.commands) == {"summary", "tldr"}
-        and handler.callback is _summary
+        set(handler.commands) == {"summary", "tldr"} and handler.callback is _summary
         for handler in command_handlers
     )
     message_callbacks = [
@@ -343,3 +344,81 @@ def test_run_polling_uses_passed_runtime(monkeypatch) -> None:
     assert called["runtime"] is runtime
     assert called["settings"] is settings
     assert called["ran"] is True
+
+
+def test_register_handlers_uses_product_feature_registry(monkeypatch) -> None:
+    app = object()
+    runtime = object()
+    settings = SimpleNamespace()
+    calls = []
+
+    monkeypatch.setattr(
+        bot_app.bot_features,
+        "register_handlers",
+        lambda app_arg, *, runtime, settings: calls.append(
+            (app_arg, runtime, settings)
+        ),
+    )
+
+    bot_app.register_handlers(app, runtime, settings=settings)
+
+    assert calls == [(app, runtime, settings)]
+
+
+def test_run_builds_runtime_configures_logging_and_starts_polling(monkeypatch) -> None:
+    settings = SimpleNamespace(debug_mode=False)
+    settings_getter = lambda force=False: settings
+    runtime = SimpleNamespace(get_settings=lambda force=False: settings)
+    calls = []
+
+    def _fake_build_runtime(*, settings_getter):
+        calls.append(("build_runtime", settings_getter))
+        return runtime
+
+    monkeypatch.setattr(bot_app, "build_runtime", _fake_build_runtime)
+    monkeypatch.setattr(
+        bot_app.logging_utils,
+        "configure_logging",
+        lambda configured: calls.append(("configure_logging", configured)),
+    )
+    monkeypatch.setattr(
+        bot_app,
+        "run_polling",
+        lambda runtime=None: calls.append(("run_polling", runtime)),
+    )
+
+    bot_app.run(settings_getter=settings_getter)
+
+    assert calls == [
+        ("build_runtime", settings_getter),
+        ("configure_logging", settings),
+        ("run_polling", runtime),
+    ]
+
+
+def test_run_uses_passed_runtime(monkeypatch) -> None:
+    settings = SimpleNamespace(debug_mode=False)
+    runtime = SimpleNamespace(get_settings=lambda force=False: settings)
+    calls = []
+
+    def _forbidden_build_runtime(*_args, **_kwargs):
+        raise AssertionError("run should use passed runtime")
+
+    monkeypatch.setattr(bot_app, "build_runtime", _forbidden_build_runtime)
+    monkeypatch.setattr(
+        bot_app.logging_utils,
+        "configure_logging",
+        lambda configured: calls.append(("configure_logging", configured)),
+    )
+    monkeypatch.setattr(
+        bot_app,
+        "run_polling",
+        lambda runtime=None: calls.append(("run_polling", runtime)),
+    )
+
+    bot_app.run(runtime=runtime)
+
+    assert calls == [
+        ("configure_logging", settings),
+        ("run_polling", runtime),
+    ]
