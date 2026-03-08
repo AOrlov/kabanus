@@ -597,3 +597,111 @@ def test_handle_addressed_message_retries_when_model_returns_empty() -> None:
     assert sent == {"text": "final response", "storage_id": "904"}
     assert sleeps == [0.5, 0.5]
     assert len(provider.prompts) == 3
+
+
+def test_handle_addressed_message_uses_reply_target_context_when_mentioned_reply() -> None:
+    provider = _Provider("clarified reply")
+    sent = {}
+    resolver_calls = []
+
+    class _ReplyContextMediaService:
+        async def transcribe_voice_message(self, voice, context):
+            del voice, context
+            raise AssertionError("voice flow should not run")
+
+        async def extract_text_from_photo_message(self, message, context):
+            del message, context
+            raise AssertionError("photo flow should not run")
+
+        async def extract_text_from_image_document(self, message, context):
+            del message, context
+            raise AssertionError("document flow should not run")
+
+        async def resolve_reply_target_context(
+            self,
+            message,
+            *,
+            chat_id,
+            context,
+            get_message_by_telegram_message_id_fn,
+        ):
+            del context, get_message_by_telegram_message_id_fn
+            resolver_calls.append((chat_id, message.message_id))
+            return {"sender": "Bob", "text": "Deploy this at 18:00"}
+
+    async def _maybe_react(*args, **kwargs):
+        del args, kwargs
+        return None
+
+    async def _send_ai_response(update, outgoing_text: str, storage_id: str):
+        del update
+        sent["text"] = outgoing_text
+        sent["storage_id"] = storage_id
+
+    message_handler = MessageHandler(
+        settings_getter=lambda: SimpleNamespace(
+            features={"message_handling": True},
+            bot_aliases=[],
+            debug_mode=False,
+            telegram_use_message_drafts=False,
+            model_provider="openai",
+        ),
+        is_allowed_fn=lambda _update: True,
+        storage_id_fn=lambda _update: "905",
+        add_message_fn=lambda *args, **kwargs: None,
+        get_message_by_telegram_message_id_fn=lambda *_args, **_kwargs: None,
+        build_context_fn=lambda **kwargs: "[RECENT_DIALOGUE]\nAlice: hi",
+        provider_getter=lambda: provider,
+        media_service=_ReplyContextMediaService(),
+        maybe_react_fn=_maybe_react,
+        send_ai_response_fn=_send_ai_response,
+        generate_response_with_drafts_fn=lambda _update, _prompt, _settings: "unused",
+        message_drafts_unavailable_reason_fn=lambda _update, _settings: "feature_disabled",
+        log_context_fn=lambda _update: {},
+    )
+
+    async def _send_action(**kwargs):
+        del kwargs
+        return None
+
+    message = SimpleNamespace(
+        text="@kaban can you clarify?",
+        caption="",
+        entities=[SimpleNamespace(type="mention", offset=0, length=6)],
+        caption_entities=[],
+        voice=None,
+        photo=None,
+        document=None,
+        reply_to_message=SimpleNamespace(
+            message_id=200,
+            from_user=SimpleNamespace(id=77),
+        ),
+        message_id=92,
+    )
+    update = SimpleNamespace(
+        message=message,
+        effective_user=SimpleNamespace(
+            id=11,
+            first_name="Alice",
+            name="Alice",
+            is_bot=False,
+        ),
+        effective_chat=SimpleNamespace(
+            id=905, type="group", send_action=_send_action
+        ),
+        update_id=6,
+    )
+
+    class _Bot:
+        async def get_me(self):
+            return SimpleNamespace(username="kaban", id=42)
+
+    context = SimpleNamespace(bot=_Bot())
+
+    asyncio.run(message_handler.handle_addressed_message(update, context))
+
+    assert sent == {"text": "clarified reply", "storage_id": "905"}
+    assert resolver_calls == [("905", 92)]
+    assert len(provider.prompts) == 1
+    assert "Target message for clarification:" in provider.prompts[0]
+    assert "Bob: Deploy this at 18:00" in provider.prompts[0]

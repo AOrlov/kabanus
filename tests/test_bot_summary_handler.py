@@ -56,3 +56,54 @@ def test_view_summary_prefers_message_text_args() -> None:
     assert calls["chat_id"] == "42"
     assert calls["tail"] == 2
     assert replies == ["summary text"]
+
+
+def test_view_summary_reports_parse_error_with_usage() -> None:
+    replies = []
+
+    async def _reply_text(text: str):
+        replies.append(text)
+
+    handler = SummaryHandler(
+        is_allowed_fn=lambda _update: True,
+        storage_id_fn=lambda _update: "42",
+        get_summary_view_text_fn=lambda **kwargs: "unused",
+    )
+
+    update = SimpleNamespace(
+        message=SimpleNamespace(text="/summary index", reply_text=_reply_text),
+        effective_chat=SimpleNamespace(id=42),
+        effective_user=SimpleNamespace(id=99),
+    )
+    context = SimpleNamespace(args=[])
+
+    asyncio.run(handler.view_summary(update, context))
+
+    assert len(replies) == 1
+    assert "Missing value for index" in replies[0]
+    assert "Summary command examples:" in replies[0]
+
+
+def test_view_summary_chunks_non_empty_outputs() -> None:
+    replies = []
+
+    async def _reply_text(text: str):
+        replies.append(text)
+
+    handler = SummaryHandler(
+        is_allowed_fn=lambda _update: True,
+        storage_id_fn=lambda _update: "42",
+        get_summary_view_text_fn=lambda **kwargs: "summary output",
+        chunk_string_fn=lambda _text, _max_len: ["first chunk", "   ", "second chunk"],
+    )
+
+    update = SimpleNamespace(
+        message=SimpleNamespace(text="/summary 1", reply_text=_reply_text),
+        effective_chat=SimpleNamespace(id=42),
+        effective_user=SimpleNamespace(id=99),
+    )
+    context = SimpleNamespace(args=[])
+
+    asyncio.run(handler.view_summary(update, context))
+
+    assert replies == ["first chunk", "second chunk"]

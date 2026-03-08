@@ -38,6 +38,44 @@ def test_schedule_events_exits_when_feature_disabled() -> None:
     assert notifications == []
 
 
+def test_schedule_events_exits_when_update_not_allowed() -> None:
+    notifications = []
+    sent_actions = []
+    bot_calls = {"get_file": 0}
+
+    async def _notify_admin(context, message):
+        notifications.append((context, message))
+
+    async def _send_action(**kwargs):
+        sent_actions.append(kwargs)
+
+    class _FakeBot:
+        async def get_file(self, _file_id: str):
+            bot_calls["get_file"] += 1
+            raise AssertionError("disallowed updates must exit before downloading")
+
+    handler = EventsHandler(
+        is_allowed_fn=lambda _update: False,
+        provider_getter=lambda: SimpleNamespace(parse_image_to_event=lambda _path: {}),
+        notify_admin_fn=_notify_admin,
+        log_context_fn=lambda _update: {},
+        settings_getter=lambda: SimpleNamespace(features={"schedule_events": True}),
+    )
+
+    update = SimpleNamespace(
+        message=SimpleNamespace(photo=[SimpleNamespace(file_id="photo")]),
+        effective_chat=SimpleNamespace(send_action=_send_action),
+        effective_user=SimpleNamespace(id=1),
+    )
+    context = SimpleNamespace(bot=_FakeBot())
+
+    asyncio.run(handler.schedule_events(update, context))
+
+    assert sent_actions == []
+    assert notifications == []
+    assert bot_calls["get_file"] == 0
+
+
 def test_schedule_events_exits_without_photo() -> None:
     notifications = []
 
