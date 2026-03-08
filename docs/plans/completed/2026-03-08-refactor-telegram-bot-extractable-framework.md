@@ -139,6 +139,6 @@ This plan intentionally allows backward-incompatible internal API changes so the
 
 ### Task 7: Update documentation
 
-- [ ] update `README.md` if user-facing behavior or architecture docs changed
-- [ ] update `CLAUDE.md` if internal patterns changed
-- [ ] move this plan to `docs/plans/completed/`
+- [x] update `README.md` if user-facing behavior or architecture docs changed
+- [x] update `CLAUDE.md` if internal patterns changed
+- [x] move this plan to `docs/plans/completed/`

@@ -217,14 +217,20 @@ python -m src.main
 - `scripts/README.md`: Detailed script usage and examples.
 
 ## Architecture
-The codebase has been modularized into focused components while preserving runtime behavior.
+The codebase now separates a reusable Telegram framework layer from Kabanus product code.
 
-- Runtime entrypoint is still `python -m src.main`.
-- Telegram flow logic lives under `src/bot/handlers/*` and `src/bot/services/*`.
-- Runtime composition and dependency wiring live in `src/bot/app.py`.
-- Memory internals live in `src/memory/*`; `src/message_store.py` now exposes a small explicit memory API.
-- Settings parsing internals live in `src/settings_loader.py` and `src/settings_models.py`; `src/config.py` is a thin facade.
-- Provider routing and typed contracts are in `src/provider_factory.py` and `src/providers/contracts.py`.
+- Runtime entrypoint remains `python -m src.main`; `src/main.py` only configures bootstrap logging and delegates startup to `src/bot/app.py`.
+- Reusable framework layer lives in `src/telegram_framework/*`:
+  - `application.py`: application assembly helpers
+  - `runtime.py`: polling bootstrap and settings resolver
+  - `policy.py`: access policy and update context helpers
+  - `error_reporting.py`: admin notification and exception formatting
+- Product composition lives in `src/bot/app.py` and feature registration modules in `src/bot/features/*`.
+- Product behavior lives in `src/bot/handlers/*` and `src/bot/services/*`.
+- Cross-layer dependencies use explicit protocols in `src/bot/contracts.py` (no implicit module-level globals).
+- Memory internals live in `src/memory/*`; `src/message_store.py` exposes the public memory API.
+- Settings parsing internals live in `src/settings_loader.py` and `src/settings_models.py`; `src/config.py` is a thin facade around `get_settings(force=...)`.
+- Provider routing and typed contracts are in `src/provider_factory.py`, `src/model_provider.py`, and `src/providers/contracts.py`.
 
 Detailed module boundaries, extension points, compatibility guarantees, and migration notes:
 - `docs/architecture/refactor-overview.md`
@@ -238,12 +244,20 @@ The refactor no longer guarantees broad legacy Python API compatibility. Interna
 shapes and helper functions may change as long as runtime behavior and configuration
 contract remain stable.
 
+Removed internal compatibility shims include:
+- `config.<UPPERCASE_ENV_NAME>` module-level dynamic attribute access
+- Legacy untyped provider convenience wrappers in favor of typed request contracts
+
 ## Migration Notes (Internal Integrations)
 - If you imported private internals from monolithic modules, migrate to new focused modules:
+  - Framework internals: `src/telegram_framework/*`
+  - Product feature registration: `src/bot/features/*`
   - Bot flow internals: `src/bot/handlers/*`, `src/bot/services/*`
   - Memory internals: `src/memory/history_store.py`, `src/memory/summary_store.py`, `src/memory/context_builder.py`
   - Settings internals: `src/settings_loader.py`, `src/settings_models.py`
-- Prefer typed provider request wrappers from `src/providers/contracts.py` for new provider integrations.
+- Use `config.get_settings(force=...)` and `Settings` fields directly; do not rely on module-level env-var aliases.
+- Prefer typed provider request wrappers from `src/providers/contracts.py` for provider integrations.
+- Keep framework modules product-agnostic; compose product handlers/services via `src/bot/features/*` and `src/bot/app.py`.
 - Do not rely on private module helpers or module-level legacy aliases.
 - For memory usage, rely on `src/message_store.py` exported functions only:
   `add_message`, `get_last_message`, `get_all_messages`, `get_message_by_telegram_message_id`,
