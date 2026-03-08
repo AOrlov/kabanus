@@ -63,12 +63,12 @@ This plan intentionally allows backward-incompatible internal API changes so the
 - Create: `tests/test_telegram_framework_runtime.py`
 - Create: `tests/test_telegram_framework_policy.py`
 
-- [ ] Move generic runtime concerns out of `src/bot/app.py` into framework modules (application creation, handler registration hook points, polling bootstrap)
-- [ ] Move generic access-policy and update-log-context helpers into framework policy utilities
-- [ ] Move generic error formatting/admin notification plumbing into framework error-reporting utilities
-- [ ] Keep framework free of provider/memory/calendar product logic
-- [ ] write tests for this task
-- [ ] run project test suite - must pass before task 3
+- [x] Move generic runtime concerns out of `src/bot/app.py` into framework modules (application creation, handler registration hook points, polling bootstrap)
+- [x] Move generic access-policy and update-log-context helpers into framework policy utilities
+- [x] Move generic error formatting/admin notification plumbing into framework error-reporting utilities
+- [x] Keep framework free of provider/memory/calendar product logic
+- [x] write tests for this task
+- [x] run project test suite - must pass before task 3
 
 ### Task 3: Recompose Kabanus as product modules on top of the framework
 
