@@ -1,6 +1,9 @@
+from dataclasses import fields
+
 import pytest
 
 from src import config
+from src.settings_models import LEGACY_ATTR_TO_SETTINGS_FIELD, Settings
 
 # Contract note for this refactor baseline:
 # - Stable: environment variable names/defaults/parsing/validation through config.get_settings().
@@ -8,8 +11,14 @@ from src import config
 
 
 def _reset_settings_cache() -> None:
-    config._SETTINGS_CACHE = None
-    config._SETTINGS_CACHE_TS = 0.0
+    config.reset_settings_cache()
+
+
+def test_legacy_attr_map_is_derived_from_settings_fields() -> None:
+    expected = {
+        model_field.name.upper(): model_field.name for model_field in fields(Settings)
+    }
+    assert LEGACY_ATTR_TO_SETTINGS_FIELD == expected
 
 
 def _set_base_openai_env(monkeypatch) -> None:
@@ -85,10 +94,20 @@ def test_config_default_contract_snapshot(monkeypatch) -> None:
 @pytest.mark.parametrize(
     ("env_name", "env_value", "attr_name", "expected"),
     [
-        ("SYSTEM_INSTRUCTIONS_PATH", "/tmp/system.txt", "ai_system_instructions_path", "/tmp/system.txt"),
+        (
+            "SYSTEM_INSTRUCTIONS_PATH",
+            "/tmp/system.txt",
+            "ai_system_instructions_path",
+            "/tmp/system.txt",
+        ),
         ("LANGUAGE", "EN", "language", "en"),
         ("TOKEN_LIMIT", "321", "token_limit", 321),
-        ("CHAT_MESSAGES_STORE_PATH", "custom/messages.jsonl", "chat_messages_store_path", "custom/messages.jsonl"),
+        (
+            "CHAT_MESSAGES_STORE_PATH",
+            "custom/messages.jsonl",
+            "chat_messages_store_path",
+            "custom/messages.jsonl",
+        ),
         ("MEMORY_ENABLED", "false", "memory_enabled", False),
         ("MEMORY_RECENT_TURNS", "7", "memory_recent_turns", 7),
         ("MEMORY_SUMMARY_ENABLED", "true", "memory_summary_enabled", True),
@@ -96,12 +115,19 @@ def test_config_default_contract_snapshot(monkeypatch) -> None:
         ("REACTION_MESSAGES_THRESHOLD", "3", "reaction_messages_threshold", 3),
         ("REACTION_CONTEXT_TOKEN_LIMIT", "55", "reaction_context_token_limit", 55),
         ("TELEGRAM_USE_MESSAGE_DRAFTS", "true", "telegram_use_message_drafts", True),
-        ("TELEGRAM_DRAFT_UPDATE_INTERVAL_SECS", "0.2", "telegram_draft_update_interval_secs", 0.2),
+        (
+            "TELEGRAM_DRAFT_UPDATE_INTERVAL_SECS",
+            "0.2",
+            "telegram_draft_update_interval_secs",
+            0.2,
+        ),
         ("ALLOWED_CHAT_IDS", " 1, 2 ,,3 ", "allowed_chat_ids", ["1", "2", "3"]),
         ("BOT_ALIASES", " Bot, Helper ,", "bot_aliases", ["bot", "helper"]),
     ],
 )
-def test_env_var_name_contract(monkeypatch, env_name, env_value, attr_name, expected) -> None:
+def test_env_var_name_contract(
+    monkeypatch, env_name, env_value, attr_name, expected
+) -> None:
     _set_base_openai_env(monkeypatch)
     monkeypatch.setenv(env_name, env_value)
     _reset_settings_cache()
@@ -140,7 +166,9 @@ def test_env_var_name_contract(monkeypatch, env_name, env_value, attr_name, expe
         ),
     ],
 )
-def test_config_validation_contract(monkeypatch, env_updates, removed_env, error_pattern) -> None:
+def test_config_validation_contract(
+    monkeypatch, env_updates, removed_env, error_pattern
+) -> None:
     _set_base_openai_env(monkeypatch)
     for env_name, env_value in env_updates.items():
         monkeypatch.setenv(env_name, env_value)

@@ -46,8 +46,7 @@ def _load_main(monkeypatch):
     monkeypatch.setenv("MODEL_PROVIDER", "openai")
     monkeypatch.setenv("OPENAI_API_KEY", "k")
     monkeypatch.setenv("ENABLE_MESSAGE_HANDLING", "true")
-    config._SETTINGS_CACHE = None
-    config._SETTINGS_CACHE_TS = 0.0
+    config.reset_settings_cache()
 
     monkeypatch.setattr(provider_factory, "build_provider", lambda: _DummyProvider())
 
@@ -75,13 +74,41 @@ def test_command_args_from_message_text_contract(monkeypatch, raw, expected) -> 
 @pytest.mark.parametrize(
     ("args", "expected", "expected_error"),
     [
-        ([], {"head": 0, "tail": 1, "index": None, "grep": "", "show_help": False}, None),
-        (["5", "urgent"], {"head": 0, "tail": 5, "index": None, "grep": "urgent", "show_help": False}, None),
-        (["index", "0"], {"head": 0, "tail": 0, "index": 0, "grep": "", "show_help": False}, None),
-        (["budget", "api"], {"head": 5, "tail": 0, "index": None, "grep": "budget api", "show_help": False}, None),
+        (
+            [],
+            {"head": 0, "tail": 1, "index": None, "grep": "", "show_help": False},
+            None,
+        ),
+        (
+            ["5", "urgent"],
+            {"head": 0, "tail": 5, "index": None, "grep": "urgent", "show_help": False},
+            None,
+        ),
+        (
+            ["index", "0"],
+            {"head": 0, "tail": 0, "index": 0, "grep": "", "show_help": False},
+            None,
+        ),
+        (
+            ["budget", "api"],
+            {
+                "head": 5,
+                "tail": 0,
+                "index": None,
+                "grep": "budget api",
+                "show_help": False,
+            },
+            None,
+        ),
         (
             ["--head", "10", "--grep", "budget"],
-            {"head": 10, "tail": 0, "index": None, "grep": "budget", "show_help": False},
+            {
+                "head": 10,
+                "tail": 0,
+                "index": None,
+                "grep": "budget",
+                "show_help": False,
+            },
             None,
         ),
         (
@@ -195,8 +222,18 @@ def _reaction_settings(**overrides):
 @pytest.mark.parametrize(
     ("settings_overrides", "state", "expected_provider_calls", "expected_reactions"),
     [
-        ({"reaction_enabled": False}, {"count": 0, "messages_since": 0, "last_ts": 0.0}, 0, 0),
-        ({"reaction_daily_budget": 1}, {"count": 1, "messages_since": 0, "last_ts": 0.0}, 0, 0),
+        (
+            {"reaction_enabled": False},
+            {"count": 0, "messages_since": 0, "last_ts": 0.0},
+            0,
+            0,
+        ),
+        (
+            {"reaction_daily_budget": 1},
+            {"count": 1, "messages_since": 0, "last_ts": 0.0},
+            0,
+            0,
+        ),
         (
             {"reaction_cooldown_secs": 60.0},
             {"count": 0, "messages_since": 0, "last_ts": "now"},
@@ -291,7 +328,9 @@ class _GenerateRecorderProvider(_DummyProvider):
         return self.reply
 
 
-def test_handle_addressed_message_falls_back_when_drafts_unavailable(monkeypatch) -> None:
+def test_handle_addressed_message_falls_back_when_drafts_unavailable(
+    monkeypatch,
+) -> None:
     main = _load_main(monkeypatch)
     provider = _GenerateRecorderProvider("plain reply")
     monkeypatch.setattr(main, "model_provider", provider)

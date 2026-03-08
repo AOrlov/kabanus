@@ -9,13 +9,7 @@ from src.settings_models import ModelSpec, Settings
 
 
 def _reset_config_cache() -> None:
-    config._SETTINGS_CACHE = None
-    config._SETTINGS_CACHE_TS = 0.0
-    config._CACHE_TTL = 1.0
-
-
-def _reset_loader_cache() -> None:
-    settings_loader.set_cache_state(None, 0.0, 1.0)
+    config.reset_settings_cache()
 
 
 def _set_base_openai_env(monkeypatch) -> None:
@@ -38,13 +32,15 @@ def test_settings_loader_matches_config_facade_behavior(monkeypatch) -> None:
     monkeypatch.setenv("REACTION_CONTEXT_TURNS", "5")
     monkeypatch.setattr(config, "_reload_env", lambda: None)
     _reset_config_cache()
-    _reset_loader_cache()
 
     facade_settings = config.get_settings(force=True)
-    _reset_loader_cache()
-    loader_settings = settings_loader.get_settings(force=True, reload_env_func=lambda: None)
+    loader_settings = settings_loader.get_settings(
+        force=False,
+        reload_env_func=lambda: None,
+    )
 
     assert loader_settings == facade_settings
+    assert loader_settings is facade_settings
     assert loader_settings.bot_aliases == ["kaban", "helper"]
     assert loader_settings.telegram_use_message_drafts is True
     assert loader_settings.reaction_context_turns == 5
@@ -78,12 +74,11 @@ def test_settings_loader_validation_matches_config_contract(
     for env_name in removed_env:
         monkeypatch.delenv(env_name, raising=False)
     _reset_config_cache()
-    _reset_loader_cache()
 
     with pytest.raises(RuntimeError, match=error_pattern):
         config.get_settings(force=True)
 
-    _reset_loader_cache()
+    _reset_config_cache()
     with pytest.raises(RuntimeError, match=error_pattern):
         settings_loader.get_settings(force=True, reload_env_func=lambda: None)
 
@@ -95,15 +90,14 @@ def test_legacy_cache_reset_globals_still_refresh_settings(monkeypatch) -> None:
     _set_base_openai_env(monkeypatch)
     monkeypatch.setattr(config, "_reload_env", lambda: None)
     _reset_config_cache()
-    _reset_loader_cache()
+    config.reset_settings_cache()
 
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "token-a")
     first = config.get_settings(force=False)
     assert first.telegram_bot_token == "token-a"
 
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "token-b")
-    config._SETTINGS_CACHE = None
-    config._SETTINGS_CACHE_TS = 0.0
+    config.reset_settings_cache()
 
     refreshed = config.get_settings(force=False)
     assert refreshed.telegram_bot_token == "token-b"
@@ -119,10 +113,27 @@ def test_config_facade_uses_cache_and_reload_hook(monkeypatch) -> None:
 
     monkeypatch.setattr(config, "_reload_env", _fake_reload_env)
     _reset_config_cache()
-    _reset_loader_cache()
 
     first = config.get_settings(force=False)
     second = config.get_settings(force=False)
 
     assert calls["count"] == 1
     assert first is second
+
+
+def test_reset_settings_cache_clears_shared_loader_cache(monkeypatch) -> None:
+    _set_base_openai_env(monkeypatch)
+    monkeypatch.setattr(config, "_reload_env", lambda: None)
+    _reset_config_cache()
+
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "token-a")
+    first = config.get_settings(force=False)
+    assert first.telegram_bot_token == "token-a"
+
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "token-b")
+    cached = settings_loader.get_settings(force=False, reload_env_func=lambda: None)
+    assert cached.telegram_bot_token == "token-a"
+
+    config.reset_settings_cache()
+    refreshed = settings_loader.get_settings(force=False, reload_env_func=lambda: None)
+    assert refreshed.telegram_bot_token == "token-b"

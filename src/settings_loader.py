@@ -5,7 +5,7 @@ import logging
 import os
 import time
 from threading import Lock
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, List, Optional
 
 from dotenv import find_dotenv, load_dotenv
 
@@ -219,19 +219,11 @@ def _load_settings_from_env() -> Settings:
     )
 
 
-def get_cache_state() -> Tuple[Optional[Settings], float, float]:
-    return _SETTINGS_CACHE, _SETTINGS_CACHE_TS, _CACHE_TTL
-
-
-def set_cache_state(
-    cache: Optional[Settings],
-    cache_ts: float,
-    cache_ttl: float,
-) -> None:
+def reset_settings_cache() -> None:
     global _SETTINGS_CACHE, _SETTINGS_CACHE_TS, _CACHE_TTL
-    _SETTINGS_CACHE = cache
-    _SETTINGS_CACHE_TS = cache_ts
-    _CACHE_TTL = cache_ttl
+    _SETTINGS_CACHE = None
+    _SETTINGS_CACHE_TS = 0.0
+    _CACHE_TTL = 1.0
 
 
 def get_settings(

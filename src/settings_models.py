@@ -1,7 +1,7 @@
 """Typed settings models shared by config facade and loader internals."""
 
-from dataclasses import dataclass
-from typing import List, Optional
+from dataclasses import dataclass, fields
+from typing import Dict, List, Optional
 
 
 @dataclass(frozen=True)
@@ -64,3 +64,8 @@ class Settings:
     telegram_format_ai_replies: bool
     telegram_use_message_drafts: bool
     telegram_draft_update_interval_secs: float
+
+
+LEGACY_ATTR_TO_SETTINGS_FIELD: Dict[str, str] = {
+    model_field.name.upper(): model_field.name for model_field in fields(Settings)
+}

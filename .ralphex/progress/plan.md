@@ -96,15 +96,15 @@ Refactor Plan: Simplify Architecture and Remove Dead Code (Config-
   • Modify: tests/test_config_compat_contract.py
   • Modify: tests/test_config_openai.py
   • Modify: tests/test_settings_loader.py
-  [ ] Remove cache-state duplication between facade and loader by establishing
+  [x] Remove cache-state duplication between facade and loader by establishing
   one source of truth.
-  [ ] Keep env var names, defaults, parsing, and validation semantics
+  [x] Keep env var names, defaults, parsing, and validation semantics
   unchanged.
-  [ ] Replace brittle/manual compatibility mapping with a clearer, tested
+  [x] Replace brittle/manual compatibility mapping with a clearer, tested
   mapping mechanism.
-  [ ] Keep only configuration-facing compatibility guarantees; remove
+  [x] Keep only configuration-facing compatibility guarantees; remove
   unnecessary legacy-only internals.
-  [ ] Run config/settings tests before Task 4.
+  [x] Run config/settings tests before Task 4.
 
   ### Task 4: Replace overgrown message facade with explicit memory APIs
 
