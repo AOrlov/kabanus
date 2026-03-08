@@ -1,5 +1,5 @@
 import logging
-from typing import Awaitable, Callable, Optional
+from typing import Any, Awaitable, Callable, Coroutine, Optional
 
 from telegram import Update
 from telegram.ext import Application, ContextTypes, MessageHandler, filters
@@ -9,7 +9,9 @@ from src.bot.handlers.events_handler import EventsHandler
 from src.calendar_provider import CalendarProvider
 from src.model_provider import ModelProvider
 
-MessageCallback = Callable[[Update, ContextTypes.DEFAULT_TYPE], Awaitable[None]]
+MessageCallback = Callable[
+    [Update, ContextTypes.DEFAULT_TYPE], Coroutine[Any, Any, None]
+]
 
 
 def build_events_handler(

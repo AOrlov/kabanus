@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import re
-from typing import Any, Awaitable, Callable, Dict, Iterable, Optional, Tuple
+from typing import Any, Awaitable, Callable, Dict, Iterable, Optional, Sequence, Tuple
 
 from telegram import Update
 from telegram.constants import ChatAction
@@ -80,7 +80,7 @@ def is_bot_mentioned(
     *,
     bot_username: str,
     bot_id: int,
-    aliases: list[str],
+    aliases: Sequence[str],
     fallback_text: str = "",
 ) -> bool:
     normalized = normalized_aliases(aliases)

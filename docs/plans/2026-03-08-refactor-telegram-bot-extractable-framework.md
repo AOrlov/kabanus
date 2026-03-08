@@ -129,13 +129,13 @@ This plan intentionally allows backward-incompatible internal API changes so the
 
 ### Task 6: Verify acceptance criteria
 
-- [ ] manual test: private chat flow (mention/reply, AI response, optional drafts)
-- [ ] manual test: group chat flow (addressing rules, summary command behavior)
-- [ ] manual test: event-photo flow when feature enabled
-- [ ] run full test suite (`pytest -q`)
-- [ ] run linter (`pylint src tests`)
-- [ ] run type checks (`mypy src`)
-- [ ] verify test coverage meets 80%+
+- [x] manual test: private chat flow (mention/reply, AI response, optional drafts)
+- [x] manual test: group chat flow (addressing rules, summary command behavior)
+- [x] manual test: event-photo flow when feature enabled
+- [x] run full test suite (`pytest -q`)
+- [x] run linter (`pylint src tests`)
+- [x] run type checks (`mypy src`)
+- [x] verify test coverage meets 80%+
 
 ### Task 7: Update documentation
 

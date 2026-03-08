@@ -1,6 +1,6 @@
 import logging
 from dataclasses import dataclass
-from typing import Awaitable, Callable, Optional
+from typing import Any, Callable, Coroutine, Optional
 
 from telegram import Update
 from telegram.ext import Application, ContextTypes, MessageHandler, filters
@@ -15,7 +15,9 @@ from src.bot.services.reply_service import (
 )
 from src.model_provider import ModelProvider
 
-MessageCallback = Callable[[Update, ContextTypes.DEFAULT_TYPE], Awaitable[None]]
+MessageCallback = Callable[
+    [Update, ContextTypes.DEFAULT_TYPE], Coroutine[Any, Any, None]
+]
 
 
 @dataclass

@@ -1,11 +1,13 @@
-from typing import Awaitable, Callable, Optional
+from typing import Any, Callable, Coroutine, Optional
 
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
 from src.bot.handlers.summary_handler import SummaryHandler
 
-CommandCallback = Callable[[Update, ContextTypes.DEFAULT_TYPE], Awaitable[None]]
+CommandCallback = Callable[
+    [Update, ContextTypes.DEFAULT_TYPE], Coroutine[Any, Any, None]
+]
 
 
 def build_summary_handler(
