@@ -156,7 +156,7 @@ def test_extract_text_from_photo_message_skips_oversized_photo() -> None:
     assert provider.image_calls == []
 
 
-def test_extract_text_from_photo_message_skips_unknown_size_from_file_metadata() -> (
+def test_extract_text_from_photo_message_handles_unknown_size_from_file_metadata() -> (
     None
 ):
     provider = _Provider()
@@ -176,8 +176,8 @@ def test_extract_text_from_photo_message_skips_unknown_size_from_file_metadata()
 
     extracted = asyncio.run(service.extract_text_from_photo_message(message, context))
 
-    assert extracted == "Poster"
-    assert provider.image_calls == []
+    assert extracted == "Poster\nocr result"
+    assert provider.image_calls == [{"bytes": b"img-bytes", "mime_type": "image/jpeg"}]
 
 
 def test_extract_text_from_photo_message_skips_oversized_file_metadata() -> None:
@@ -237,12 +237,67 @@ def test_extract_text_from_image_document_handles_non_image_and_image() -> None:
     assert provider.image_calls[-1] == {"bytes": b"png-bytes", "mime_type": "image/png"}
 
 
-def test_extract_text_from_image_document_skips_unknown_size_from_file_metadata() -> (
+def test_extract_text_from_image_document_handles_unknown_size_from_file_metadata() -> (
     None
 ):
     provider = _Provider()
     service = media_service.MediaService(provider_getter=lambda: provider)
     telegram_file = _TelegramFile(b"png-bytes", file_size=None)
+
+    class _Bot:
+        async def get_file(self, _file_id: str):
+            return telegram_file
+
+    context = SimpleNamespace(bot=_Bot())
+    image_message = SimpleNamespace(
+        document=SimpleNamespace(
+            file_id="doc-unknown",
+            mime_type="image/png",
+            file_name="photo.png",
+            file_size=None,
+        ),
+        caption="Document caption",
+    )
+
+    extracted = asyncio.run(
+        service.extract_text_from_image_document(image_message, context)
+    )
+
+    assert extracted == "Document caption\nocr result"
+    assert provider.image_calls == [{"bytes": b"png-bytes", "mime_type": "image/png"}]
+
+
+def test_extract_text_from_photo_message_rejects_oversized_download_with_unknown_size(
+    monkeypatch,
+) -> None:
+    provider = _Provider()
+    service = media_service.MediaService(provider_getter=lambda: provider)
+    monkeypatch.setattr(media_service, "IMAGE_MAX_BYTES", 4)
+    telegram_file = _TelegramFile(b"12345", file_size=None)
+
+    class _Bot:
+        async def get_file(self, _file_id: str):
+            return telegram_file
+
+    context = SimpleNamespace(bot=_Bot())
+    message = SimpleNamespace(
+        photo=[SimpleNamespace(file_id="photo-unknown", file_size=None)],
+        caption="Poster",
+    )
+
+    extracted = asyncio.run(service.extract_text_from_photo_message(message, context))
+
+    assert extracted == "Poster"
+    assert provider.image_calls == []
+
+
+def test_extract_text_from_image_document_rejects_oversized_download_with_unknown_size(
+    monkeypatch,
+) -> None:
+    provider = _Provider()
+    service = media_service.MediaService(provider_getter=lambda: provider)
+    monkeypatch.setattr(media_service, "IMAGE_MAX_BYTES", 4)
+    telegram_file = _TelegramFile(b"12345", file_size=None)
 
     class _Bot:
         async def get_file(self, _file_id: str):

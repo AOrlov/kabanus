@@ -59,3 +59,28 @@ def test_bot_runtime_error_handler_redacts_context_data() -> None:
     assert "context.user_data" not in sent["text"]
     assert "secret-chat-token" not in sent["text"]
     assert "secret-user-token" not in sent["text"]
+
+
+def test_bot_runtime_supports_no_arg_settings_getter(monkeypatch) -> None:
+    settings = SimpleNamespace(admin_chat_id=None, debug_mode=False)
+    levels = []
+    monkeypatch.setattr(
+        bot_app.logging_utils,
+        "update_log_level",
+        lambda level: levels.append(level),
+    )
+
+    runtime = bot_app.BotRuntime(
+        settings_getter=lambda: settings,
+        provider_getter=lambda: None,
+        reaction_service=SimpleNamespace(),
+        summary_handler=SimpleNamespace(),
+        message_handler=SimpleNamespace(handle_addressed_message=None),
+        events_handler=SimpleNamespace(),
+        is_allowed_fn=lambda _update: True,
+        log_context_fn=lambda _update: {},
+    )
+
+    assert runtime.get_settings(force=True) is settings
+    asyncio.run(runtime.refresh_settings_job(None))
+    assert levels

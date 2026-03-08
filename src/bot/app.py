@@ -1,3 +1,4 @@
+import inspect
 import html
 import json
 import logging
@@ -46,6 +47,31 @@ class LogLevelState:
     current_level: Optional[int] = None
 
 
+def _supports_force_kwarg(
+    settings_getter: Callable[..., config.Settings],
+) -> bool:
+    try:
+        getter_signature = inspect.signature(settings_getter)
+    except (TypeError, ValueError):
+        return True
+
+    force_param = getter_signature.parameters.get("force")
+    if force_param and force_param.kind in (
+        inspect.Parameter.POSITIONAL_OR_KEYWORD,
+        inspect.Parameter.KEYWORD_ONLY,
+    ):
+        return True
+
+    return any(
+        parameter.kind
+        in (
+            inspect.Parameter.VAR_POSITIONAL,
+            inspect.Parameter.VAR_KEYWORD,
+        )
+        for parameter in getter_signature.parameters.values()
+    )
+
+
 class BotRuntime:
     def __init__(
         self,
@@ -61,6 +87,7 @@ class BotRuntime:
         log_context_fn: Callable[[Optional[Update]], dict] = common.log_context,
     ) -> None:
         self._settings_getter = settings_getter
+        self._settings_getter_accepts_force = _supports_force_kwarg(settings_getter)
         self._provider_getter = provider_getter
         self.reaction_service = reaction_service
         self.summary_handler = summary_handler
@@ -75,8 +102,13 @@ class BotRuntime:
     def provider(self) -> ModelProvider:
         return self._provider_getter()
 
+    def _call_settings_getter(self, force: bool = False) -> config.Settings:
+        if self._settings_getter_accepts_force:
+            return self._settings_getter(force=force)
+        return self._settings_getter()
+
     def get_settings(self, force: bool = False) -> config.Settings:
-        return self._settings_getter(force=force)
+        return self._call_settings_getter(force=force)
 
     def apply_log_level(self, settings: config.Settings) -> None:
         level = logging.DEBUG if settings.debug_mode else logging.INFO
@@ -92,7 +124,7 @@ class BotRuntime:
         if update.message is None:
             return
 
-        settings = self._settings_getter()
+        settings = self.get_settings()
         if not settings.features.get("commands", {}).get("hi"):
             return
 
@@ -124,7 +156,7 @@ class BotRuntime:
         context: ContextTypes.DEFAULT_TYPE,
         message: str,
     ) -> None:
-        settings = self._settings_getter()
+        settings = self.get_settings()
         if not settings.admin_chat_id:
             return
         safe_message = html.escape(message or "")
@@ -145,7 +177,7 @@ class BotRuntime:
             extra=self._log_context(update if isinstance(update, Update) else None),
         )
 
-        settings = self._settings_getter()
+        settings = self.get_settings()
         if not settings.admin_chat_id or context.error is None:
             return
 
@@ -190,7 +222,7 @@ class BotRuntime:
         )
 
     async def refresh_settings_job(self, _: ContextTypes.DEFAULT_TYPE) -> None:
-        settings = self._settings_getter(force=True)
+        settings = self.get_settings(force=True)
         self.apply_log_level(settings)
 
 

@@ -140,10 +140,7 @@ class MediaService:
 
         file = await context.bot.get_file(photo.file_id)
         resolved_size = _resolve_file_size(getattr(file, "file_size", None), photo_size)
-        if resolved_size is None:
-            self._logger.warning("Skipping OCR for photo with unknown file size")
-            return (getattr(message, "caption", "") or "").strip()
-        if resolved_size > IMAGE_MAX_BYTES:
+        if resolved_size is not None and resolved_size > IMAGE_MAX_BYTES:
             self._logger.warning(
                 "Photo too large for OCR",
                 extra={"file_size": resolved_size},
@@ -153,6 +150,12 @@ class MediaService:
         bio = io.BytesIO()
         await file.download_to_memory(bio)
         image_bytes = bio.getvalue()
+        if len(image_bytes) > IMAGE_MAX_BYTES:
+            self._logger.warning(
+                "Photo too large for OCR",
+                extra={"file_size": len(image_bytes)},
+            )
+            return (getattr(message, "caption", "") or "").strip()
         extracted = self._provider_getter().image_to_text(
             image_bytes,
             mime_type="image/jpeg",
@@ -187,12 +190,7 @@ class MediaService:
         resolved_size = _resolve_file_size(
             getattr(file, "file_size", None), document_size
         )
-        if resolved_size is None:
-            self._logger.warning(
-                "Skipping OCR for image document with unknown file size"
-            )
-            return (getattr(message, "caption", "") or "").strip()
-        if resolved_size > IMAGE_MAX_BYTES:
+        if resolved_size is not None and resolved_size > IMAGE_MAX_BYTES:
             self._logger.warning(
                 "Image document too large for OCR",
                 extra={"file_size": resolved_size},
@@ -202,6 +200,12 @@ class MediaService:
         bio = io.BytesIO()
         await file.download_to_memory(bio)
         image_bytes = bio.getvalue()
+        if len(image_bytes) > IMAGE_MAX_BYTES:
+            self._logger.warning(
+                "Image document too large for OCR",
+                extra={"file_size": len(image_bytes)},
+            )
+            return (getattr(message, "caption", "") or "").strip()
         extracted = self._provider_getter().image_to_text(
             image_bytes,
             mime_type=effective_mime or "image/jpeg",

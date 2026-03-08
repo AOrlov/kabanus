@@ -2,7 +2,7 @@ import logging
 import os
 import tempfile
 from datetime import datetime
-from typing import Awaitable, Callable, Optional
+from typing import Any, Awaitable, Callable, Optional
 
 import tzlocal
 from telegram import Update
@@ -15,7 +15,7 @@ from src.calendar_provider import CalendarProvider
 from src.model_provider import ModelProvider
 
 
-def _safe_int(value: object) -> Optional[int]:
+def _safe_int(value: Any) -> Optional[int]:
     if value is None:
         return None
     try:
@@ -27,7 +27,7 @@ def _safe_int(value: object) -> Optional[int]:
     return parsed
 
 
-def _safe_float(value: object, default: float = 0.0) -> float:
+def _safe_float(value: Any, default: float = 0.0) -> float:
     try:
         return float(value)
     except (TypeError, ValueError):
@@ -92,7 +92,7 @@ class EventsHandler:
             resolved_file_size = _safe_int(getattr(file, "file_size", None))
             if resolved_file_size is None:
                 resolved_file_size = photo_size
-            if resolved_file_size is None or resolved_file_size > IMAGE_MAX_BYTES:
+            if resolved_file_size is not None and resolved_file_size > IMAGE_MAX_BYTES:
                 self._logger.warning(
                     "Photo too large for event scheduling",
                     extra={
@@ -108,6 +108,25 @@ class EventsHandler:
             with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as temp_photo:
                 temp_photo_path = temp_photo.name
             await file.download_to_drive(temp_photo_path)
+            try:
+                downloaded_file_size = _safe_int(os.path.getsize(temp_photo_path))
+            except OSError:
+                downloaded_file_size = None
+            if (
+                downloaded_file_size is not None
+                and downloaded_file_size > IMAGE_MAX_BYTES
+            ):
+                self._logger.warning(
+                    "Photo too large for event scheduling",
+                    extra={
+                        **self._log_context(update),
+                        "file_size": downloaded_file_size,
+                    },
+                )
+                await update.message.reply_text(
+                    "Sorry, this photo is too large to process."
+                )
+                return
 
             try:
                 provider = self._provider_getter()
