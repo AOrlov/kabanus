@@ -38,7 +38,7 @@
   - `mypy src`
   - `python3 scripts/dead_code_audit.py`
   - `coverage run -m pytest -q && coverage report --fail-under=80`
-- Current tooling config includes `pylint` `errors-only = yes`, targeted mypy `ignore_errors = True` module overrides, and `vulture`-based dead-code checks; avoid adding broader suppressions.
+- Current tooling config includes `pylint` `errors-only = yes` and `vulture`-based dead-code checks; avoid adding broader suppressions.
 - Keep cross-module boundaries explicit: do not call private (`_name`) helpers across `src/*` module boundaries.
 
 ## Refactor Documentation

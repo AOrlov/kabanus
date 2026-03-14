@@ -19,7 +19,7 @@ class SystemInstructionLoader:
         base_dir: Optional[Path] = None,
     ) -> None:
         self._raw_path = path.strip()
-        self._base_dir = base_dir or Path(__file__).resolve().parents[2]
+        self._base_dir = base_dir or Path.cwd()
         self._cached_path: Optional[Path] = None
         self._cached_mtime: Optional[float] = None
         self._cached_text = ""

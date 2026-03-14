@@ -450,7 +450,8 @@ def maybe_rollup_summary(
             state = _load_summary_state_unlocked(chat_id)
 
         chunk_size = settings.memory_summary_chunk_size
-        processed = int(state.get("last_message_count", 0))
+        processed_raw = state.get("last_message_count", 0)
+        processed = processed_raw if isinstance(processed_raw, int) else 0
         if processed > len(source_messages):
             processed = 0
             state = {"version": 1, "last_message_count": 0, "chunks": []}
@@ -467,7 +468,7 @@ def maybe_rollup_summary(
         changed = False
         created = 0
 
-        candidates = []
+        candidates: List[Tuple[List[Dict], int, int]] = []
         scan = processed
         while (
             len(source_messages) - scan >= chunk_size and len(candidates) < chunk_limit
@@ -515,8 +516,13 @@ def maybe_rollup_summary(
                             on_chunk_done()
                 summaries = [by_start[start] for _, start, _ in candidates]
 
+            chunk_summaries = state.get("chunks")
+            if not isinstance(chunk_summaries, list):
+                chunk_summaries = []
+                state["chunks"] = chunk_summaries
+
             for chunk_summary in summaries:
-                state.setdefault("chunks", []).append(chunk_summary)
+                chunk_summaries.append(chunk_summary)
                 processed += chunk_size
                 state["last_message_count"] = processed
                 changed = True

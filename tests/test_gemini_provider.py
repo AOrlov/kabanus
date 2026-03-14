@@ -170,6 +170,25 @@ def test_system_instruction_loader_rejects_missing_file(tmp_path: Path) -> None:
         loader.load()
 
 
+def test_provider_resolves_relative_system_instructions_from_working_directory(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    instructions_file = tmp_path / "instructions.txt"
+    instructions_file.write_text("follow the checklist", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    client = _FakeClient({"gemini-2.0-pro": [SimpleNamespace(text="reply")]})
+    provider = GeminiProvider(
+        _settings(system_instructions_path="instructions.txt"),
+        client_factory=_FakeClientFactory(client),
+    )
+
+    reply = provider.generate_text(TextGenerationRequest(prompt="hello"))
+
+    assert reply == "reply"
+    assert client.models.calls[0]["config"].system_instruction == "follow the checklist"
+
+
 def test_parse_event_payload_raises_typed_error_for_invalid_json() -> None:
     response = SimpleNamespace(text="not-json")
 

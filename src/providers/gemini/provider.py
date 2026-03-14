@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import functools
-from pathlib import Path
 from typing import Any, Callable
 
 from google.genai import errors
@@ -63,7 +62,6 @@ class GeminiProvider:
         )
         self._instruction_loader = instruction_loader or SystemInstructionLoader(
             self._settings.system_instructions_path,
-            base_dir=Path(__file__).resolve().parents[2],
         )
 
     def transcribe_audio(self, request: AudioTranscriptionRequest) -> str:
