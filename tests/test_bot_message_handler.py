@@ -111,6 +111,44 @@ class _PhotoMediaService:
         raise AssertionError("reply target flow should not run")
 
 
+def _build_message_handler(
+    *,
+    provider,
+    media_service,
+    maybe_react_fn,
+    send_ai_response_fn,
+    generate_response_with_drafts_fn,
+    message_drafts_unavailable_reason_fn,
+    storage_id: str,
+    telegram_use_message_drafts: bool = False,
+    sleep_fn=asyncio.sleep,
+):
+    return MessageHandler(
+        settings_getter=lambda: SimpleNamespace(
+            features={"message_handling": True},
+            bot_aliases=[],
+            debug_mode=False,
+            telegram_use_message_drafts=telegram_use_message_drafts,
+        ),
+        is_allowed_fn=lambda _update: True,
+        storage_id_fn=lambda _update: storage_id,
+        add_message_fn=lambda *args, **kwargs: None,
+        get_message_by_telegram_message_id_fn=lambda *_args, **_kwargs: None,
+        build_context_fn=lambda **kwargs: "[RECENT_DIALOGUE]\nAlice: hi",
+        low_cost_text_generation_provider=provider,
+        media_service=media_service,
+        maybe_react_fn=maybe_react_fn,
+        generate_response_fn=lambda prompt: provider.generate_text(
+            TextGenerationRequest(prompt=prompt)
+        ),
+        send_ai_response_fn=send_ai_response_fn,
+        generate_response_with_drafts_fn=generate_response_with_drafts_fn,
+        message_drafts_unavailable_reason_fn=message_drafts_unavailable_reason_fn,
+        log_context_fn=lambda _update: {},
+        sleep_fn=sleep_fn,
+    )
+
+
 def test_is_bot_mentioned_with_mention_entity() -> None:
     message = SimpleNamespace(
         text="@kaban explain",
@@ -169,26 +207,15 @@ def test_handle_addressed_message_uses_plain_generate_when_drafts_disabled() -> 
     async def _forbidden_generate_with_drafts(*args, **kwargs):
         raise AssertionError("draft path must not be called")
 
-    message_handler = MessageHandler(
-        settings_getter=lambda: SimpleNamespace(
-            features={"message_handling": True},
-            bot_aliases=[],
-            debug_mode=False,
-            telegram_use_message_drafts=True,
-            model_provider="openai",
-        ),
-        is_allowed_fn=lambda _update: True,
-        storage_id_fn=lambda _update: "900",
-        add_message_fn=lambda *args, **kwargs: None,
-        get_message_by_telegram_message_id_fn=lambda *_args, **_kwargs: None,
-        build_context_fn=lambda **kwargs: "[RECENT_DIALOGUE]\nAlice: hi",
-        provider_getter=lambda: provider,
+    message_handler = _build_message_handler(
+        provider=provider,
         media_service=_MediaService(),
         maybe_react_fn=_maybe_react,
         send_ai_response_fn=_send_ai_response,
         generate_response_with_drafts_fn=_forbidden_generate_with_drafts,
         message_drafts_unavailable_reason_fn=lambda _update, _settings: "chat_type_group",
-        log_context_fn=lambda _update: {},
+        storage_id="900",
+        telegram_use_message_drafts=True,
     )
 
     async def _send_action(**kwargs):
@@ -241,26 +268,14 @@ def test_handle_addressed_message_uses_voice_transcription_flow() -> None:
         sent["text"] = outgoing_text
         sent["storage_id"] = storage_id
 
-    message_handler = MessageHandler(
-        settings_getter=lambda: SimpleNamespace(
-            features={"message_handling": True},
-            bot_aliases=[],
-            debug_mode=False,
-            telegram_use_message_drafts=False,
-            model_provider="openai",
-        ),
-        is_allowed_fn=lambda _update: True,
-        storage_id_fn=lambda _update: "901",
-        add_message_fn=lambda *args, **kwargs: None,
-        get_message_by_telegram_message_id_fn=lambda *_args, **_kwargs: None,
-        build_context_fn=lambda **kwargs: "[RECENT_DIALOGUE]\nAlice: hi",
-        provider_getter=lambda: provider,
+    message_handler = _build_message_handler(
+        provider=provider,
         media_service=_TranscribeMediaService(),
         maybe_react_fn=_maybe_react,
         send_ai_response_fn=_send_ai_response,
         generate_response_with_drafts_fn=lambda _update, _prompt, _settings: "unused",
         message_drafts_unavailable_reason_fn=lambda _update, _settings: "feature_disabled",
-        log_context_fn=lambda _update: {},
+        storage_id="901",
     )
 
     async def _send_action(**kwargs):
@@ -314,26 +329,14 @@ def test_handle_addressed_message_propagates_voice_transcription_error() -> None
     async def _send_ai_response(update, outgoing_text: str, storage_id: str):
         sent.append((outgoing_text, storage_id))
 
-    message_handler = MessageHandler(
-        settings_getter=lambda: SimpleNamespace(
-            features={"message_handling": True},
-            bot_aliases=[],
-            debug_mode=False,
-            telegram_use_message_drafts=False,
-            model_provider="openai",
-        ),
-        is_allowed_fn=lambda _update: True,
-        storage_id_fn=lambda _update: "901",
-        add_message_fn=lambda *args, **kwargs: None,
-        get_message_by_telegram_message_id_fn=lambda *_args, **_kwargs: None,
-        build_context_fn=lambda **kwargs: "[RECENT_DIALOGUE]\nAlice: hi",
-        provider_getter=lambda: provider,
+    message_handler = _build_message_handler(
+        provider=provider,
         media_service=_UnavailableVoiceMediaService(),
         maybe_react_fn=_maybe_react,
         send_ai_response_fn=_send_ai_response,
         generate_response_with_drafts_fn=lambda _update, _prompt, _settings: "unused",
         message_drafts_unavailable_reason_fn=lambda _update, _settings: "feature_disabled",
-        log_context_fn=lambda _update: {},
+        storage_id="901",
     )
 
     async def _send_action(**kwargs):
@@ -388,26 +391,14 @@ def test_handle_addressed_message_uses_photo_path() -> None:
         sent["text"] = outgoing_text
         sent["storage_id"] = storage_id
 
-    message_handler = MessageHandler(
-        settings_getter=lambda: SimpleNamespace(
-            features={"message_handling": True},
-            bot_aliases=[],
-            debug_mode=False,
-            telegram_use_message_drafts=False,
-            model_provider="openai",
-        ),
-        is_allowed_fn=lambda _update: True,
-        storage_id_fn=lambda _update: "902",
-        add_message_fn=lambda *args, **kwargs: None,
-        get_message_by_telegram_message_id_fn=lambda *_args, **_kwargs: None,
-        build_context_fn=lambda **kwargs: "[RECENT_DIALOGUE]\nAlice: hi",
-        provider_getter=lambda: provider,
+    message_handler = _build_message_handler(
+        provider=provider,
         media_service=_PhotoMediaService(),
         maybe_react_fn=_maybe_react,
         send_ai_response_fn=_send_ai_response,
         generate_response_with_drafts_fn=lambda _update, _prompt, _settings: "unused",
         message_drafts_unavailable_reason_fn=lambda _update, _settings: "feature_disabled",
-        log_context_fn=lambda _update: {},
+        storage_id="902",
     )
 
     async def _send_action(**kwargs):
@@ -460,26 +451,14 @@ def test_handle_addressed_message_ignores_unmentioned_text() -> None:
     async def _send_ai_response(update, outgoing_text: str, storage_id: str):
         sent["text"] = outgoing_text
 
-    message_handler = MessageHandler(
-        settings_getter=lambda: SimpleNamespace(
-            features={"message_handling": True},
-            bot_aliases=[],
-            debug_mode=False,
-            telegram_use_message_drafts=False,
-            model_provider="openai",
-        ),
-        is_allowed_fn=lambda _update: True,
-        storage_id_fn=lambda _update: "903",
-        add_message_fn=lambda *args, **kwargs: None,
-        get_message_by_telegram_message_id_fn=lambda *_args, **_kwargs: None,
-        build_context_fn=lambda **kwargs: "[RECENT_DIALOGUE]\nAlice: hi",
-        provider_getter=lambda: provider,
+    message_handler = _build_message_handler(
+        provider=provider,
         media_service=_MediaService(),
         maybe_react_fn=_maybe_react,
         send_ai_response_fn=_send_ai_response,
         generate_response_with_drafts_fn=lambda _update, _prompt, _settings: "unused",
         message_drafts_unavailable_reason_fn=lambda _update, _settings: "feature_disabled",
-        log_context_fn=lambda _update: {},
+        storage_id="903",
     )
 
     async def _send_action(**kwargs):
@@ -537,26 +516,14 @@ def test_handle_addressed_message_retries_when_model_returns_empty() -> None:
     async def _sleep(value: float):
         sleeps.append(value)
 
-    message_handler = MessageHandler(
-        settings_getter=lambda: SimpleNamespace(
-            features={"message_handling": True},
-            bot_aliases=[],
-            debug_mode=False,
-            telegram_use_message_drafts=False,
-            model_provider="openai",
-        ),
-        is_allowed_fn=lambda _update: True,
-        storage_id_fn=lambda _update: "904",
-        add_message_fn=lambda *args, **kwargs: None,
-        get_message_by_telegram_message_id_fn=lambda *_args, **_kwargs: None,
-        build_context_fn=lambda **kwargs: "[RECENT_DIALOGUE]\nAlice: hi",
-        provider_getter=lambda: provider,
+    message_handler = _build_message_handler(
+        provider=provider,
         media_service=_MediaService(),
         maybe_react_fn=_maybe_react,
         send_ai_response_fn=_send_ai_response,
         generate_response_with_drafts_fn=lambda _update, _prompt, _settings: "unused",
         message_drafts_unavailable_reason_fn=lambda _update, _settings: "feature_disabled",
-        log_context_fn=lambda _update: {},
+        storage_id="904",
         sleep_fn=_sleep,
     )
 
@@ -642,26 +609,14 @@ def test_handle_addressed_message_uses_reply_target_context_when_mentioned_reply
         sent["text"] = outgoing_text
         sent["storage_id"] = storage_id
 
-    message_handler = MessageHandler(
-        settings_getter=lambda: SimpleNamespace(
-            features={"message_handling": True},
-            bot_aliases=[],
-            debug_mode=False,
-            telegram_use_message_drafts=False,
-            model_provider="openai",
-        ),
-        is_allowed_fn=lambda _update: True,
-        storage_id_fn=lambda _update: "905",
-        add_message_fn=lambda *args, **kwargs: None,
-        get_message_by_telegram_message_id_fn=lambda *_args, **_kwargs: None,
-        build_context_fn=lambda **kwargs: "[RECENT_DIALOGUE]\nAlice: hi",
-        provider_getter=lambda: provider,
+    message_handler = _build_message_handler(
+        provider=provider,
         media_service=_ReplyContextMediaService(),
         maybe_react_fn=_maybe_react,
         send_ai_response_fn=_send_ai_response,
         generate_response_with_drafts_fn=lambda _update, _prompt, _settings: "unused",
         message_drafts_unavailable_reason_fn=lambda _update, _settings: "feature_disabled",
-        log_context_fn=lambda _update: {},
+        storage_id="905",
     )
 
     async def _send_action(**kwargs):

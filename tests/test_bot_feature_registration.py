@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from telegram.ext import MessageHandler as TelegramMessageHandler
 
 from src.bot import features
+from src.bot.contracts import MessageFlowCapabilities
 from src.bot.features import events, message_flow
 
 
@@ -118,12 +119,19 @@ def test_events_register_honors_feature_flag() -> None:
     assert app_disabled.handlers == []
 
 
-def test_build_message_flow_wires_provider_getter() -> None:
+def test_build_message_flow_wires_capability_dependencies() -> None:
     settings = SimpleNamespace()
     provider = object()
     components = message_flow.build_message_flow(
         settings_getter=lambda force=False: settings,
-        provider_getter=lambda: provider,
+        capabilities=MessageFlowCapabilities(
+            text_generation=provider,
+            streaming_text_generation=provider,
+            low_cost_text_generation=provider,
+            audio_transcription=provider,
+            ocr=provider,
+            reaction_selection=provider,
+        ),
         is_allowed_fn=lambda _update: True,
         storage_id_fn=lambda _update: "chat",
         add_message_fn=lambda *args, **kwargs: None,
@@ -134,5 +142,5 @@ def test_build_message_flow_wires_provider_getter() -> None:
         log_context_fn=lambda _update: {},
     )
 
-    assert components.reaction_service._provider_getter() is provider
-    assert components.message_handler._provider_getter() is provider
+    assert components.reaction_service._reaction_selection_provider is provider
+    assert components.message_handler._low_cost_text_generation_provider is provider

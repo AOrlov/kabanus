@@ -9,7 +9,11 @@ from telegram.constants import ParseMode
 from telegram.error import BadRequest
 
 from src import utils
-from src.bot.contracts import AddMessageFn, BotSettings, LogContextFn, ProviderGetter
+from src.bot.contracts import AddMessageFn, BotSettings, LogContextFn
+from src.providers.capabilities import (
+    StreamingTextGenerationProvider,
+    TextGenerationProvider,
+)
 from src.providers.contracts import TextGenerationRequest
 from src.telegram_drafts import send_message_draft
 
@@ -25,11 +29,13 @@ def chunk_string(value: str, chunk_size: int) -> list[str]:
 def message_drafts_unavailable_reason(
     update: Update,
     settings: BotSettings,
+    *,
+    supports_streaming: bool,
 ) -> Optional[str]:
     if not settings.telegram_use_message_drafts:
         return "feature_disabled"
-    if settings.model_provider != "openai":
-        return "provider_not_openai"
+    if not supports_streaming:
+        return "streaming_unavailable"
     if update.effective_chat is None:
         return "missing_chat"
     if update.effective_chat.type != "private":
@@ -49,19 +55,35 @@ class ReplyService:
     def __init__(
         self,
         *,
-        provider_getter: ProviderGetter,
+        text_generation_provider: Optional[TextGenerationProvider],
+        streaming_text_generation_provider: Optional[StreamingTextGenerationProvider],
         settings_getter: Callable[[], BotSettings],
         add_message_fn: AddMessageFn,
         send_message_draft_fn: Callable[..., object] = send_message_draft,
         log_context_fn: LogContextFn = lambda _update: {},
         logger_override: Optional[logging.Logger] = None,
     ) -> None:
-        self._provider_getter = provider_getter
+        self._text_generation_provider = text_generation_provider
+        self._streaming_text_generation_provider = streaming_text_generation_provider
         self._settings_getter = settings_getter
         self._add_message = add_message_fn
         self._send_message_draft = send_message_draft_fn
         self._log_context = log_context_fn
         self._logger = logger_override or logging.getLogger(__name__)
+
+    @property
+    def supports_message_drafts(self) -> bool:
+        return self._streaming_text_generation_provider is not None
+
+    def generate_response(self, prompt: str) -> str:
+        if self._text_generation_provider is None:
+            raise RuntimeError("Text generation capability is not configured")
+        return (
+            self._text_generation_provider.generate_text(
+                TextGenerationRequest(prompt=prompt)
+            )
+            or ""
+        ).strip()
 
     async def generate_response_with_drafts(
         self,
@@ -70,11 +92,11 @@ class ReplyService:
         settings: BotSettings,
     ) -> str:
         chat = update.effective_chat
-        provider = self._provider_getter()
+        streaming_provider = self._streaming_text_generation_provider
+        if streaming_provider is None:
+            raise RuntimeError("Streaming text generation capability is not configured")
         if chat is None:
-            return (
-                provider.generate_text(TextGenerationRequest(prompt=prompt)) or ""
-            ).strip()
+            return self.generate_response(prompt)
 
         draft_id = build_response_draft_id(update)
         last_sent_draft = ""
@@ -124,7 +146,7 @@ class ReplyService:
             last_sent_ts = time.monotonic()
 
         try:
-            for snapshot in provider.generate_text_stream(
+            for snapshot in streaming_provider.generate_text_stream(
                 TextGenerationRequest(prompt=prompt)
             ):
                 stream_text = str(snapshot or "")
@@ -166,9 +188,7 @@ class ReplyService:
         final_text = stream_text.strip()
         if stream_error is not None and not final_text:
             try:
-                final_text = (
-                    provider.generate_text(TextGenerationRequest(prompt=prompt)) or ""
-                ).strip()
+                final_text = self.generate_response(prompt)
             except Exception as fallback_exc:
                 self._logger.warning(
                     "Fallback generation failed after stream error",

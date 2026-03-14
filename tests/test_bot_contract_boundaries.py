@@ -1,15 +1,11 @@
 import ast
+from dataclasses import fields
 from pathlib import Path
 
-from src.bot.contracts import ProductProvider
-from src.providers.capabilities import (
-    AudioTranscriptionProvider,
-    EventParsingProvider,
-    LowCostTextGenerationProvider,
-    OcrProvider,
-    ReactionSelectionProvider,
-    StreamingTextGenerationProvider,
-    TextGenerationProvider,
+from src.bot.contracts import (
+    EventsCapabilities,
+    MessageFlowCapabilities,
+    RuntimeCapabilities,
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -61,13 +57,18 @@ def test_product_handlers_and_services_use_contracts_instead_of_concrete_modules
     assert violations == []
 
 
-def test_product_provider_contract_composes_capability_protocols() -> None:
-    provider_mro = ProductProvider.__mro__
+def test_bot_runtime_contract_uses_explicit_capability_composition_objects() -> None:
+    message_fields = {field.name for field in fields(MessageFlowCapabilities)}
+    events_fields = {field.name for field in fields(EventsCapabilities)}
+    runtime_fields = {field.name for field in fields(RuntimeCapabilities)}
 
-    assert AudioTranscriptionProvider in provider_mro
-    assert TextGenerationProvider in provider_mro
-    assert StreamingTextGenerationProvider in provider_mro
-    assert LowCostTextGenerationProvider in provider_mro
-    assert ReactionSelectionProvider in provider_mro
-    assert EventParsingProvider in provider_mro
-    assert OcrProvider in provider_mro
+    assert message_fields == {
+        "text_generation",
+        "streaming_text_generation",
+        "low_cost_text_generation",
+        "audio_transcription",
+        "ocr",
+        "reaction_selection",
+    }
+    assert events_fields == {"event_parsing"}
+    assert runtime_fields == {"message_flow", "events"}

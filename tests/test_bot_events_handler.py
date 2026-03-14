@@ -11,6 +11,24 @@ def _noop_calendar_factory():
     return SimpleNamespace(create_event=lambda **_kwargs: None)
 
 
+def _handler(
+    event_parsing_provider,
+    *,
+    is_allowed_fn,
+    notify_admin_fn,
+    settings_getter,
+    calendar_provider_factory=_noop_calendar_factory,
+):
+    return EventsHandler(
+        is_allowed_fn=is_allowed_fn,
+        event_parsing_provider=event_parsing_provider,
+        notify_admin_fn=notify_admin_fn,
+        log_context_fn=lambda _update: {},
+        settings_getter=settings_getter,
+        calendar_provider_factory=calendar_provider_factory,
+    )
+
+
 def test_schedule_events_exits_when_feature_disabled() -> None:
     notifications = []
     sent_actions = []
@@ -21,13 +39,11 @@ def test_schedule_events_exits_when_feature_disabled() -> None:
     async def _send_action(**kwargs):
         sent_actions.append(kwargs)
 
-    handler = EventsHandler(
+    handler = _handler(
+        SimpleNamespace(parse_image_event=lambda _request: {}),
         is_allowed_fn=lambda _update: True,
-        provider_getter=lambda: SimpleNamespace(parse_image_event=lambda _request: {}),
         notify_admin_fn=_notify_admin,
-        log_context_fn=lambda _update: {},
         settings_getter=lambda: SimpleNamespace(features={"schedule_events": False}),
-        calendar_provider_factory=_noop_calendar_factory,
     )
 
     update = SimpleNamespace(
@@ -59,13 +75,11 @@ def test_schedule_events_exits_when_update_not_allowed() -> None:
             bot_calls["get_file"] += 1
             raise AssertionError("disallowed updates must exit before downloading")
 
-    handler = EventsHandler(
+    handler = _handler(
+        SimpleNamespace(parse_image_event=lambda _request: {}),
         is_allowed_fn=lambda _update: False,
-        provider_getter=lambda: SimpleNamespace(parse_image_event=lambda _request: {}),
         notify_admin_fn=_notify_admin,
-        log_context_fn=lambda _update: {},
         settings_getter=lambda: SimpleNamespace(features={"schedule_events": True}),
-        calendar_provider_factory=_noop_calendar_factory,
     )
 
     update = SimpleNamespace(
@@ -88,13 +102,11 @@ def test_schedule_events_exits_without_photo() -> None:
     async def _notify_admin(context, message):
         notifications.append((context, message))
 
-    handler = EventsHandler(
+    handler = _handler(
+        SimpleNamespace(parse_image_event=lambda _request: {}),
         is_allowed_fn=lambda _update: True,
-        provider_getter=lambda: SimpleNamespace(parse_image_event=lambda _request: {}),
         notify_admin_fn=_notify_admin,
-        log_context_fn=lambda _update: {},
         settings_getter=lambda: SimpleNamespace(features={"schedule_events": True}),
-        calendar_provider_factory=_noop_calendar_factory,
     )
 
     update = SimpleNamespace(
@@ -129,13 +141,11 @@ def test_schedule_events_rejects_oversized_photo() -> None:
     async def _send_action(**kwargs):
         return None
 
-    handler = EventsHandler(
+    handler = _handler(
+        SimpleNamespace(parse_image_event=lambda _request: {}),
         is_allowed_fn=lambda _update: True,
-        provider_getter=lambda: SimpleNamespace(parse_image_event=lambda _request: {}),
         notify_admin_fn=_notify_admin,
-        log_context_fn=lambda _update: {},
         settings_getter=lambda: SimpleNamespace(features={"schedule_events": True}),
-        calendar_provider_factory=_noop_calendar_factory,
     )
 
     update = SimpleNamespace(
@@ -198,9 +208,8 @@ def test_schedule_events_accepts_unknown_file_size_when_download_is_small(
     async def _send_action(**kwargs):
         return None
 
-    handler = EventsHandler(
-        is_allowed_fn=lambda _update: True,
-        provider_getter=lambda: SimpleNamespace(
+    handler = _handler(
+        SimpleNamespace(
             parse_image_event=lambda _request: {
                 "title": "Design Review",
                 "date": "2030-06-20",
@@ -210,8 +219,8 @@ def test_schedule_events_accepts_unknown_file_size_when_download_is_small(
                 "confidence": 0.9,
             }
         ),
+        is_allowed_fn=lambda _update: True,
         notify_admin_fn=_notify_admin,
-        log_context_fn=lambda _update: {},
         settings_getter=lambda: SimpleNamespace(features={"schedule_events": True}),
         calendar_provider_factory=_FakeCalendar,
     )
@@ -269,17 +278,15 @@ def test_schedule_events_rejects_oversized_download_when_size_unknown(
     async def _send_action(**kwargs):
         return None
 
-    handler = EventsHandler(
-        is_allowed_fn=lambda _update: True,
-        provider_getter=lambda: SimpleNamespace(
+    handler = _handler(
+        SimpleNamespace(
             parse_image_event=lambda _request: parse_calls.update(
                 count=parse_calls["count"] + 1
             )
         ),
+        is_allowed_fn=lambda _update: True,
         notify_admin_fn=_notify_admin,
-        log_context_fn=lambda _update: {},
         settings_getter=lambda: SimpleNamespace(features={"schedule_events": True}),
-        calendar_provider_factory=_noop_calendar_factory,
     )
 
     update = SimpleNamespace(
@@ -336,9 +343,8 @@ def test_schedule_events_creates_event_and_cleans_temp_file(monkeypatch) -> None
     async def _send_action(**kwargs):
         return None
 
-    handler = EventsHandler(
-        is_allowed_fn=lambda _update: True,
-        provider_getter=lambda: SimpleNamespace(
+    handler = _handler(
+        SimpleNamespace(
             parse_image_event=lambda _request: {
                 "title": "Design Review",
                 "date": "2030-06-20",
@@ -348,8 +354,8 @@ def test_schedule_events_creates_event_and_cleans_temp_file(monkeypatch) -> None
                 "confidence": 0.95,
             }
         ),
+        is_allowed_fn=lambda _update: True,
         notify_admin_fn=_notify_admin,
-        log_context_fn=lambda _update: {},
         settings_getter=lambda: SimpleNamespace(features={"schedule_events": True}),
         calendar_provider_factory=_FakeCalendar,
     )
@@ -409,9 +415,8 @@ def test_schedule_events_accepts_string_confidence(monkeypatch) -> None:
     async def _send_action(**kwargs):
         return None
 
-    handler = EventsHandler(
-        is_allowed_fn=lambda _update: True,
-        provider_getter=lambda: SimpleNamespace(
+    handler = _handler(
+        SimpleNamespace(
             parse_image_event=lambda _request: {
                 "title": "Design Review",
                 "date": "2030-06-20",
@@ -421,8 +426,8 @@ def test_schedule_events_accepts_string_confidence(monkeypatch) -> None:
                 "confidence": "0.3",
             }
         ),
+        is_allowed_fn=lambda _update: True,
         notify_admin_fn=_notify_admin,
-        log_context_fn=lambda _update: {},
         settings_getter=lambda: SimpleNamespace(features={"schedule_events": True}),
         calendar_provider_factory=_FakeCalendar,
     )
@@ -480,9 +485,8 @@ def test_schedule_events_handles_all_day_events_without_time(monkeypatch) -> Non
     async def _send_action(**kwargs):
         return None
 
-    handler = EventsHandler(
-        is_allowed_fn=lambda _update: True,
-        provider_getter=lambda: SimpleNamespace(
+    handler = _handler(
+        SimpleNamespace(
             parse_image_event=lambda _request: {
                 "title": "All Day Event",
                 "date": "2030-07-20",
@@ -491,8 +495,8 @@ def test_schedule_events_handles_all_day_events_without_time(monkeypatch) -> Non
                 "confidence": 0.95,
             }
         ),
+        is_allowed_fn=lambda _update: True,
         notify_admin_fn=_notify_admin,
-        log_context_fn=lambda _update: {},
         settings_getter=lambda: SimpleNamespace(features={"schedule_events": True}),
         calendar_provider_factory=_FakeCalendar,
     )
@@ -548,19 +552,17 @@ def test_schedule_events_reports_error_when_event_data_missing_date(
     async def _send_action(**kwargs):
         return None
 
-    handler = EventsHandler(
-        is_allowed_fn=lambda _update: True,
-        provider_getter=lambda: SimpleNamespace(
+    handler = _handler(
+        SimpleNamespace(
             parse_image_event=lambda _request: {
                 "title": "Missing Date",
                 "location": "Office",
                 "confidence": 0.55,
             }
         ),
+        is_allowed_fn=lambda _update: True,
         notify_admin_fn=_notify_admin,
-        log_context_fn=lambda _update: {},
         settings_getter=lambda: SimpleNamespace(features={"schedule_events": True}),
-        calendar_provider_factory=_noop_calendar_factory,
     )
 
     update = SimpleNamespace(
@@ -595,13 +597,11 @@ def test_schedule_events_handles_chat_file_download_failure(monkeypatch) -> None
     async def _send_action(**kwargs):
         return None
 
-    handler = EventsHandler(
+    handler = _handler(
+        SimpleNamespace(parse_image_event=lambda _request: {}),
         is_allowed_fn=lambda _update: True,
-        provider_getter=lambda: SimpleNamespace(parse_image_event=lambda _request: {}),
         notify_admin_fn=_notify_admin,
-        log_context_fn=lambda _update: {},
         settings_getter=lambda: SimpleNamespace(features={"schedule_events": True}),
-        calendar_provider_factory=_noop_calendar_factory,
     )
 
     class _FailingBot:

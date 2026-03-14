@@ -13,9 +13,9 @@ from src.bot.contracts import (
     CalendarProviderFactory,
     IsAllowedFn,
     LogContextFn,
-    ProviderGetter,
     SettingsGetter,
 )
+from src.providers.capabilities import EventParsingProvider
 from src.providers.contracts import ImageToEventRequest
 from src.bot.services.media_service import IMAGE_MAX_BYTES
 
@@ -44,7 +44,7 @@ class EventsHandler:
         self,
         *,
         is_allowed_fn: IsAllowedFn,
-        provider_getter: ProviderGetter,
+        event_parsing_provider: Optional[EventParsingProvider],
         notify_admin_fn: Callable[[ContextTypes.DEFAULT_TYPE, str], Awaitable[None]],
         log_context_fn: LogContextFn,
         settings_getter: SettingsGetter,
@@ -52,7 +52,7 @@ class EventsHandler:
         logger_override: Optional[logging.Logger] = None,
     ) -> None:
         self._is_allowed = is_allowed_fn
-        self._provider_getter = provider_getter
+        self._event_parsing_provider = event_parsing_provider
         self._notify_admin = notify_admin_fn
         self._log_context = log_context_fn
         self._settings_getter = settings_getter
@@ -134,8 +134,9 @@ class EventsHandler:
                 return
 
             try:
-                provider = self._provider_getter()
-                event_data = provider.parse_image_event(
+                if self._event_parsing_provider is None:
+                    raise RuntimeError("Event parsing capability is not configured")
+                event_data = self._event_parsing_provider.parse_image_event(
                     ImageToEventRequest(image_path=temp_photo_path)
                 )
 

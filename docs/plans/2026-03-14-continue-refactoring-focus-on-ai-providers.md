@@ -107,12 +107,12 @@ Replace the current monolithic AI provider abstraction with explicit capability-
 - Modify: `tests/test_bot_events_handler.py`
 - Modify: `tests/test_bot_app.py`
 
-- [ ] Inject only the capabilities each service needs instead of passing a full provider object everywhere
-- [ ] Remove provider-name checks such as `model_provider == "openai"` and gate features on actual capability availability, such as streaming support for drafts
-- [ ] Fail fast during runtime assembly when a configured flow requires a capability that is not available
-- [ ] Keep product-layer boundaries clean by depending on provider capability protocols and composition objects rather than concrete OpenAI/Gemini modules
-- [ ] write tests for this task
-- [ ] run project test suite - must pass before task 6
+- [x] Inject only the capabilities each service needs instead of passing a full provider object everywhere
+- [x] Remove provider-name checks such as `model_provider == "openai"` and gate features on actual capability availability, such as streaming support for drafts
+- [x] Fail fast during runtime assembly when a configured flow requires a capability that is not available
+- [x] Keep product-layer boundaries clean by depending on provider capability protocols and composition objects rather than concrete OpenAI/Gemini modules
+- [x] write tests for this task
+- [x] run project test suite - must pass before task 6
 
 ### Task 6: Verify Acceptance Criteria
 

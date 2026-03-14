@@ -7,7 +7,8 @@ from typing import Any, Callable, Dict, Optional, Tuple
 from telegram import Voice
 from telegram.ext import ContextTypes
 
-from src.bot.contracts import GetMessageByTelegramMessageIdFn, ProviderGetter
+from src.bot.contracts import GetMessageByTelegramMessageIdFn
+from src.providers.capabilities import AudioTranscriptionProvider, OcrProvider
 from src.providers.contracts import AudioTranscriptionRequest, ImageToTextRequest
 
 NON_TEXT_REPLY_PLACEHOLDER = "[non-text message]"
@@ -86,17 +87,20 @@ class MediaService:
     def __init__(
         self,
         *,
-        provider_getter: ProviderGetter,
+        audio_transcription_provider: Optional[AudioTranscriptionProvider],
+        ocr_provider: Optional[OcrProvider],
         logger_override: Optional[logging.Logger] = None,
         log_context_fn: Optional[Callable[[Any], dict]] = None,
     ) -> None:
-        self._provider_getter = provider_getter
+        self._audio_transcription_provider = audio_transcription_provider
+        self._ocr_provider = ocr_provider
         self._logger = logger_override or logging.getLogger(__name__)
         self._log_context = log_context_fn or (lambda _update: {})
 
     def transcribe_audio(self, audio_path: str) -> str:
-        provider = self._provider_getter()
-        return provider.transcribe_audio(
+        if self._audio_transcription_provider is None:
+            raise RuntimeError("Audio transcription capability is not configured")
+        return self._audio_transcription_provider.transcribe_audio(
             AudioTranscriptionRequest(audio_path=audio_path)
         )
 
@@ -159,7 +163,9 @@ class MediaService:
                 extra={"file_size": len(image_bytes)},
             )
             return (getattr(message, "caption", "") or "").strip()
-        extracted = self._provider_getter().extract_image_text(
+        if self._ocr_provider is None:
+            raise RuntimeError("OCR capability is not configured")
+        extracted = self._ocr_provider.extract_image_text(
             ImageToTextRequest(
                 image_bytes=image_bytes,
                 mime_type="image/jpeg",
@@ -211,7 +217,9 @@ class MediaService:
                 extra={"file_size": len(image_bytes)},
             )
             return (getattr(message, "caption", "") or "").strip()
-        extracted = self._provider_getter().extract_image_text(
+        if self._ocr_provider is None:
+            raise RuntimeError("OCR capability is not configured")
+        extracted = self._ocr_provider.extract_image_text(
             ImageToTextRequest(
                 image_bytes=image_bytes,
                 mime_type=effective_mime or "image/jpeg",

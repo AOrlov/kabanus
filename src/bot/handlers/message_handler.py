@@ -14,9 +14,9 @@ from src.bot.contracts import (
     GetMessageByTelegramMessageIdFn,
     IsAllowedFn,
     LogContextFn,
-    ProviderGetter,
     StorageIdFn,
 )
+from src.providers.capabilities import LowCostTextGenerationProvider
 from src.bot.services.media_service import (
     IMAGE_MAX_BYTES,
     MediaService,
@@ -159,9 +159,10 @@ class MessageHandler:
         add_message_fn: AddMessageFn,
         get_message_by_telegram_message_id_fn: GetMessageByTelegramMessageIdFn,
         build_context_fn: BuildContextFn,
-        provider_getter: ProviderGetter,
+        low_cost_text_generation_provider: Optional[LowCostTextGenerationProvider],
         media_service: MediaService,
         maybe_react_fn: Callable[[Update, str], Awaitable[None]],
+        generate_response_fn: Callable[[str], str],
         send_ai_response_fn: Callable[[Update, str, str], Awaitable[None]],
         generate_response_with_drafts_fn: Callable[
             [Update, str, BotSettings], Awaitable[str]
@@ -179,9 +180,10 @@ class MessageHandler:
         self._add_message = add_message_fn
         self._get_message_by_telegram_message_id = get_message_by_telegram_message_id_fn
         self._build_context = build_context_fn
-        self._provider_getter = provider_getter
+        self._low_cost_text_generation_provider = low_cost_text_generation_provider
         self._media_service = media_service
         self._maybe_react = maybe_react_fn
+        self._generate_response = generate_response_fn
         self._send_ai_response = send_ai_response_fn
         self._generate_response_with_drafts = generate_response_with_drafts_fn
         self._message_drafts_unavailable_reason = message_drafts_unavailable_reason_fn
@@ -359,11 +361,12 @@ class MessageHandler:
                 )
 
         await update.effective_chat.send_action(action=ChatAction.TYPING)
-        provider = self._provider_getter()
+        if self._low_cost_text_generation_provider is None:
+            raise RuntimeError("Low-cost text generation capability is not configured")
         context_str = self._build_context(
             chat_id=chat_storage_id,
             latest_user_text=text,
-            summarize_fn=lambda prompt: provider.generate_low_cost_text(
+            summarize_fn=lambda prompt: self._low_cost_text_generation_provider.generate_low_cost_text(
                 TextGenerationRequest(prompt=prompt)
             ),
         )
@@ -398,7 +401,6 @@ class MessageHandler:
                 extra={
                     **self._log_context(update),
                     "reason": draft_unavailable_reason,
-                    "model_provider": settings.model_provider,
                     "chat_type": getattr(update.effective_chat, "type", None),
                 },
             )
@@ -413,9 +415,7 @@ class MessageHandler:
                     settings,
                 )
             else:
-                response = (
-                    provider.generate_text(TextGenerationRequest(prompt=prompt)) or ""
-                ).strip()
+                response = self._generate_response(prompt)
             if response:
                 break
 

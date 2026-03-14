@@ -5,7 +5,7 @@ from telegram import Update
 from telegram.ext import Application, ContextTypes, MessageHandler, filters
 
 from src import config
-from src.bot.contracts import ProductProvider
+from src.bot.contracts import EventsCapabilities
 from src.bot.handlers.events_handler import EventsHandler
 from src.calendar_provider import CalendarProvider
 
@@ -17,7 +17,7 @@ MessageCallback = Callable[
 def build_events_handler(
     *,
     is_allowed_fn: Callable[[Update], bool],
-    provider_getter: Callable[[], ProductProvider],
+    capabilities: EventsCapabilities,
     notify_admin_fn: Callable[[ContextTypes.DEFAULT_TYPE, str], Awaitable[None]],
     log_context_fn: Callable[[Optional[Update]], dict],
     settings_getter: Callable[[], config.Settings],
@@ -25,7 +25,7 @@ def build_events_handler(
 ) -> EventsHandler:
     return EventsHandler(
         is_allowed_fn=is_allowed_fn,
-        provider_getter=provider_getter,
+        event_parsing_provider=capabilities.event_parsing,
         notify_admin_fn=notify_admin_fn,
         log_context_fn=log_context_fn,
         settings_getter=settings_getter,

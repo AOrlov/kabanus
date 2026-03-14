@@ -11,7 +11,11 @@ from telegram.ext import (
 
 from src import config, logging_utils
 from src.bot import features as bot_features
-from src.bot.contracts import ProductProvider
+from src.bot.contracts import (
+    RuntimeCapabilities,
+    available_runtime_capabilities,
+    compose_runtime_capabilities,
+)
 from src.bot.handlers.events_handler import EventsHandler
 from src.bot.handlers.message_handler import MessageHandler as AddressedMessageHandler
 from src.bot.handlers.summary_handler import SummaryHandler
@@ -25,6 +29,8 @@ from src.message_store import (
     get_summary_view_text,
 )
 from src.provider_factory import build_provider, build_provider_for_settings
+from src.providers.contracts import CapabilityName
+from src.providers.errors import ProviderConfigurationError
 from src.telegram_framework import application as framework_application
 from src.telegram_framework import error_reporting as framework_error_reporting
 from src.telegram_framework import policy as framework_policy
@@ -43,7 +49,7 @@ class BotRuntime:
         self,
         *,
         settings_getter: Callable[..., config.Settings],
-        provider_getter: Callable[[], ProductProvider],
+        capabilities: RuntimeCapabilities,
         reaction_service: ReactionService,
         summary_handler: SummaryHandler,
         message_handler: AddressedMessageHandler,
@@ -55,7 +61,7 @@ class BotRuntime:
         ] = framework_policy.log_context,
     ) -> None:
         self._settings = SettingsResolver(settings_getter)
-        self._provider_getter = provider_getter
+        self._capabilities = capabilities
         self.reaction_service = reaction_service
         self.summary_handler = summary_handler
         self.message_handler = message_handler
@@ -71,8 +77,9 @@ class BotRuntime:
         )
         self._log_context = log_context_fn
 
-    def provider(self) -> ProductProvider:
-        return self._provider_getter()
+    @property
+    def capabilities(self) -> RuntimeCapabilities:
+        return self._capabilities
 
     def get_settings(self, force: bool = False) -> config.Settings:
         return self._settings.get(force=force)
@@ -97,26 +104,19 @@ class BotRuntime:
 
         await update.message.reply_text("Hello! I am your speech-to-text bot.")
         await update.message.reply_text(
-            f"Configured model provider: {settings.model_provider}"
+            "Available AI capabilities: "
+            + ", ".join(available_runtime_capabilities(self._capabilities))
         )
-        if settings.model_provider == "openai":
-            await update.message.reply_text(
-                f"Configured OpenAI model: {settings.openai_model}"
-            )
-        elif settings.gemini_api_key and settings.gemini_models:
-            preferred = settings.gemini_models[0].name
-
-            def fmt_limit(value: Optional[int]) -> str:
-                return "unlimited" if value is None else str(value)
-
-            formatted = ", ".join(
-                f"{model.name} (rpm={fmt_limit(model.rpm)}, rpd={fmt_limit(model.rpd)})"
-                for model in settings.gemini_models
-            )
-            await update.message.reply_text(
-                "Configured Gemini model priority: " + preferred
-            )
-            await update.message.reply_text("Configured Gemini models: " + formatted)
+        await update.message.reply_text(
+            "Configured AI routing: "
+            f"text={settings.provider_routing.text_generation}, "
+            f"stream={settings.provider_routing.streaming_text_generation}, "
+            f"low_cost={settings.provider_routing.low_cost_text_generation}, "
+            f"audio={settings.provider_routing.audio_transcription}, "
+            f"ocr={settings.provider_routing.ocr}, "
+            f"reaction={settings.provider_routing.reaction_selection}, "
+            f"events={settings.provider_routing.event_parsing}"
+        )
 
     async def notify_admin(
         self,
@@ -153,11 +153,84 @@ class BotRuntime:
         self.apply_log_level(settings)
 
 
+def _provider_name_for_capability(
+    settings: config.Settings,
+    capability: CapabilityName,
+) -> str:
+    routing = getattr(settings, "provider_routing", None)
+    if routing is not None and hasattr(routing, "provider_for"):
+        return str(routing.provider_for(capability))
+    return str(getattr(settings, "model_provider", "openai"))
+
+
+def _require_runtime_capability(
+    settings: config.Settings,
+    capability: CapabilityName,
+    available: object,
+) -> None:
+    if available is not None:
+        return
+    raise ProviderConfigurationError(
+        (
+            "Runtime requires capability "
+            f"'{capability}', but it is not available in the assembled provider composition"
+        ),
+        provider=_provider_name_for_capability(settings, capability),  # type: ignore[arg-type]
+        capability=capability,
+    )
+
+
+def _validate_runtime_capabilities(
+    settings: config.Settings,
+    capabilities: RuntimeCapabilities,
+) -> None:
+    features = getattr(settings, "features", {})
+    if features.get("message_handling"):
+        _require_runtime_capability(
+            settings,
+            "text_generation",
+            capabilities.message_flow.text_generation,
+        )
+        _require_runtime_capability(
+            settings,
+            "low_cost_text_generation",
+            capabilities.message_flow.low_cost_text_generation,
+        )
+        _require_runtime_capability(
+            settings,
+            "audio_transcription",
+            capabilities.message_flow.audio_transcription,
+        )
+        _require_runtime_capability(
+            settings,
+            "ocr",
+            capabilities.message_flow.ocr,
+        )
+        if getattr(settings, "telegram_use_message_drafts", False):
+            _require_runtime_capability(
+                settings,
+                "streaming_text_generation",
+                capabilities.message_flow.streaming_text_generation,
+            )
+    if getattr(settings, "reaction_enabled", False):
+        _require_runtime_capability(
+            settings,
+            "reaction_selection",
+            capabilities.message_flow.reaction_selection,
+        )
+    if features.get("schedule_events"):
+        _require_runtime_capability(
+            settings,
+            "event_parsing",
+            capabilities.events.event_parsing,
+        )
+
+
 def build_runtime(
     *,
     settings_getter: Callable[..., config.Settings] = config.get_settings,
-    provider: Optional[ProductProvider] = None,
-    provider_getter: Optional[Callable[[], ProductProvider]] = None,
+    provider: Optional[object] = None,
+    capabilities: Optional[RuntimeCapabilities] = None,
     add_message_fn: Callable[..., None] = add_message,
     build_context_fn: Callable[..., str] = build_context,
     get_all_messages_fn: Callable[[str], list] = get_all_messages,
@@ -170,20 +243,19 @@ def build_runtime(
     log_context_fn: Callable[[Optional[Update]], dict] = framework_policy.log_context,
     storage_id_fn: Callable[[Update], Optional[str]] = framework_policy.storage_id,
 ) -> BotRuntime:
+    settings_resolver = SettingsResolver(settings_getter)
+    settings = settings_resolver.get()
     provider_instance = provider
+    runtime_capabilities = capabilities
     runtime: Optional[BotRuntime] = None
-    if provider_getter is None:
+    if runtime_capabilities is None:
         if provider_instance is None:
             if settings_getter is config.get_settings:
                 provider_instance = build_provider()
             else:
-                provider_instance = build_provider_for_settings(
-                    SettingsResolver(settings_getter).get()
-                )
-
-        def provider_getter() -> ProductProvider:
-            assert provider_instance is not None
-            return provider_instance
+                provider_instance = build_provider_for_settings(settings)
+        runtime_capabilities = compose_runtime_capabilities(provider_instance)
+    _validate_runtime_capabilities(settings, runtime_capabilities)
 
     if is_allowed_fn is None:
 
@@ -211,7 +283,7 @@ def build_runtime(
 
     events_handler = bot_features.build_events_handler(
         is_allowed_fn=is_allowed_fn,
-        provider_getter=provider_getter,
+        capabilities=runtime_capabilities.events,
         notify_admin_fn=_notify_admin_proxy,
         log_context_fn=log_context_fn,
         settings_getter=lambda: settings_getter(),
@@ -220,7 +292,7 @@ def build_runtime(
 
     message_flow = bot_features.build_message_flow(
         settings_getter=settings_getter,
-        provider_getter=provider_getter,
+        capabilities=runtime_capabilities.message_flow,
         is_allowed_fn=is_allowed_fn,
         storage_id_fn=storage_id_fn,
         add_message_fn=add_message_fn,
@@ -234,7 +306,7 @@ def build_runtime(
 
     runtime = BotRuntime(
         settings_getter=settings_getter,
-        provider_getter=provider_getter,
+        capabilities=runtime_capabilities,
         reaction_service=message_flow.reaction_service,
         summary_handler=summary_handler,
         message_handler=message_flow.message_handler,

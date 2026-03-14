@@ -49,6 +49,14 @@ def _context_for_file(payload: bytes):
     return SimpleNamespace(bot=_Bot()), telegram_file
 
 
+def _service(provider, **kwargs):
+    return media_service.MediaService(
+        audio_transcription_provider=provider,
+        ocr_provider=provider,
+        **kwargs,
+    )
+
+
 def test_guess_mime_from_name_and_is_image_document() -> None:
     assert media_service.guess_mime_from_name("poster.JPG") == "image/jpeg"
     assert media_service.guess_mime_from_name("diagram.png") == "image/png"
@@ -99,7 +107,7 @@ def test_combine_caption_and_sender_name_helpers() -> None:
 
 def test_transcribe_voice_message_downloads_and_cleans_temp_file() -> None:
     provider = _Provider()
-    service = media_service.MediaService(provider_getter=lambda: provider)
+    service = _service(provider)
     context, telegram_file = _context_for_file(b"voice-bytes")
     voice = SimpleNamespace(file_id="voice-1")
 
@@ -115,7 +123,7 @@ def test_transcribe_voice_message_downloads_and_cleans_temp_file() -> None:
 
 def test_extract_text_from_photo_message_combines_caption_and_ocr() -> None:
     provider = _Provider()
-    service = media_service.MediaService(provider_getter=lambda: provider)
+    service = _service(provider)
     context, _ = _context_for_file(b"img-bytes")
     message = SimpleNamespace(
         photo=[
@@ -133,7 +141,7 @@ def test_extract_text_from_photo_message_combines_caption_and_ocr() -> None:
 
 def test_extract_text_from_photo_message_skips_oversized_photo() -> None:
     provider = _Provider()
-    service = media_service.MediaService(provider_getter=lambda: provider)
+    service = _service(provider)
     bot_calls = {"get_file": 0}
 
     class _Bot:
@@ -163,7 +171,7 @@ def test_extract_text_from_photo_message_handles_unknown_size_from_file_metadata
     None
 ):
     provider = _Provider()
-    service = media_service.MediaService(provider_getter=lambda: provider)
+    service = _service(provider)
 
     telegram_file = _TelegramFile(b"img-bytes", file_size=None)
 
@@ -185,7 +193,7 @@ def test_extract_text_from_photo_message_handles_unknown_size_from_file_metadata
 
 def test_extract_text_from_photo_message_skips_oversized_file_metadata() -> None:
     provider = _Provider()
-    service = media_service.MediaService(provider_getter=lambda: provider)
+    service = _service(provider)
 
     telegram_file = _TelegramFile(
         b"img-bytes",
@@ -210,7 +218,7 @@ def test_extract_text_from_photo_message_skips_oversized_file_metadata() -> None
 
 def test_extract_text_from_image_document_handles_non_image_and_image() -> None:
     provider = _Provider()
-    service = media_service.MediaService(provider_getter=lambda: provider)
+    service = _service(provider)
     context, _ = _context_for_file(b"png-bytes")
 
     non_image_message = SimpleNamespace(
@@ -244,7 +252,7 @@ def test_extract_text_from_image_document_handles_unknown_size_from_file_metadat
     None
 ):
     provider = _Provider()
-    service = media_service.MediaService(provider_getter=lambda: provider)
+    service = _service(provider)
     telegram_file = _TelegramFile(b"png-bytes", file_size=None)
 
     class _Bot:
@@ -274,7 +282,7 @@ def test_extract_text_from_photo_message_rejects_oversized_download_with_unknown
     monkeypatch,
 ) -> None:
     provider = _Provider()
-    service = media_service.MediaService(provider_getter=lambda: provider)
+    service = _service(provider)
     monkeypatch.setattr(media_service, "IMAGE_MAX_BYTES", 4)
     telegram_file = _TelegramFile(b"12345", file_size=None)
 
@@ -298,7 +306,7 @@ def test_extract_text_from_image_document_rejects_oversized_download_with_unknow
     monkeypatch,
 ) -> None:
     provider = _Provider()
-    service = media_service.MediaService(provider_getter=lambda: provider)
+    service = _service(provider)
     monkeypatch.setattr(media_service, "IMAGE_MAX_BYTES", 4)
     telegram_file = _TelegramFile(b"12345", file_size=None)
 
@@ -328,8 +336,8 @@ def test_extract_text_from_image_document_rejects_oversized_download_with_unknow
 def test_extract_reply_target_text_branches() -> None:
     provider = _Provider()
     warnings = []
-    service = media_service.MediaService(
-        provider_getter=lambda: provider,
+    service = _service(
+        provider,
         logger_override=SimpleNamespace(
             warning=lambda *args, **kwargs: warnings.append((args, kwargs))
         ),
@@ -384,7 +392,7 @@ def test_extract_reply_target_text_branches() -> None:
 
 def test_resolve_reply_target_context_prefers_history_and_falls_back() -> None:
     provider = _Provider()
-    service = media_service.MediaService(provider_getter=lambda: provider)
+    service = _service(provider)
     context, _ = _context_for_file(b"img")
 
     message = SimpleNamespace(

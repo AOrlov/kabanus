@@ -1,15 +1,58 @@
 import asyncio
 from types import SimpleNamespace
 
+import pytest
 from telegram.ext import CommandHandler, MessageHandler as TelegramMessageHandler
 
 from src.bot import app as bot_app
+from src.bot.contracts import (
+    EventsCapabilities,
+    MessageFlowCapabilities,
+    RuntimeCapabilities,
+)
+
+
+class _Provider:
+    def generate_text(self, _request):
+        return ""
+
+    def generate_text_stream(self, _request):
+        return iter(())
+
+    def generate_low_cost_text(self, _request):
+        return ""
+
+    def transcribe_audio(self, _request):
+        return ""
+
+    def extract_image_text(self, _request):
+        return ""
+
+    def select_reaction(self, _request):
+        return ""
+
+    def parse_image_event(self, _request):
+        return {}
+
+
+def _capabilities(provider=None):
+    return RuntimeCapabilities(
+        message_flow=MessageFlowCapabilities(
+            text_generation=provider,
+            streaming_text_generation=provider,
+            low_cost_text_generation=provider,
+            audio_transcription=provider,
+            ocr=provider,
+            reaction_selection=provider,
+        ),
+        events=EventsCapabilities(event_parsing=provider),
+    )
 
 
 def _runtime(settings):
     return bot_app.BotRuntime(
         settings_getter=lambda force=False: settings,
-        provider_getter=lambda: None,
+        capabilities=_capabilities(),
         reaction_service=SimpleNamespace(),
         summary_handler=SimpleNamespace(),
         message_handler=SimpleNamespace(handle_addressed_message=None),
@@ -96,7 +139,7 @@ def test_bot_runtime_supports_no_arg_settings_getter(monkeypatch) -> None:
 
     runtime = bot_app.BotRuntime(
         settings_getter=lambda: settings,
-        provider_getter=lambda: None,
+        capabilities=_capabilities(),
         reaction_service=SimpleNamespace(),
         summary_handler=SimpleNamespace(),
         message_handler=SimpleNamespace(handle_addressed_message=None),
@@ -112,7 +155,7 @@ def test_bot_runtime_supports_no_arg_settings_getter(monkeypatch) -> None:
 
 def test_build_runtime_uses_injected_provider(monkeypatch) -> None:
     settings = SimpleNamespace(admin_chat_id=None, debug_mode=False)
-    provider = SimpleNamespace()
+    provider = _Provider()
 
     def _forbidden_build_provider_for_settings(_settings):
         raise AssertionError(
@@ -130,15 +173,15 @@ def test_build_runtime_uses_injected_provider(monkeypatch) -> None:
         provider=provider,
     )
 
-    assert runtime.provider() is provider
-    assert runtime.reaction_service._provider_getter() is provider
+    assert runtime.capabilities.message_flow.text_generation is provider
+    assert runtime.reaction_service._reaction_selection_provider is provider
 
 
 def test_build_runtime_builds_provider_from_injected_settings_getter(
     monkeypatch,
 ) -> None:
     settings = SimpleNamespace(admin_chat_id=None, debug_mode=False)
-    provider = SimpleNamespace()
+    provider = _Provider()
     captured = {}
 
     def _fake_build_provider_for_settings(configured_settings):
@@ -153,9 +196,56 @@ def test_build_runtime_builds_provider_from_injected_settings_getter(
 
     runtime = bot_app.build_runtime(settings_getter=lambda force=False: settings)
 
-    assert runtime.provider() is provider
-    assert runtime.reaction_service._provider_getter() is provider
+    assert runtime.capabilities.message_flow.text_generation is provider
+    assert runtime.reaction_service._reaction_selection_provider is provider
     assert captured["settings"] is settings
+
+
+def test_build_runtime_fails_when_drafts_require_missing_streaming_capability() -> None:
+    settings = SimpleNamespace(
+        admin_chat_id=None,
+        debug_mode=False,
+        features={"message_handling": True, "schedule_events": False},
+        telegram_use_message_drafts=True,
+        reaction_enabled=False,
+        provider_routing=SimpleNamespace(provider_for=lambda _capability: "gemini"),
+    )
+
+    with pytest.raises(
+        Exception,
+        match="streaming_text_generation",
+    ):
+        bot_app.build_runtime(
+            settings_getter=lambda force=False: settings,
+            capabilities=RuntimeCapabilities(
+                message_flow=MessageFlowCapabilities(
+                    text_generation=object(),
+                    low_cost_text_generation=object(),
+                    audio_transcription=object(),
+                    ocr=object(),
+                )
+            ),
+        )
+
+
+def test_build_runtime_fails_when_events_require_missing_event_parser() -> None:
+    settings = SimpleNamespace(
+        admin_chat_id=None,
+        debug_mode=False,
+        features={"message_handling": False, "schedule_events": True},
+        telegram_use_message_drafts=False,
+        reaction_enabled=False,
+        provider_routing=SimpleNamespace(provider_for=lambda _capability: "gemini"),
+    )
+
+    with pytest.raises(
+        Exception,
+        match="event_parsing",
+    ):
+        bot_app.build_runtime(
+            settings_getter=lambda force=False: settings,
+            capabilities=RuntimeCapabilities(),
+        )
 
 
 def test_build_application_routes_commands_and_feature_handlers(monkeypatch) -> None:

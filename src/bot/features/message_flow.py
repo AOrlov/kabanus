@@ -6,7 +6,7 @@ from telegram import Update
 from telegram.ext import Application, ContextTypes, MessageHandler, filters
 
 from src import config
-from src.bot.contracts import ProductProvider
+from src.bot.contracts import MessageFlowCapabilities
 from src.bot.handlers.message_handler import MessageHandler as AddressedMessageHandler
 from src.bot.services.media_service import MediaService
 from src.bot.services.reaction_service import ReactionService, ReactionState
@@ -29,7 +29,7 @@ class MessageFlowComponents:
 def build_message_flow(
     *,
     settings_getter: Callable[..., config.Settings],
-    provider_getter: Callable[[], ProductProvider],
+    capabilities: MessageFlowCapabilities,
     is_allowed_fn: Callable[[Update], bool],
     storage_id_fn: Callable[[Update], Optional[str]],
     add_message_fn: Callable[..., None],
@@ -43,7 +43,7 @@ def build_message_flow(
     reaction_state = ReactionState()
     reaction_service = ReactionService(
         state=reaction_state,
-        provider_getter=provider_getter,
+        reaction_selection_provider=capabilities.reaction_selection,
         settings_getter=lambda: settings_getter(),
         get_all_messages_fn=get_all_messages_fn,
         assemble_context_fn=assemble_context_fn,
@@ -53,13 +53,15 @@ def build_message_flow(
     )
 
     media_service = MediaService(
-        provider_getter=provider_getter,
+        audio_transcription_provider=capabilities.audio_transcription,
+        ocr_provider=capabilities.ocr,
         logger_override=logger_override,
         log_context_fn=log_context_fn,
     )
 
     reply_service = ReplyService(
-        provider_getter=provider_getter,
+        text_generation_provider=capabilities.text_generation,
+        streaming_text_generation_provider=capabilities.streaming_text_generation,
         settings_getter=lambda: settings_getter(),
         add_message_fn=add_message_fn,
         log_context_fn=log_context_fn,
@@ -73,12 +75,19 @@ def build_message_flow(
         add_message_fn=add_message_fn,
         get_message_by_telegram_message_id_fn=get_message_by_telegram_message_id_fn,
         build_context_fn=build_context_fn,
-        provider_getter=provider_getter,
+        low_cost_text_generation_provider=capabilities.low_cost_text_generation,
         media_service=media_service,
         maybe_react_fn=reaction_service.maybe_react,
+        generate_response_fn=reply_service.generate_response,
         send_ai_response_fn=reply_service.send_ai_response,
         generate_response_with_drafts_fn=reply_service.generate_response_with_drafts,
-        message_drafts_unavailable_reason_fn=message_drafts_unavailable_reason,
+        message_drafts_unavailable_reason_fn=lambda update, settings: (
+            message_drafts_unavailable_reason(
+                update,
+                settings,
+                supports_streaming=reply_service.supports_message_drafts,
+            )
+        ),
         log_context_fn=log_context_fn,
         logger_override=logger_override,
     )

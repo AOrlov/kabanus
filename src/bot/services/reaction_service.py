@@ -13,9 +13,9 @@ from src.bot.contracts import (
     BotSettings,
     GetAllMessagesFn,
     LogContextFn,
-    ProviderGetter,
     StorageIdFn,
 )
+from src.providers.capabilities import ReactionSelectionProvider
 from src.providers.contracts import ReactionSelectionRequest
 
 REACTION_ALLOWED_SET = {emoji.value for emoji in ReactionEmoji}
@@ -35,7 +35,7 @@ class ReactionService:
         self,
         *,
         state: ReactionState,
-        provider_getter: ProviderGetter,
+        reaction_selection_provider: Optional[ReactionSelectionProvider],
         settings_getter: Callable[[], BotSettings],
         get_all_messages_fn: GetAllMessagesFn,
         assemble_context_fn: AssembleContextFn,
@@ -46,7 +46,7 @@ class ReactionService:
         logger_override: Optional[logging.Logger] = None,
     ) -> None:
         self._state = state
-        self._provider_getter = provider_getter
+        self._reaction_selection_provider = reaction_selection_provider
         self._settings_getter = settings_getter
         self._get_all_messages = get_all_messages_fn
         self._assemble_context = assemble_context_fn
@@ -130,8 +130,9 @@ class ReactionService:
                     },
                 )
 
-            provider = self._provider_getter()
-            reaction = provider.select_reaction(
+            if self._reaction_selection_provider is None:
+                raise RuntimeError("Reaction selection capability is not configured")
+            reaction = self._reaction_selection_provider.select_reaction(
                 ReactionSelectionRequest(
                     message=text,
                     allowed_reactions=self._allowed_reactions,

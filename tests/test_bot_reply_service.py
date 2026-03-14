@@ -32,7 +32,8 @@ def test_generate_response_with_drafts_streams_updates() -> None:
         return True
 
     service = ReplyService(
-        provider_getter=lambda: provider,
+        text_generation_provider=provider,
+        streaming_text_generation_provider=provider,
         settings_getter=lambda: SimpleNamespace(telegram_format_ai_replies=False),
         add_message_fn=lambda *args, **kwargs: None,
         send_message_draft_fn=_fake_send_message_draft,
@@ -63,7 +64,8 @@ def test_send_ai_response_plain_text_chunks() -> None:
         replies.append((text, parse_mode))
 
     service = ReplyService(
-        provider_getter=lambda: _StreamingProvider([]),
+        text_generation_provider=_StreamingProvider([]),
+        streaming_text_generation_provider=None,
         settings_getter=lambda: SimpleNamespace(telegram_format_ai_replies=False),
         add_message_fn=lambda *args, **kwargs: stored_messages.append((args, kwargs)),
     )
@@ -77,24 +79,34 @@ def test_send_ai_response_plain_text_chunks() -> None:
     assert len(stored_messages) == 2
 
 
-def test_message_drafts_unavailable_reason_private_openai_only() -> None:
+def test_message_drafts_unavailable_reason_requires_streaming_and_private_chat() -> (
+    None
+):
     update_private = SimpleNamespace(effective_chat=SimpleNamespace(type="private"))
     update_group = SimpleNamespace(effective_chat=SimpleNamespace(type="group"))
-    openai_settings = SimpleNamespace(
-        telegram_use_message_drafts=True,
-        model_provider="openai",
-    )
-    gemini_settings = SimpleNamespace(
-        telegram_use_message_drafts=True,
-        model_provider="gemini",
-    )
+    enabled_settings = SimpleNamespace(telegram_use_message_drafts=True)
 
-    assert message_drafts_unavailable_reason(update_private, openai_settings) is None
     assert (
-        message_drafts_unavailable_reason(update_group, openai_settings)
+        message_drafts_unavailable_reason(
+            update_private,
+            enabled_settings,
+            supports_streaming=True,
+        )
+        is None
+    )
+    assert (
+        message_drafts_unavailable_reason(
+            update_group,
+            enabled_settings,
+            supports_streaming=True,
+        )
         == "chat_type_group"
     )
     assert (
-        message_drafts_unavailable_reason(update_private, gemini_settings)
-        == "provider_not_openai"
+        message_drafts_unavailable_reason(
+            update_private,
+            enabled_settings,
+            supports_streaming=False,
+        )
+        == "streaming_unavailable"
     )
