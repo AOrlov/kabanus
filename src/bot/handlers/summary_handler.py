@@ -162,6 +162,8 @@ class SummaryHandler:
         if err:
             await update.message.reply_text(f"{err}\n\n{self._summary_usage()}")
             return
+        if parsed is None:
+            return
 
         if parsed.get("show_help"):
             await update.message.reply_text(self._summary_usage())

@@ -3,7 +3,10 @@ from types import SimpleNamespace
 import pytest
 
 from src import provider_factory
-from src.provider_factory import RoutedModelProvider
+from src.provider_factory import (
+    RoutedModelProvider,
+    build_capability_providers_for_settings,
+)
 from src.providers.contracts import (
     AudioTranscriptionRequest,
     ImageToEventRequest,
@@ -209,22 +212,40 @@ def test_build_provider_rejects_unsupported_capability_route() -> None:
         )
 
 
-def test_build_provider_uses_config_settings(monkeypatch) -> None:
+def test_build_capability_providers_scopes_validation_to_required_capabilities() -> None:
     settings = _settings(
         ProviderRouting(
             text_generation="openai",
             streaming_text_generation="openai",
             low_cost_text_generation="openai",
-            audio_transcription="gemini",
+            audio_transcription="openai",
             ocr="openai",
             reaction_selection="openai",
-            event_parsing="openai",
-        )
+            event_parsing="gemini",
+        ),
+        openai_configured=False,
+        gemini_configured=True,
     )
-    monkeypatch.setattr(provider_factory.config, "get_settings", lambda: settings)
-    monkeypatch.setattr(provider_factory, "OpenAIProvider", _OpenAIProvider)
-    monkeypatch.setattr(provider_factory, "GeminiProvider", _GeminiProvider)
+    captured = {"openai": 0, "gemini": 0}
 
-    provider = provider_factory.build_provider()
+    def _openai_factory(configured_settings):
+        del configured_settings
+        captured["openai"] += 1
+        return _OpenAIProvider(None)
 
-    assert provider.generate_text(TextGenerationRequest(prompt="ping")) == "openai:ping"
+    def _gemini_factory(configured_settings):
+        del configured_settings
+        captured["gemini"] += 1
+        return _GeminiProvider(None)
+
+    capability_providers = build_capability_providers_for_settings(
+        settings,
+        required_capabilities=("event_parsing",),
+        openai_factory=_openai_factory,
+        gemini_factory=_gemini_factory,
+    )
+
+    assert captured == {"openai": 0, "gemini": 1}
+    assert capability_providers["event_parsing"].parse_image_event(
+        ImageToEventRequest(image_path="event.jpg")
+    ) == {"provider": "gemini", "path": "event.jpg"}

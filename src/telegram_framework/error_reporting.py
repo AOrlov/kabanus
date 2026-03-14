@@ -3,7 +3,7 @@
 import html
 import json
 import traceback
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 
 from telegram import Update
 from telegram.constants import ParseMode
@@ -26,7 +26,7 @@ def _send_html_message(
 async def notify_admin(
     context: ContextTypes.DEFAULT_TYPE,
     *,
-    admin_chat_id: str,
+    admin_chat_id: Optional[str],
     message: str,
 ) -> None:
     if not admin_chat_id:
@@ -134,7 +134,7 @@ async def notify_admin_about_exception(
     update: object,
     context: ContextTypes.DEFAULT_TYPE,
     *,
-    admin_chat_id: str,
+    admin_chat_id: Optional[str],
     max_len: int = 3500,
 ) -> None:
     if not admin_chat_id or context.error is None:

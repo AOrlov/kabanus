@@ -268,12 +268,12 @@ class MediaService:
                 return NON_TEXT_REPLY_PLACEHOLDER, "image_too_large"
 
             try:
-                extracted = await self.extract_text_from_image_document(
+                extracted_document = await self.extract_text_from_image_document(
                     reply_message,
                     context,
                 )
-                if extracted is not None:
-                    extracted_text = extracted.strip()
+                if extracted_document is not None:
+                    extracted_text = extracted_document.strip()
                     if extracted_text:
                         return extracted_text, "fallback_ocr"
             except Exception as exc:

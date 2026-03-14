@@ -1,6 +1,6 @@
 import logging
 from dataclasses import dataclass
-from typing import Callable, Optional
+from typing import Callable, Optional, cast
 
 from telegram import Update
 from telegram.ext import (
@@ -12,6 +12,8 @@ from telegram.ext import (
 from src import config, logging_utils
 from src.bot import features as bot_features
 from src.bot.contracts import (
+    EventsCapabilities,
+    MessageFlowCapabilities,
     RuntimeCapabilities,
     available_runtime_capabilities,
     compose_runtime_capabilities,
@@ -28,7 +30,16 @@ from src.message_store import (
     get_message_by_telegram_message_id,
     get_summary_view_text,
 )
-from src.provider_factory import build_provider, build_provider_for_settings
+from src.provider_factory import build_capability_providers_for_settings
+from src.providers.capabilities import (
+    AudioTranscriptionProvider,
+    EventParsingProvider,
+    LowCostTextGenerationProvider,
+    OcrProvider,
+    ReactionSelectionProvider,
+    StreamingTextGenerationProvider,
+    TextGenerationProvider,
+)
 from src.providers.contracts import CapabilityName
 from src.providers.errors import ProviderConfigurationError
 from src.telegram_framework import application as framework_application
@@ -226,6 +237,67 @@ def _validate_runtime_capabilities(
         )
 
 
+def _required_runtime_capabilities(settings: config.Settings) -> tuple[CapabilityName, ...]:
+    required: list[CapabilityName] = []
+    features = getattr(settings, "features", {})
+
+    if features.get("message_handling"):
+        required.extend(
+            [
+                "text_generation",
+                "low_cost_text_generation",
+                "audio_transcription",
+                "ocr",
+            ]
+        )
+        if getattr(settings, "telegram_use_message_drafts", False):
+            required.append("streaming_text_generation")
+    if getattr(settings, "reaction_enabled", False):
+        required.append("reaction_selection")
+    if features.get("schedule_events"):
+        required.append("event_parsing")
+    return tuple(required)
+
+
+def _compose_runtime_capabilities_from_map(
+    capability_providers: dict[CapabilityName, object],
+) -> RuntimeCapabilities:
+    return RuntimeCapabilities(
+        message_flow=MessageFlowCapabilities(
+            text_generation=cast(
+                Optional[TextGenerationProvider],
+                capability_providers.get("text_generation"),
+            ),
+            streaming_text_generation=cast(
+                Optional[StreamingTextGenerationProvider],
+                capability_providers.get("streaming_text_generation"),
+            ),
+            low_cost_text_generation=cast(
+                Optional[LowCostTextGenerationProvider],
+                capability_providers.get("low_cost_text_generation"),
+            ),
+            audio_transcription=cast(
+                Optional[AudioTranscriptionProvider],
+                capability_providers.get("audio_transcription"),
+            ),
+            ocr=cast(
+                Optional[OcrProvider],
+                capability_providers.get("ocr"),
+            ),
+            reaction_selection=cast(
+                Optional[ReactionSelectionProvider],
+                capability_providers.get("reaction_selection"),
+            ),
+        ),
+        events=EventsCapabilities(
+            event_parsing=cast(
+                Optional[EventParsingProvider],
+                capability_providers.get("event_parsing"),
+            )
+        ),
+    )
+
+
 def build_runtime(
     *,
     settings_getter: Callable[..., config.Settings] = config.get_settings,
@@ -245,16 +317,23 @@ def build_runtime(
 ) -> BotRuntime:
     settings_resolver = SettingsResolver(settings_getter)
     settings = settings_resolver.get()
+    required_capabilities = _required_runtime_capabilities(settings)
     provider_instance = provider
     runtime_capabilities = capabilities
     runtime: Optional[BotRuntime] = None
     if runtime_capabilities is None:
-        if provider_instance is None:
-            if settings_getter is config.get_settings:
-                provider_instance = build_provider()
-            else:
-                provider_instance = build_provider_for_settings(settings)
-        runtime_capabilities = compose_runtime_capabilities(provider_instance)
+        if provider_instance is not None:
+            runtime_capabilities = compose_runtime_capabilities(provider_instance)
+        elif required_capabilities:
+            capability_providers = build_capability_providers_for_settings(
+                settings,
+                required_capabilities=required_capabilities,
+            )
+            runtime_capabilities = _compose_runtime_capabilities_from_map(
+                capability_providers
+            )
+        else:
+            runtime_capabilities = RuntimeCapabilities()
     _validate_runtime_capabilities(settings, runtime_capabilities)
 
     if is_allowed_fn is None:

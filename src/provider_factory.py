@@ -123,8 +123,22 @@ def _provider_is_configured(settings: config.Settings, provider_name: str) -> bo
     return settings.ai.gemini.configured
 
 
-def _validate_routing(settings: config.Settings, routing: ProviderRouting) -> None:
-    for capability in _CAPABILITIES:
+def _capability_scope(
+    required_capabilities: Optional[Iterable[CapabilityName]] = None,
+) -> tuple[CapabilityName, ...]:
+    if required_capabilities is None:
+        return _CAPABILITIES
+    selected = set(required_capabilities)
+    return tuple(capability for capability in _CAPABILITIES if capability in selected)
+
+
+def _validate_routing(
+    settings: config.Settings,
+    routing: ProviderRouting,
+    *,
+    required_capabilities: Optional[Iterable[CapabilityName]] = None,
+) -> None:
+    for capability in _capability_scope(required_capabilities):
         provider_name = routing.provider_for(capability)
         if not _provider_is_configured(settings, provider_name):
             if provider_name == "openai":
@@ -167,13 +181,58 @@ def _resolve_capability_provider(
     return provider
 
 
-def _providers_in_use(routing: ProviderRouting) -> list[str]:
+def _providers_in_use(
+    routing: ProviderRouting,
+    *,
+    required_capabilities: Optional[Iterable[CapabilityName]] = None,
+) -> list[str]:
     ordered: list[str] = []
-    for capability in _CAPABILITIES:
+    for capability in _capability_scope(required_capabilities):
         provider_name = routing.provider_for(capability)
         if provider_name not in ordered:
             ordered.append(provider_name)
     return ordered
+
+
+def build_capability_providers_for_settings(
+    settings: config.Settings,
+    *,
+    required_capabilities: Iterable[CapabilityName],
+    openai_factory: Optional[Callable[[config.Settings], object]] = None,
+    gemini_factory: Optional[Callable[[config.Settings], object]] = None,
+) -> Dict[CapabilityName, object]:
+    routing = resolve_provider_routing(settings)
+    scoped_capabilities = _capability_scope(required_capabilities)
+    _validate_routing(
+        settings,
+        routing,
+        required_capabilities=scoped_capabilities,
+    )
+
+    if openai_factory is None:
+        openai_factory = OpenAIProvider
+    if gemini_factory is None:
+        gemini_factory = GeminiProvider
+
+    providers_by_name: Dict[str, object] = {}
+    for provider_name in _providers_in_use(
+        routing,
+        required_capabilities=scoped_capabilities,
+    ):
+        if provider_name == "openai":
+            providers_by_name[provider_name] = openai_factory(settings)
+        else:
+            providers_by_name[provider_name] = gemini_factory(settings)
+
+    capability_providers: Dict[CapabilityName, object] = {}
+    for capability in scoped_capabilities:
+        capability_providers[capability] = _resolve_capability_provider(
+            routing,
+            providers_by_name,
+            capability,
+        )
+
+    return capability_providers
 
 
 def build_provider_for_settings(
@@ -182,83 +241,44 @@ def build_provider_for_settings(
     openai_factory: Optional[Callable[[config.Settings], object]] = None,
     gemini_factory: Optional[Callable[[config.Settings], object]] = None,
 ) -> ProviderCapabilities:
-    routing = resolve_provider_routing(settings)
-    _validate_routing(settings, routing)
-
-    if openai_factory is None:
-        openai_factory = OpenAIProvider
-    if gemini_factory is None:
-        gemini_factory = GeminiProvider
-
-    providers_by_name: Dict[str, object] = {}
-    for provider_name in _providers_in_use(routing):
-        if provider_name == "openai":
-            providers_by_name[provider_name] = openai_factory(settings)
-        else:
-            providers_by_name[provider_name] = gemini_factory(settings)
-
+    capability_providers = build_capability_providers_for_settings(
+        settings,
+        required_capabilities=_CAPABILITIES,
+        openai_factory=openai_factory,
+        gemini_factory=gemini_factory,
+    )
     routed_provider = RoutedModelProvider(
         text_generation=cast(
             TextGenerationProvider,
-            _resolve_capability_provider(
-                routing,
-                providers_by_name,
-                "text_generation",
-            ),
+            capability_providers["text_generation"],
         ),
         streaming_text_generation=cast(
             StreamingTextGenerationProvider,
-            _resolve_capability_provider(
-                routing,
-                providers_by_name,
-                "streaming_text_generation",
-            ),
+            capability_providers["streaming_text_generation"],
         ),
         low_cost_text_generation=cast(
             LowCostTextGenerationProvider,
-            _resolve_capability_provider(
-                routing,
-                providers_by_name,
-                "low_cost_text_generation",
-            ),
+            capability_providers["low_cost_text_generation"],
         ),
         audio_transcription=cast(
             AudioTranscriptionProvider,
-            _resolve_capability_provider(
-                routing,
-                providers_by_name,
-                "audio_transcription",
-            ),
+            capability_providers["audio_transcription"],
         ),
         ocr=cast(
             OcrProvider,
-            _resolve_capability_provider(
-                routing,
-                providers_by_name,
-                "ocr",
-            ),
+            capability_providers["ocr"],
         ),
         reaction_selection=cast(
             ReactionSelectionProvider,
-            _resolve_capability_provider(
-                routing,
-                providers_by_name,
-                "reaction_selection",
-            ),
+            capability_providers["reaction_selection"],
         ),
         event_parsing=cast(
             EventParsingProvider,
-            _resolve_capability_provider(
-                routing,
-                providers_by_name,
-                "event_parsing",
-            ),
+            capability_providers["event_parsing"],
         ),
     )
-    logger.debug("Built capability-routed provider", extra={"routing": routing})
+    logger.debug(
+        "Built capability-routed provider",
+        extra={"routing": resolve_provider_routing(settings)},
+    )
     return routed_provider
-
-
-def build_provider() -> ProviderCapabilities:
-    settings = config.get_settings()
-    return build_provider_for_settings(settings)

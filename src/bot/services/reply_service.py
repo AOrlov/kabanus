@@ -2,7 +2,7 @@ import asyncio
 import hashlib
 import logging
 import time
-from typing import Callable, Optional
+from typing import Any, Callable, Coroutine, Optional
 
 from telegram import Update
 from telegram.constants import ParseMode
@@ -59,7 +59,9 @@ class ReplyService:
         streaming_text_generation_provider: Optional[StreamingTextGenerationProvider],
         settings_getter: Callable[[], BotSettings],
         add_message_fn: AddMessageFn,
-        send_message_draft_fn: Callable[..., object] = send_message_draft,
+        send_message_draft_fn: Callable[
+            ..., Coroutine[Any, Any, bool]
+        ] = send_message_draft,
         log_context_fn: LogContextFn = lambda _update: {},
         logger_override: Optional[logging.Logger] = None,
     ) -> None:
@@ -103,7 +105,7 @@ class ReplyService:
         last_sent_ts = 0.0
         stream_text = ""
         draft_updates_enabled = True
-        pending_send_task: Optional[asyncio.Task] = None
+        pending_send_task: Optional[asyncio.Task[bool]] = None
         pending_send_text = ""
         stream_error: Optional[Exception] = None
 
@@ -134,13 +136,14 @@ class ReplyService:
         def _schedule_send(draft_text: str) -> None:
             nonlocal pending_send_task, pending_send_text, last_sent_draft, last_sent_ts
             pending_send_text = draft_text
+            send_coro: Coroutine[Any, Any, bool] = self._send_message_draft(
+                bot_token=settings.telegram_bot_token,
+                chat_id=chat.id,
+                draft_id=draft_id,
+                text=draft_text,
+            )
             pending_send_task = asyncio.create_task(
-                self._send_message_draft(
-                    bot_token=settings.telegram_bot_token,
-                    chat_id=chat.id,
-                    draft_id=draft_id,
-                    text=draft_text,
-                )
+                send_coro
             )
             last_sent_draft = draft_text
             last_sent_ts = time.monotonic()

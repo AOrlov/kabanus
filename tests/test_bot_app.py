@@ -10,6 +10,7 @@ from src.bot.contracts import (
     MessageFlowCapabilities,
     RuntimeCapabilities,
 )
+from src.providers.contracts import ProviderRouting
 
 
 class _Provider:
@@ -157,15 +158,13 @@ def test_build_runtime_uses_injected_provider(monkeypatch) -> None:
     settings = SimpleNamespace(admin_chat_id=None, debug_mode=False)
     provider = _Provider()
 
-    def _forbidden_build_provider_for_settings(_settings):
-        raise AssertionError(
-            "build_provider should not be used when provider is injected"
-        )
+    def _forbidden_build_capability_providers_for_settings(*args, **kwargs):
+        raise AssertionError("provider builder should not be used when provider is injected")
 
     monkeypatch.setattr(
         bot_app,
-        "build_provider_for_settings",
-        _forbidden_build_provider_for_settings,
+        "build_capability_providers_for_settings",
+        _forbidden_build_capability_providers_for_settings,
     )
 
     runtime = bot_app.build_runtime(
@@ -180,25 +179,117 @@ def test_build_runtime_uses_injected_provider(monkeypatch) -> None:
 def test_build_runtime_builds_provider_from_injected_settings_getter(
     monkeypatch,
 ) -> None:
-    settings = SimpleNamespace(admin_chat_id=None, debug_mode=False)
+    settings = SimpleNamespace(
+        admin_chat_id=None,
+        debug_mode=False,
+        features={"message_handling": True, "schedule_events": False},
+        telegram_use_message_drafts=False,
+        reaction_enabled=False,
+    )
     provider = _Provider()
     captured = {}
 
-    def _fake_build_provider_for_settings(configured_settings):
+    def _fake_build_capability_providers_for_settings(
+        configured_settings, *, required_capabilities
+    ):
         captured["settings"] = configured_settings
-        return provider
+        captured["required_capabilities"] = required_capabilities
+        return {
+            "text_generation": provider,
+            "low_cost_text_generation": provider,
+            "audio_transcription": provider,
+            "ocr": provider,
+        }
 
     monkeypatch.setattr(
         bot_app,
-        "build_provider_for_settings",
-        _fake_build_provider_for_settings,
+        "build_capability_providers_for_settings",
+        _fake_build_capability_providers_for_settings,
     )
 
     runtime = bot_app.build_runtime(settings_getter=lambda force=False: settings)
 
     assert runtime.capabilities.message_flow.text_generation is provider
-    assert runtime.reaction_service._reaction_selection_provider is provider
+    assert runtime.reaction_service._reaction_selection_provider is None
     assert captured["settings"] is settings
+    assert captured["required_capabilities"] == (
+        "text_generation",
+        "low_cost_text_generation",
+        "audio_transcription",
+        "ocr",
+    )
+
+
+def test_build_runtime_skips_provider_build_when_no_ai_features_enabled(
+    monkeypatch,
+) -> None:
+    settings = SimpleNamespace(
+        admin_chat_id=None,
+        debug_mode=False,
+        features={"message_handling": False, "schedule_events": False},
+        telegram_use_message_drafts=False,
+        reaction_enabled=False,
+    )
+
+    def _forbidden_build_capability_providers_for_settings(*args, **kwargs):
+        raise AssertionError("provider builder should not run without required capabilities")
+
+    monkeypatch.setattr(
+        bot_app,
+        "build_capability_providers_for_settings",
+        _forbidden_build_capability_providers_for_settings,
+    )
+
+    runtime = bot_app.build_runtime(settings_getter=lambda force=False: settings)
+
+    assert runtime.capabilities == RuntimeCapabilities()
+
+
+def test_build_runtime_scopes_provider_build_to_required_event_capability(
+    monkeypatch,
+) -> None:
+    settings = SimpleNamespace(
+        admin_chat_id=None,
+        debug_mode=False,
+        features={"message_handling": False, "schedule_events": True},
+        telegram_use_message_drafts=False,
+        reaction_enabled=False,
+        provider_routing=ProviderRouting(
+            text_generation="openai",
+            streaming_text_generation="openai",
+            low_cost_text_generation="openai",
+            audio_transcription="openai",
+            ocr="openai",
+            reaction_selection="openai",
+            event_parsing="gemini",
+        ),
+        ai=SimpleNamespace(
+            openai=SimpleNamespace(configured=False),
+            gemini=SimpleNamespace(configured=True),
+        ),
+    )
+    provider = object()
+    captured = {}
+
+    def _fake_build_capability_providers_for_settings(
+        configured_settings, *, required_capabilities
+    ):
+        captured["settings"] = configured_settings
+        captured["required_capabilities"] = required_capabilities
+        return {"event_parsing": provider}
+
+    monkeypatch.setattr(
+        bot_app,
+        "build_capability_providers_for_settings",
+        _fake_build_capability_providers_for_settings,
+    )
+
+    runtime = bot_app.build_runtime(settings_getter=lambda force=False: settings)
+
+    assert captured["settings"] is settings
+    assert captured["required_capabilities"] == ("event_parsing",)
+    assert runtime.capabilities.events.event_parsing is provider
+    assert runtime.capabilities.message_flow.text_generation is None
 
 
 def test_build_runtime_fails_when_drafts_require_missing_streaming_capability() -> None:

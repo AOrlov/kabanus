@@ -44,6 +44,9 @@ REVIEWED_FINDINGS: Dict[str, str] = {
     "src/memory/summary_store.py:save_summary_state": (
         "Public summary-state API used by tests and diagnostics."
     ),
+    "src/provider_factory.py:build_provider_for_settings": (
+        "Full provider-composition helper retained for provider acceptance and contract tests."
+    ),
 }
 
 # Symbols that were removed in Task 6 and must stay removed.
