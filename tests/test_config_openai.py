@@ -17,7 +17,7 @@ def test_openai_provider_requires_openai_api_key(monkeypatch) -> None:
     _reset_settings_cache()
 
     with pytest.raises(
-        RuntimeError, match="OPENAI_API_KEY|OPENAI_AUTH_JSON_PATH|OpenAI mode requires"
+        RuntimeError, match="OPENAI_API_KEY or OPENAI_AUTH_JSON_PATH is missing"
     ):
         config.get_settings(force=True)
 
@@ -35,15 +35,15 @@ def test_openai_provider_defaults(monkeypatch) -> None:
     _reset_settings_cache()
 
     settings = config.get_settings(force=True)
-    assert settings.model_provider == "openai"
-    assert settings.openai_model == "gpt-5.3-codex"
-    assert settings.openai_low_cost_model == settings.openai_model
-    assert settings.openai_reaction_model == settings.openai_low_cost_model
+    assert settings.ai.routing.text_generation == "openai"
+    assert settings.ai.openai.text_model == "gpt-5.3-codex"
+    assert settings.ai.openai.low_cost_model == settings.ai.openai.text_model
+    assert settings.ai.openai.reaction_model == settings.ai.openai.low_cost_model
     assert settings.reaction_context_turns == 8
     assert settings.reaction_context_token_limit == 1200
-    assert settings.openai_refresh_url == "https://auth.openai.com/oauth/token"
-    assert settings.openai_codex_base_url == "https://chatgpt.com/backend-api"
-    assert settings.openai_codex_default_model == "gpt-5.3-codex"
+    assert settings.ai.openai.refresh_url == "https://auth.openai.com/oauth/token"
+    assert settings.ai.openai.codex_base_url == "https://chatgpt.com/backend-api"
+    assert settings.ai.openai.codex_default_model == "gpt-5.3-codex"
 
 
 def test_openai_provider_accepts_auth_json_without_api_key(
@@ -61,10 +61,10 @@ def test_openai_provider_accepts_auth_json_without_api_key(
     _reset_settings_cache()
 
     settings = config.get_settings(force=True)
-    assert settings.openai_auth_json_path == str(auth_file)
-    assert settings.openai_model == "gpt-5.3-codex"
-    assert settings.openai_low_cost_model == "gpt-5.3-codex"
-    assert settings.openai_reaction_model == "gpt-5.3-codex"
+    assert settings.ai.openai.auth_json_path == str(auth_file)
+    assert settings.ai.openai.text_model == "gpt-5.3-codex"
+    assert settings.ai.openai.low_cost_model == "gpt-5.3-codex"
+    assert settings.ai.openai.reaction_model == "gpt-5.3-codex"
 
 
 def test_reaction_context_env_values_are_clamped(monkeypatch) -> None:

@@ -50,12 +50,12 @@ Replace the current monolithic AI provider abstraction with explicit capability-
 - Modify: `tests/test_config_compat_contract.py`
 - Modify: `tests/test_provider_factory.py`
 
-- [ ] Replace the flat OpenAI/Gemini settings bag with nested provider settings plus an explicit per-capability routing configuration
-- [ ] Remove hard-coded routing rules such as “OpenAI primary with Gemini transcription fallback” and replace them with validated startup composition
-- [ ] Construct provider components with injected settings/dependencies instead of letting concrete providers read global config on demand
-- [ ] Rewrite configuration tests around the new contract rather than preserving old compatibility semantics
-- [ ] write tests for this task
-- [ ] run project test suite - must pass before task 3
+- [x] Replace the flat OpenAI/Gemini settings bag with nested provider settings plus an explicit per-capability routing configuration
+- [x] Remove hard-coded routing rules such as “OpenAI primary with Gemini transcription fallback” and replace them with validated startup composition
+- [x] Construct provider components with injected settings/dependencies instead of letting concrete providers read global config on demand
+- [x] Rewrite configuration tests around the new contract rather than preserving old compatibility semantics
+- [x] write tests for this task
+- [x] run project test suite - must pass before task 3
 
 ### Task 3: Split and Harden OpenAI Integration
 

@@ -1,3 +1,4 @@
+import os
 from datetime import date
 from types import SimpleNamespace
 
@@ -5,6 +6,23 @@ from src import config
 from src import retry_utils
 from src.gemini_provider import GeminiProvider, _ModelUsage
 from src.providers.contracts import ReactionSelectionRequest
+
+
+def _settings(*, api_key: str = "gem-key"):
+    return SimpleNamespace(
+        ai=SimpleNamespace(
+            gemini=SimpleNamespace(
+                api_key=api_key,
+                model_specs=[
+                    config.ModelSpec(name="gemini-2.0-flash", rpm=None, rpd=None)
+                ],
+                thinking_budget=1024,
+                use_google_search=False,
+                system_instructions_path="",
+            )
+        ),
+        language="ru",
+    )
 
 
 def test_model_usage_exhausted_until_next_day() -> None:
@@ -23,10 +41,16 @@ def test_model_usage_exhausted_until_next_day() -> None:
 
 
 def test_choose_reaction_includes_recent_context(monkeypatch) -> None:
-    provider = GeminiProvider()
+    provider = GeminiProvider(_settings())
     settings = SimpleNamespace(
-        gemini_models=[config.ModelSpec(name="gemini-2.0-flash", rpm=None, rpd=None)],
-        thinking_budget=1024,
+        ai=SimpleNamespace(
+            gemini=SimpleNamespace(
+                model_specs=[
+                    config.ModelSpec(name="gemini-2.0-flash", rpm=None, rpd=None)
+                ],
+                thinking_budget=1024,
+            )
+        )
     )
     captured = {}
 
@@ -67,3 +91,20 @@ def test_choose_reaction_includes_recent_context(monkeypatch) -> None:
     assert "Alice: deploy in 10 minutes" in captured["contents"]
     assert "Allowed reactions: 😀, 😴" in captured["contents"]
     assert captured["thinking_budget"] == 0
+
+
+def test_get_client_uses_explicit_api_key_without_env_mutation(monkeypatch) -> None:
+    provider = GeminiProvider(_settings(api_key="explicit-key"))
+    captured = {}
+    monkeypatch.setenv("GOOGLE_API_KEY", "original-env-key")
+
+    class _FakeClient:
+        def __init__(self, *, api_key):
+            captured["api_key"] = api_key
+
+    monkeypatch.setattr("src.gemini_provider.genai.Client", _FakeClient)
+
+    provider._get_client()
+
+    assert captured["api_key"] == "explicit-key"
+    assert os.environ["GOOGLE_API_KEY"] == "original-env-key"

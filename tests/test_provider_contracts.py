@@ -195,59 +195,48 @@ def test_provider_capability_protocol_contract_invocations() -> None:
 
 
 def test_resolve_provider_routing_contract() -> None:
-    openai_routing = resolve_provider_routing(
-        SimpleNamespace(
-            model_provider="openai",
-            gemini_api_key="gem-key",
-            openai_api_key="",
-            openai_auth_json_path="",
-        )
+    routing = ProviderRouting(
+        text_generation="openai",
+        streaming_text_generation="openai",
+        low_cost_text_generation="gemini",
+        audio_transcription="gemini",
+        ocr="openai",
+        reaction_selection="gemini",
+        event_parsing="openai",
     )
-    assert openai_routing == ProviderRouting(
-        primary="openai",
-        fallback="gemini",
-        transcribe_use_fallback=True,
-    )
+    settings = SimpleNamespace(provider_routing=routing)
 
-    gemini_routing = resolve_provider_routing(
-        SimpleNamespace(
-            model_provider="gemini",
-            gemini_api_key="gem-key",
-            openai_api_key="openai-key",
-            openai_auth_json_path="",
-        )
-    )
-    assert gemini_routing == ProviderRouting(
-        primary="gemini",
-        fallback="openai",
-        transcribe_use_fallback=False,
-    )
+    assert resolve_provider_routing(settings) is routing
 
 
 def test_build_provider_for_settings_routes_operations_and_context() -> None:
     build_order = []
-    openai = _ConfigurableProvider(
-        "openai",
-        fail_generate=True,
-        fail_reaction=True,
-        stream_mode="fail",
-    )
+    openai = _ConfigurableProvider("openai")
     gemini = _ConfigurableProvider("gemini")
 
-    def _openai_factory() -> ProviderCapabilities:
+    def _openai_factory(_settings) -> ProviderCapabilities:
         build_order.append("openai")
         return openai
 
-    def _gemini_factory() -> ProviderCapabilities:
+    def _gemini_factory(_settings) -> ProviderCapabilities:
         build_order.append("gemini")
         return gemini
 
     provider = build_provider_for_settings(
         settings=SimpleNamespace(
-            model_provider="openai",
-            gemini_api_key="gem-key",
-            openai_api_key="openai-key",
-            openai_auth_json_path="",
+            provider_routing=ProviderRouting(
+                text_generation="openai",
+                streaming_text_generation="openai",
+                low_cost_text_generation="gemini",
+                audio_transcription="gemini",
+                ocr="openai",
+                reaction_selection="gemini",
+                event_parsing="openai",
+            ),
+            ai=SimpleNamespace(
+                openai=SimpleNamespace(configured=True),
+                gemini=SimpleNamespace(configured=True),
+            ),
         ),
         openai_factory=_openai_factory,
         gemini_factory=_gemini_factory,
@@ -259,11 +248,15 @@ def test_build_provider_for_settings_routes_operations_and_context() -> None:
         == "gemini:voice.ogg"
     )
     assert (
-        provider.generate_text(TextGenerationRequest(prompt="hello")) == "gemini:hello"
+        provider.generate_text(TextGenerationRequest(prompt="hello")) == "openai:hello"
     )
     assert list(
         provider.generate_text_stream(TextGenerationRequest(prompt="hello"))
-    ) == ["gemini-full"]
+    ) == ["openai-full"]
+    assert (
+        provider.generate_low_cost_text(TextGenerationRequest(prompt="hello"))
+        == "gemini-low:hello"
+    )
     assert (
         provider.select_reaction(
             ReactionSelectionRequest(
@@ -277,15 +270,31 @@ def test_build_provider_for_settings_routes_operations_and_context() -> None:
     assert gemini.reaction_contexts == ["Alice: hi"]
 
 
-def test_routed_provider_keeps_partial_stream_without_fallback() -> None:
-    primary = _ConfigurableProvider("openai", stream_mode="partial_fail")
-    fallback = _ConfigurableProvider("gemini")
-    routed = RoutedModelProvider(primary=primary, fallback=fallback)
+def test_routed_provider_uses_explicit_capability_objects() -> None:
+    openai = _ConfigurableProvider("openai")
+    gemini = _ConfigurableProvider("gemini")
+    routed = RoutedModelProvider(
+        text_generation=openai,
+        streaming_text_generation=openai,
+        low_cost_text_generation=gemini,
+        audio_transcription=gemini,
+        ocr=openai,
+        reaction_selection=gemini,
+        event_parsing=openai,
+    )
 
+    assert routed.generate_text(TextGenerationRequest(prompt="hello")) == "openai:hello"
     assert list(routed.generate_text_stream(TextGenerationRequest(prompt="hello"))) == [
-        "openai-partial"
+        "openai-full"
     ]
-    assert fallback.stream_calls == 0
+    assert (
+        routed.generate_low_cost_text(TextGenerationRequest(prompt="hello"))
+        == "gemini-low:hello"
+    )
+    assert (
+        routed.transcribe_audio(AudioTranscriptionRequest(audio_path="voice.ogg"))
+        == "gemini:voice.ogg"
+    )
 
 
 def test_provider_errors_preserve_provider_and_capability_context() -> None:
@@ -300,9 +309,7 @@ def test_provider_errors_preserve_provider_and_capability_context() -> None:
     assert error.capability == "text_generation"
 
 
-def test_routed_provider_does_not_fallback_on_typed_provider_errors() -> None:
-    fallback = _ConfigurableProvider("gemini")
-
+def test_routed_provider_surfaces_typed_provider_errors() -> None:
     class _AuthFailProvider(_ConfigurableProvider):
         def generate_text(self, request: TextGenerationRequest) -> str:
             _ = request
@@ -313,8 +320,13 @@ def test_routed_provider_does_not_fallback_on_typed_provider_errors() -> None:
             )
 
     routed = RoutedModelProvider(
-        primary=_AuthFailProvider("openai"),
-        fallback=fallback,
+        text_generation=_AuthFailProvider("openai"),
+        streaming_text_generation=_ConfigurableProvider("openai"),
+        low_cost_text_generation=_ConfigurableProvider("openai"),
+        audio_transcription=_ConfigurableProvider("gemini"),
+        ocr=_ConfigurableProvider("openai"),
+        reaction_selection=_ConfigurableProvider("openai"),
+        event_parsing=_ConfigurableProvider("openai"),
     )
 
     try:
@@ -326,9 +338,7 @@ def test_routed_provider_does_not_fallback_on_typed_provider_errors() -> None:
         raise AssertionError("expected ProviderAuthError")
 
 
-def test_routed_provider_does_not_fallback_on_configuration_errors() -> None:
-    fallback = _ConfigurableProvider("gemini")
-
+def test_routed_provider_surfaces_configuration_errors() -> None:
     class _ConfigFailProvider(_ConfigurableProvider):
         def select_reaction(self, request: ReactionSelectionRequest) -> str:
             _ = request
@@ -339,8 +349,13 @@ def test_routed_provider_does_not_fallback_on_configuration_errors() -> None:
             )
 
     routed = RoutedModelProvider(
-        primary=_ConfigFailProvider("openai"),
-        fallback=fallback,
+        text_generation=_ConfigurableProvider("openai"),
+        streaming_text_generation=_ConfigurableProvider("openai"),
+        low_cost_text_generation=_ConfigurableProvider("openai"),
+        audio_transcription=_ConfigurableProvider("gemini"),
+        ocr=_ConfigurableProvider("openai"),
+        reaction_selection=_ConfigFailProvider("openai"),
+        event_parsing=_ConfigurableProvider("openai"),
     )
 
     try:
@@ -352,5 +367,3 @@ def test_routed_provider_does_not_fallback_on_configuration_errors() -> None:
         assert exc.capability == "reaction_selection"
     else:
         raise AssertionError("expected ProviderConfigurationError")
-
-    assert fallback.reaction_contexts == []

@@ -9,6 +9,7 @@ from src import config, utils
 from src.openai_auth import OpenAIAuthManager
 from src.providers.contracts import (
     AudioTranscriptionRequest,
+    CapabilityName,
     ImageToEventRequest,
     ImageToTextRequest,
     ReactionSelectionRequest,
@@ -27,37 +28,34 @@ logger = logging.getLogger(__name__)
 
 
 class OpenAIProvider:
-    def __init__(self) -> None:
+    def __init__(self, settings: config.Settings) -> None:
+        self._settings = settings
         self._client: Optional[OpenAI] = None
         self._client_signature: Optional[Tuple[str, str, str]] = None
         self._auth_manager: Optional[OpenAIAuthManager] = None
         self._auth_manager_path: Optional[str] = None
 
-    def _get_auth_manager(
-        self, settings: config.Settings
-    ) -> Optional[OpenAIAuthManager]:
-        auth_json_path = settings.openai_auth_json_path.strip()
+    def _get_auth_manager(self) -> Optional[OpenAIAuthManager]:
+        auth_json_path = self._settings.ai.openai.auth_json_path.strip()
         if not auth_json_path:
             return None
         if self._auth_manager is None or self._auth_manager_path != auth_json_path:
             self._auth_manager = OpenAIAuthManager(
                 auth_json_path=auth_json_path,
-                refresh_url_default=settings.openai_refresh_url,
-                client_id_default=settings.openai_refresh_client_id,
-                grant_type_default=settings.openai_refresh_grant_type,
-                leeway_secs=settings.openai_auth_leeway_secs,
-                timeout_secs=settings.openai_auth_timeout_secs,
+                refresh_url_default=self._settings.ai.openai.refresh_url,
+                client_id_default=self._settings.ai.openai.refresh_client_id,
+                grant_type_default=self._settings.ai.openai.refresh_grant_type,
+                leeway_secs=self._settings.ai.openai.auth_leeway_secs,
+                timeout_secs=self._settings.ai.openai.auth_timeout_secs,
             )
             self._auth_manager_path = auth_json_path
         return self._auth_manager
 
-    def _resolve_api_key(
-        self, settings: config.Settings, force_refresh: bool = False
-    ) -> str:
-        auth_manager = self._get_auth_manager(settings)
+    def _resolve_api_key(self, force_refresh: bool = False) -> str:
+        auth_manager = self._get_auth_manager()
         if auth_manager is not None:
             return auth_manager.get_access_token(force_refresh=force_refresh)
-        return settings.openai_api_key
+        return self._settings.ai.openai.api_key
 
     def _extract_chatgpt_account_id(self, token: str) -> str:
         parts = token.split(".")
@@ -76,14 +74,13 @@ class OpenAIProvider:
 
     def _resolve_client_options(
         self,
-        settings: config.Settings,
         *,
         force_refresh: bool = False,
     ) -> Tuple[str, Optional[str], Dict[str, str]]:
-        api_key = self._resolve_api_key(settings, force_refresh=force_refresh)
+        api_key = self._resolve_api_key(force_refresh=force_refresh)
         if not api_key:
             return "", None, {}
-        auth_manager = self._get_auth_manager(settings)
+        auth_manager = self._get_auth_manager()
         if auth_manager is None:
             return api_key, None, {}
 
@@ -94,7 +91,7 @@ class OpenAIProvider:
             )
             return api_key, None, {}
 
-        base_url = settings.openai_codex_base_url.rstrip("/")
+        base_url = self._settings.ai.openai.codex_base_url.rstrip("/")
         if not base_url:
             base_url = "https://chatgpt.com/backend-api"
         if not base_url.endswith("/codex"):
@@ -109,9 +106,9 @@ class OpenAIProvider:
     def _get_client(
         self, force_refresh: bool = False
     ) -> tuple[OpenAI, config.Settings]:
-        settings = config.get_settings()
+        settings = self._settings
         api_key, base_url, default_headers = self._resolve_client_options(
-            settings, force_refresh=force_refresh
+            force_refresh=force_refresh
         )
         if not api_key:
             raise ProviderConfigurationError(
@@ -173,7 +170,7 @@ class OpenAIProvider:
         self,
         exc: Exception,
         *,
-        capability: str,
+        capability: CapabilityName,
     ) -> Exception:
         if isinstance(exc, ProviderError):
             return exc

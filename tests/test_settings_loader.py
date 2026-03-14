@@ -1,7 +1,13 @@
 import pytest
 
 from src import config, settings_loader
-from src.settings_models import ModelSpec, Settings
+from src.settings_models import (
+    AISettings,
+    GeminiSettings,
+    ModelSpec,
+    OpenAISettings,
+    Settings,
+)
 
 # Contract note:
 # - Stable: config/settings env parsing and validation behavior.
@@ -23,13 +29,18 @@ def _set_base_openai_env(monkeypatch) -> None:
 def test_config_reexports_settings_models() -> None:
     assert config.Settings is Settings
     assert config.ModelSpec is ModelSpec
+    assert config.AISettings is AISettings
+    assert config.OpenAISettings is OpenAISettings
+    assert config.GeminiSettings is GeminiSettings
 
 
 def test_settings_loader_matches_config_facade_behavior(monkeypatch) -> None:
     _set_base_openai_env(monkeypatch)
+    monkeypatch.setenv("GEMINI_API_KEY", "gem-key")
     monkeypatch.setenv("BOT_ALIASES", "Kaban, Helper")
     monkeypatch.setenv("TELEGRAM_USE_MESSAGE_DRAFTS", "true")
     monkeypatch.setenv("REACTION_CONTEXT_TURNS", "5")
+    monkeypatch.setenv("AI_PROVIDER_AUDIO_TRANSCRIPTION", "gemini")
     monkeypatch.setattr(config, "_reload_env", lambda: None)
     _reset_config_cache()
 
@@ -44,6 +55,10 @@ def test_settings_loader_matches_config_facade_behavior(monkeypatch) -> None:
     assert loader_settings.bot_aliases == ["kaban", "helper"]
     assert loader_settings.telegram_use_message_drafts is True
     assert loader_settings.reaction_context_turns == 5
+    assert loader_settings.ai.openai.api_key == "openai-key"
+    assert loader_settings.ai.gemini.api_key == "gem-key"
+    assert loader_settings.ai.routing.text_generation == "openai"
+    assert loader_settings.ai.routing.audio_transcription == "gemini"
 
 
 @pytest.mark.parametrize(
@@ -55,9 +70,19 @@ def test_settings_loader_matches_config_facade_behavior(monkeypatch) -> None:
             "MODEL_PROVIDER must be either 'openai' or 'gemini'",
         ),
         (
-            {"MODEL_PROVIDER": "gemini"},
+            {"AI_PROVIDER_AUDIO_TRANSCRIPTION": "gemini"},
             ["GEMINI_API_KEY"],
-            "Missing required environment variable: GEMINI_API_KEY",
+            "Gemini is routed for audio_transcription",
+        ),
+        (
+            {"AI_PROVIDER_STREAMING_TEXT_GENERATION": "bad-provider"},
+            [],
+            "AI_PROVIDER_STREAMING_TEXT_GENERATION must be either 'openai' or 'gemini'",
+        ),
+        (
+            {},
+            ["OPENAI_API_KEY", "OPENAI_AUTH_JSON_PATH"],
+            "OPENAI_API_KEY or OPENAI_AUTH_JSON_PATH is missing",
         ),
     ],
 )

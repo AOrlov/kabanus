@@ -1,217 +1,262 @@
 import logging
-from typing import Callable, Iterator, Optional, TypeVar
+from typing import Callable, Dict, Iterable, Optional, cast
 
 from src import config
 from src.gemini_provider import GeminiProvider
 from src.openai_provider import OpenAIProvider
-from src.providers.capabilities import ProviderCapabilities
+from src.providers.capabilities import (
+    AudioTranscriptionProvider,
+    EventParsingProvider,
+    LowCostTextGenerationProvider,
+    OcrProvider,
+    ProviderCapabilities,
+    ReactionSelectionProvider,
+    StreamingTextGenerationProvider,
+    TextGenerationProvider,
+)
 from src.providers.contracts import (
     AudioTranscriptionRequest,
+    CapabilityName,
     ImageToEventRequest,
     ImageToTextRequest,
     ProviderRouting,
     ReactionSelectionRequest,
     TextGenerationRequest,
 )
-from src.providers.errors import (
-    ProviderAuthError,
-    ProviderCapabilityError,
-    ProviderConfigurationError,
-    ProviderQuotaError,
-)
+from src.providers.errors import ProviderCapabilityError, ProviderConfigurationError
 
 logger = logging.getLogger(__name__)
 
-T = TypeVar("T")
-R = TypeVar("R")
+_CAPABILITIES: tuple[CapabilityName, ...] = (
+    "text_generation",
+    "streaming_text_generation",
+    "low_cost_text_generation",
+    "audio_transcription",
+    "ocr",
+    "reaction_selection",
+    "event_parsing",
+)
+
+_PROVIDER_SUPPORTED_CAPABILITIES = {
+    "openai": frozenset(
+        {
+            "text_generation",
+            "streaming_text_generation",
+            "low_cost_text_generation",
+            "ocr",
+            "reaction_selection",
+            "event_parsing",
+        }
+    ),
+    "gemini": frozenset(
+        {
+            "text_generation",
+            "low_cost_text_generation",
+            "audio_transcription",
+            "ocr",
+            "reaction_selection",
+            "event_parsing",
+        }
+    ),
+}
+
+_PROTOCOL_BY_CAPABILITY = {
+    "text_generation": TextGenerationProvider,
+    "streaming_text_generation": StreamingTextGenerationProvider,
+    "low_cost_text_generation": LowCostTextGenerationProvider,
+    "audio_transcription": AudioTranscriptionProvider,
+    "ocr": OcrProvider,
+    "reaction_selection": ReactionSelectionProvider,
+    "event_parsing": EventParsingProvider,
+}
 
 
 class RoutedModelProvider:
     def __init__(
         self,
-        primary: ProviderCapabilities,
-        fallback: Optional[ProviderCapabilities],
         *,
-        transcribe_use_fallback: bool = False,
+        text_generation: TextGenerationProvider,
+        streaming_text_generation: StreamingTextGenerationProvider,
+        low_cost_text_generation: LowCostTextGenerationProvider,
+        audio_transcription: AudioTranscriptionProvider,
+        ocr: OcrProvider,
+        reaction_selection: ReactionSelectionProvider,
+        event_parsing: EventParsingProvider,
     ) -> None:
-        self._primary = primary
-        self._fallback = fallback
-        self._transcribe_use_fallback = transcribe_use_fallback
-
-    def _should_raise_without_fallback(self, exc: Exception) -> bool:
-        return isinstance(
-            exc,
-            (
-                ProviderAuthError,
-                ProviderCapabilityError,
-                ProviderConfigurationError,
-                ProviderQuotaError,
-            ),
-        )
-
-    def _call(
-        self,
-        op_name: str,
-        request: R,
-        primary_fn: Callable[[ProviderCapabilities, R], T],
-        fallback_fn: Optional[Callable[[ProviderCapabilities, R], T]] = None,
-    ) -> T:
-        try:
-            return primary_fn(self._primary, request)
-        except Exception as exc:
-            if (
-                self._fallback is None
-                or fallback_fn is None
-                or self._should_raise_without_fallback(exc)
-            ):
-                raise
-            logger.warning(
-                "Primary provider operation failed, falling back",
-                extra={"operation": op_name, "error": str(exc)},
-            )
-            return fallback_fn(self._fallback, request)
+        self._text_generation = text_generation
+        self._streaming_text_generation = streaming_text_generation
+        self._low_cost_text_generation = low_cost_text_generation
+        self._audio_transcription = audio_transcription
+        self._ocr = ocr
+        self._reaction_selection = reaction_selection
+        self._event_parsing = event_parsing
 
     def transcribe_audio(self, request: AudioTranscriptionRequest) -> str:
-        if self._transcribe_use_fallback and self._fallback is not None:
-            return self._fallback.transcribe_audio(request)
-        return self._primary.transcribe_audio(request)
+        return self._audio_transcription.transcribe_audio(request)
 
     def generate_text(self, request: TextGenerationRequest) -> str:
-        fallback_fn = (
-            (lambda provider, typed_request: provider.generate_text(typed_request))
-            if self._fallback is not None
-            else None
-        )
-        return self._call(
-            "generate_text",
-            request,
-            lambda provider, typed_request: provider.generate_text(typed_request),
-            fallback_fn,
-        )
+        return self._text_generation.generate_text(request)
 
-    def generate_text_stream(self, request: TextGenerationRequest) -> Iterator[str]:
-        emitted = False
-        try:
-            for chunk in self._primary.generate_text_stream(request):
-                emitted = True
-                yield chunk
-            return
-        except Exception as exc:
-            if emitted:
-                logger.warning(
-                    "Primary provider stream failed after partial output; returning partial response",
-                    extra={"operation": "generate_text_stream", "error": str(exc)},
-                )
-                return
-            if self._fallback is None or self._should_raise_without_fallback(exc):
-                raise
-            logger.warning(
-                "Primary provider operation failed, falling back",
-                extra={"operation": "generate_text_stream", "error": str(exc)},
-            )
-            for chunk in self._fallback.generate_text_stream(request):
-                yield chunk
+    def generate_text_stream(self, request: TextGenerationRequest) -> Iterable[str]:
+        return self._streaming_text_generation.generate_text_stream(request)
 
     def generate_low_cost_text(self, request: TextGenerationRequest) -> str:
-        fallback_fn = (
-            (
-                lambda provider, typed_request: provider.generate_low_cost_text(
-                    typed_request
-                )
-            )
-            if self._fallback is not None
-            else None
-        )
-        return self._call(
-            "generate_low_cost_text",
-            request,
-            lambda provider, typed_request: provider.generate_low_cost_text(
-                typed_request
-            ),
-            fallback_fn,
-        )
+        return self._low_cost_text_generation.generate_low_cost_text(request)
 
     def select_reaction(self, request: ReactionSelectionRequest) -> str:
-        fallback_fn = (
-            (lambda provider, typed_request: provider.select_reaction(typed_request))
-            if self._fallback is not None
-            else None
-        )
-        return self._call(
-            "select_reaction",
-            request,
-            lambda provider, typed_request: provider.select_reaction(typed_request),
-            fallback_fn,
-        )
+        return self._reaction_selection.select_reaction(request)
 
     def parse_image_event(self, request: ImageToEventRequest) -> dict:
-        fallback_fn = (
-            (lambda provider, typed_request: provider.parse_image_event(typed_request))
-            if self._fallback is not None
-            else None
-        )
-        return self._call(
-            "parse_image_event",
-            request,
-            lambda provider, typed_request: provider.parse_image_event(typed_request),
-            fallback_fn,
-        )
+        return self._event_parsing.parse_image_event(request)
 
     def extract_image_text(self, request: ImageToTextRequest) -> str:
-        fallback_fn = (
-            (lambda provider, typed_request: provider.extract_image_text(typed_request))
-            if self._fallback is not None
-            else None
-        )
-        return self._call(
-            "extract_image_text",
-            request,
-            lambda provider, typed_request: provider.extract_image_text(typed_request),
-            fallback_fn,
-        )
+        return self._ocr.extract_image_text(request)
 
 
 def resolve_provider_routing(settings: config.Settings) -> ProviderRouting:
-    if settings.model_provider == "openai":
-        has_gemini_fallback = bool(settings.gemini_api_key)
-        return ProviderRouting(
-            primary="openai",
-            fallback="gemini" if has_gemini_fallback else None,
-            transcribe_use_fallback=has_gemini_fallback,
+    return settings.provider_routing
+
+
+def _provider_is_configured(settings: config.Settings, provider_name: str) -> bool:
+    if provider_name == "openai":
+        return settings.ai.openai.configured
+    return settings.ai.gemini.configured
+
+
+def _validate_routing(settings: config.Settings, routing: ProviderRouting) -> None:
+    for capability in _CAPABILITIES:
+        provider_name = routing.provider_for(capability)
+        if not _provider_is_configured(settings, provider_name):
+            if provider_name == "openai":
+                message = (
+                    "Capability routing requires OpenAI credentials, but "
+                    "OPENAI_API_KEY or OPENAI_AUTH_JSON_PATH is missing"
+                )
+            else:
+                message = (
+                    "Capability routing requires Gemini credentials, but "
+                    "GEMINI_API_KEY or GOOGLE_API_KEY is missing"
+                )
+            raise ProviderConfigurationError(
+                message,
+                provider=provider_name,
+                capability=capability,
+            )
+        if capability not in _PROVIDER_SUPPORTED_CAPABILITIES[provider_name]:
+            raise ProviderCapabilityError(
+                f"Capability '{capability}' is not supported by provider '{provider_name}'",
+                provider=provider_name,
+                capability=capability,
+            )
+
+
+def _resolve_capability_provider(
+    routing: ProviderRouting,
+    providers_by_name: Dict[str, object],
+    capability: CapabilityName,
+) -> object:
+    provider_name = routing.provider_for(capability)
+    provider = providers_by_name[provider_name]
+    protocol = _PROTOCOL_BY_CAPABILITY[capability]
+    if not isinstance(provider, protocol):
+        raise ProviderCapabilityError(
+            f"Provider '{provider_name}' does not implement capability '{capability}'",
+            provider=provider_name,
+            capability=capability,
         )
-    has_openai_fallback = bool(
-        settings.openai_api_key or settings.openai_auth_json_path
-    )
-    return ProviderRouting(
-        primary="gemini",
-        fallback="openai" if has_openai_fallback else None,
-        transcribe_use_fallback=False,
-    )
+    return provider
+
+
+def _providers_in_use(routing: ProviderRouting) -> list[str]:
+    ordered: list[str] = []
+    for capability in _CAPABILITIES:
+        provider_name = routing.provider_for(capability)
+        if provider_name not in ordered:
+            ordered.append(provider_name)
+    return ordered
 
 
 def build_provider_for_settings(
     settings: config.Settings,
     *,
-    openai_factory: Optional[Callable[[], ProviderCapabilities]] = None,
-    gemini_factory: Optional[Callable[[], ProviderCapabilities]] = None,
+    openai_factory: Optional[Callable[[config.Settings], object]] = None,
+    gemini_factory: Optional[Callable[[config.Settings], object]] = None,
 ) -> ProviderCapabilities:
+    routing = resolve_provider_routing(settings)
+    _validate_routing(settings, routing)
+
     if openai_factory is None:
         openai_factory = OpenAIProvider
     if gemini_factory is None:
         gemini_factory = GeminiProvider
 
-    routing = resolve_provider_routing(settings)
-    factories: dict[str, Callable[[], ProviderCapabilities]] = {
-        "openai": openai_factory,
-        "gemini": gemini_factory,
-    }
-    primary = factories[routing.primary]()
-    fallback = factories[routing.fallback]() if routing.fallback is not None else None
-    return RoutedModelProvider(
-        primary=primary,
-        fallback=fallback,
-        transcribe_use_fallback=routing.transcribe_use_fallback,
+    providers_by_name: Dict[str, object] = {}
+    for provider_name in _providers_in_use(routing):
+        if provider_name == "openai":
+            providers_by_name[provider_name] = openai_factory(settings)
+        else:
+            providers_by_name[provider_name] = gemini_factory(settings)
+
+    routed_provider = RoutedModelProvider(
+        text_generation=cast(
+            TextGenerationProvider,
+            _resolve_capability_provider(
+                routing,
+                providers_by_name,
+                "text_generation",
+            ),
+        ),
+        streaming_text_generation=cast(
+            StreamingTextGenerationProvider,
+            _resolve_capability_provider(
+                routing,
+                providers_by_name,
+                "streaming_text_generation",
+            ),
+        ),
+        low_cost_text_generation=cast(
+            LowCostTextGenerationProvider,
+            _resolve_capability_provider(
+                routing,
+                providers_by_name,
+                "low_cost_text_generation",
+            ),
+        ),
+        audio_transcription=cast(
+            AudioTranscriptionProvider,
+            _resolve_capability_provider(
+                routing,
+                providers_by_name,
+                "audio_transcription",
+            ),
+        ),
+        ocr=cast(
+            OcrProvider,
+            _resolve_capability_provider(
+                routing,
+                providers_by_name,
+                "ocr",
+            ),
+        ),
+        reaction_selection=cast(
+            ReactionSelectionProvider,
+            _resolve_capability_provider(
+                routing,
+                providers_by_name,
+                "reaction_selection",
+            ),
+        ),
+        event_parsing=cast(
+            EventParsingProvider,
+            _resolve_capability_provider(
+                routing,
+                providers_by_name,
+                "event_parsing",
+            ),
+        ),
     )
+    logger.debug("Built capability-routed provider", extra={"routing": routing})
+    return routed_provider
 
 
 def build_provider() -> ProviderCapabilities:

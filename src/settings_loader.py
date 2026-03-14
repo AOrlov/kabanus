@@ -5,11 +5,18 @@ import logging
 import os
 import time
 from threading import Lock
-from typing import Callable, List, Optional
+from typing import Callable, List, Optional, cast
 
 from dotenv import find_dotenv, load_dotenv
 
-from src.settings_models import ModelSpec, Settings
+from src.providers.contracts import CapabilityName, ProviderName, ProviderRouting
+from src.settings_models import (
+    AISettings,
+    GeminiSettings,
+    ModelSpec,
+    OpenAISettings,
+    Settings,
+)
 
 _DOTENV_PATH = os.getenv("DOTENV_PATH") or find_dotenv(usecwd=True)
 _DOTENV_MTIME = None
@@ -47,6 +54,17 @@ def _csv_list(raw_value: str, *, lowercase: bool = False) -> List[str]:
     return items
 
 
+_ROUTABLE_CAPABILITIES: tuple[CapabilityName, ...] = (
+    "text_generation",
+    "streaming_text_generation",
+    "low_cost_text_generation",
+    "audio_transcription",
+    "ocr",
+    "reaction_selection",
+    "event_parsing",
+)
+
+
 def _require_env(name: str) -> str:
     value = os.getenv(name)
     if value is None:
@@ -54,14 +72,83 @@ def _require_env(name: str) -> str:
     return value
 
 
+def _parse_provider_name(raw_value: str, *, env_name: str) -> ProviderName:
+    provider = raw_value.strip().lower()
+    if provider not in {"openai", "gemini"}:
+        raise RuntimeError(f"{env_name} must be either 'openai' or 'gemini'")
+    return cast(ProviderName, provider)
+
+
+def _load_provider_routing(default_provider: ProviderName) -> ProviderRouting:
+    return ProviderRouting(
+        text_generation=_parse_provider_name(
+            os.getenv("AI_PROVIDER_TEXT_GENERATION", default_provider),
+            env_name="AI_PROVIDER_TEXT_GENERATION",
+        ),
+        streaming_text_generation=_parse_provider_name(
+            os.getenv("AI_PROVIDER_STREAMING_TEXT_GENERATION", default_provider),
+            env_name="AI_PROVIDER_STREAMING_TEXT_GENERATION",
+        ),
+        low_cost_text_generation=_parse_provider_name(
+            os.getenv("AI_PROVIDER_LOW_COST_TEXT_GENERATION", default_provider),
+            env_name="AI_PROVIDER_LOW_COST_TEXT_GENERATION",
+        ),
+        audio_transcription=_parse_provider_name(
+            os.getenv("AI_PROVIDER_AUDIO_TRANSCRIPTION", default_provider),
+            env_name="AI_PROVIDER_AUDIO_TRANSCRIPTION",
+        ),
+        ocr=_parse_provider_name(
+            os.getenv("AI_PROVIDER_OCR", default_provider),
+            env_name="AI_PROVIDER_OCR",
+        ),
+        reaction_selection=_parse_provider_name(
+            os.getenv("AI_PROVIDER_REACTION_SELECTION", default_provider),
+            env_name="AI_PROVIDER_REACTION_SELECTION",
+        ),
+        event_parsing=_parse_provider_name(
+            os.getenv("AI_PROVIDER_EVENT_PARSING", default_provider),
+            env_name="AI_PROVIDER_EVENT_PARSING",
+        ),
+    )
+
+
+def _validate_routed_credentials(
+    routing: ProviderRouting,
+    *,
+    openai_settings: OpenAISettings,
+    gemini_settings: GeminiSettings,
+) -> None:
+    routed_openai_capabilities = [
+        capability
+        for capability in _ROUTABLE_CAPABILITIES
+        if routing.provider_for(capability) == "openai"
+    ]
+    if routed_openai_capabilities and not openai_settings.configured:
+        raise RuntimeError(
+            "OpenAI is routed for "
+            + ", ".join(routed_openai_capabilities)
+            + " but OPENAI_API_KEY or OPENAI_AUTH_JSON_PATH is missing"
+        )
+
+    routed_gemini_capabilities = [
+        capability
+        for capability in _ROUTABLE_CAPABILITIES
+        if routing.provider_for(capability) == "gemini"
+    ]
+    if routed_gemini_capabilities and not gemini_settings.configured:
+        raise RuntimeError(
+            "Gemini is routed for "
+            + ", ".join(routed_gemini_capabilities)
+            + " but GEMINI_API_KEY or GOOGLE_API_KEY is missing"
+        )
+
+
 def _load_settings_from_env() -> Settings:
     telegram_bot_token = _require_env("TELEGRAM_BOT_TOKEN")
-    gemini_api_key = os.getenv("GEMINI_API_KEY", "").strip()
-    model_provider = os.getenv("MODEL_PROVIDER", "openai").strip().lower()
-    if model_provider not in {"openai", "gemini"}:
-        raise RuntimeError("MODEL_PROVIDER must be either 'openai' or 'gemini'")
-    if model_provider == "gemini" and not gemini_api_key:
-        raise RuntimeError("Missing required environment variable: GEMINI_API_KEY")
+    model_provider = _parse_provider_name(
+        os.getenv("MODEL_PROVIDER", "openai"),
+        env_name="MODEL_PROVIDER",
+    )
     openai_api_key = os.getenv("OPENAI_API_KEY", "").strip()
     openai_auth_json_path = os.getenv("OPENAI_AUTH_JSON_PATH", "").strip()
     openai_refresh_url = os.getenv(
@@ -94,14 +181,13 @@ def _load_settings_from_env() -> Settings:
             openai_low_cost_model = openai_model
         if openai_reaction_model_env is None:
             openai_reaction_model = openai_low_cost_model
-    if model_provider == "openai" and not openai_api_key and not openai_auth_json_path:
-        raise RuntimeError(
-            "OpenAI mode requires OPENAI_API_KEY or OPENAI_AUTH_JSON_PATH"
-        )
-
-    google_api_key = os.getenv("GOOGLE_API_KEY") or gemini_api_key
-    if google_api_key:
-        os.environ["GOOGLE_API_KEY"] = google_api_key
+    google_api_key = os.getenv("GOOGLE_API_KEY")
+    gemini_api_key_source = (
+        google_api_key
+        if google_api_key is not None
+        else os.getenv("GEMINI_API_KEY", "")
+    )
+    gemini_api_key = gemini_api_key_source.strip()
 
     allowed_chat_ids_raw = _require_env("ALLOWED_CHAT_IDS")
     allowed_chat_ids = _csv_list(allowed_chat_ids_raw)
@@ -148,30 +234,45 @@ def _load_settings_from_env() -> Settings:
     if not gemini_models:
         gemini_models = [ModelSpec(name=gemini_model, rpm=None, rpd=None)]
 
+    openai_settings = OpenAISettings(
+        api_key=openai_api_key,
+        auth_json_path=openai_auth_json_path,
+        refresh_url=openai_refresh_url,
+        refresh_client_id=openai_refresh_client_id,
+        refresh_grant_type=openai_refresh_grant_type,
+        auth_leeway_secs=openai_auth_leeway_secs,
+        auth_timeout_secs=openai_auth_timeout_secs,
+        codex_base_url=openai_codex_base_url,
+        codex_default_model=openai_codex_default_model,
+        text_model=openai_model,
+        low_cost_model=openai_low_cost_model,
+        reaction_model=openai_reaction_model,
+    )
+    gemini_settings = GeminiSettings(
+        api_key=gemini_api_key,
+        default_model=gemini_model,
+        model_specs=gemini_models,
+        thinking_budget=int(os.getenv("THINKING_BUDGET", 0)),
+        use_google_search=_env_bool("USE_GOOGLE_SEARCH"),
+        system_instructions_path=os.getenv("SYSTEM_INSTRUCTIONS_PATH", ""),
+        reaction_model=os.getenv("REACTION_GEMINI_MODEL", gemini_model).lower(),
+    )
+    routing = _load_provider_routing(model_provider)
+    _validate_routed_credentials(
+        routing,
+        openai_settings=openai_settings,
+        gemini_settings=gemini_settings,
+    )
+
     return Settings(
         telegram_bot_token=telegram_bot_token,
         admin_chat_id=os.getenv("ADMIN_CHAT_ID"),
         features=features,
-        model_provider=model_provider,
-        gemini_api_key=gemini_api_key,
-        google_api_key=google_api_key,
-        gemini_model=gemini_model,
-        gemini_models=gemini_models,
-        openai_api_key=openai_api_key,
-        openai_auth_json_path=openai_auth_json_path,
-        openai_refresh_url=openai_refresh_url,
-        openai_refresh_client_id=openai_refresh_client_id,
-        openai_refresh_grant_type=openai_refresh_grant_type,
-        openai_auth_leeway_secs=openai_auth_leeway_secs,
-        openai_auth_timeout_secs=openai_auth_timeout_secs,
-        openai_codex_base_url=openai_codex_base_url,
-        openai_codex_default_model=openai_codex_default_model,
-        openai_model=openai_model,
-        openai_low_cost_model=openai_low_cost_model,
-        openai_reaction_model=openai_reaction_model,
-        thinking_budget=int(os.getenv("THINKING_BUDGET", 0)),
-        use_google_search=_env_bool("USE_GOOGLE_SEARCH"),
-        ai_system_instructions_path=os.getenv("SYSTEM_INSTRUCTIONS_PATH", ""),
+        ai=AISettings(
+            routing=routing,
+            openai=openai_settings,
+            gemini=gemini_settings,
+        ),
         google_calendar_id=os.getenv("GOOGLE_CALENDAR_ID"),
         google_credentials_path=os.getenv("GOOGLE_CREDENTIALS_PATH"),
         google_credentials_json=os.getenv("GOOGLE_CREDENTIALS_JSON"),
@@ -206,7 +307,6 @@ def _load_settings_from_env() -> Settings:
         reaction_cooldown_secs=float(os.getenv("REACTION_COOLDOWN_SECS", "600")),
         reaction_daily_budget=int(os.getenv("REACTION_DAILY_BUDGET", "50")),
         reaction_messages_threshold=int(os.getenv("REACTION_MESSAGES_THRESHOLD", "10")),
-        reaction_gemini_model=os.getenv("REACTION_GEMINI_MODEL", gemini_model).lower(),
         reaction_context_turns=max(1, int(os.getenv("REACTION_CONTEXT_TURNS", "8"))),
         reaction_context_token_limit=max(
             1, int(os.getenv("REACTION_CONTEXT_TOKEN_LIMIT", "1200"))

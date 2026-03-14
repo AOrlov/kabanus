@@ -1,7 +1,7 @@
 """Typed provider request and routing contracts."""
 
 from dataclasses import dataclass
-from typing import Any, Dict, Literal, Optional, Sequence
+from typing import Any, Dict, Literal, Sequence
 
 ProviderName = Literal["openai", "gemini"]
 CapabilityName = Literal[
@@ -46,9 +46,16 @@ class ImageToTextRequest:
 
 @dataclass(frozen=True)
 class ProviderRouting:
-    primary: ProviderName
-    fallback: Optional[ProviderName]
-    transcribe_use_fallback: bool
+    text_generation: ProviderName
+    streaming_text_generation: ProviderName
+    low_cost_text_generation: ProviderName
+    audio_transcription: ProviderName
+    ocr: ProviderName
+    reaction_selection: ProviderName
+    event_parsing: ProviderName
+
+    def provider_for(self, capability: CapabilityName) -> ProviderName:
+        return getattr(self, capability)
 
 
 def build_reaction_prompt(request: ReactionSelectionRequest) -> str:

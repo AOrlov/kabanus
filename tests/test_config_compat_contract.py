@@ -53,10 +53,11 @@ def test_config_default_contract_snapshot(monkeypatch) -> None:
 
     settings = config.get_settings(force=True)
 
-    assert settings.model_provider == "openai"
-    assert settings.openai_model == "gpt-5.3-codex"
-    assert settings.openai_low_cost_model == "gpt-5.3-codex"
-    assert settings.openai_reaction_model == "gpt-5.3-codex"
+    assert settings.ai.routing.text_generation == "openai"
+    assert settings.ai.routing.audio_transcription == "openai"
+    assert settings.ai.openai.text_model == "gpt-5.3-codex"
+    assert settings.ai.openai.low_cost_model == "gpt-5.3-codex"
+    assert settings.ai.openai.reaction_model == "gpt-5.3-codex"
     assert settings.allowed_chat_ids == ["1"]
     assert settings.bot_aliases == []
     assert settings.language == "ru"
@@ -87,7 +88,7 @@ def test_config_default_contract_snapshot(monkeypatch) -> None:
         (
             "SYSTEM_INSTRUCTIONS_PATH",
             "/tmp/system.txt",
-            "ai_system_instructions_path",
+            "ai.gemini.system_instructions_path",
             "/tmp/system.txt",
         ),
         ("LANGUAGE", "EN", "language", "en"),
@@ -113,6 +114,13 @@ def test_config_default_contract_snapshot(monkeypatch) -> None:
         ),
         ("ALLOWED_CHAT_IDS", " 1, 2 ,,3 ", "allowed_chat_ids", ["1", "2", "3"]),
         ("BOT_ALIASES", " Bot, Helper ,", "bot_aliases", ["bot", "helper"]),
+        (
+            "AI_PROVIDER_AUDIO_TRANSCRIPTION",
+            "gemini",
+            "ai.routing.audio_transcription",
+            "gemini",
+        ),
+        ("GEMINI_API_KEY", "gem-key", "ai.gemini.api_key", "gem-key"),
     ],
 )
 def test_env_var_name_contract(
@@ -120,10 +128,14 @@ def test_env_var_name_contract(
 ) -> None:
     _set_base_openai_env(monkeypatch)
     monkeypatch.setenv(env_name, env_value)
+    if env_name.startswith("AI_PROVIDER_") and env_value == "gemini":
+        monkeypatch.setenv("GEMINI_API_KEY", "gem-key")
     _reset_settings_cache()
 
     settings = config.get_settings(force=True)
-    actual = getattr(settings, attr_name)
+    actual = settings
+    for part in attr_name.split("."):
+        actual = getattr(actual, part)
 
     if isinstance(expected, float):
         assert actual == pytest.approx(expected)
@@ -140,14 +152,14 @@ def test_env_var_name_contract(
             "MODEL_PROVIDER must be either 'openai' or 'gemini'",
         ),
         (
-            {"MODEL_PROVIDER": "gemini"},
+            {"AI_PROVIDER_AUDIO_TRANSCRIPTION": "gemini"},
             ["GEMINI_API_KEY"],
-            "Missing required environment variable: GEMINI_API_KEY",
+            "Gemini is routed for audio_transcription",
         ),
         (
-            {"MODEL_PROVIDER": "openai"},
+            {},
             ["OPENAI_API_KEY", "OPENAI_AUTH_JSON_PATH"],
-            "OpenAI mode requires OPENAI_API_KEY or OPENAI_AUTH_JSON_PATH",
+            "OPENAI_API_KEY or OPENAI_AUTH_JSON_PATH is missing",
         ),
         (
             {"ENABLE_MESSAGE_HANDLING": "true", "ENABLE_SCHEDULE_EVENTS": "true"},

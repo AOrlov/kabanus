@@ -1,11 +1,17 @@
 """Runtime settings compatibility facade.
 
 Public API compatibility:
-- Exposes `Settings`, `ModelSpec`, `get_settings(force=False)`.
+- Exposes `Settings`, `ModelSpec`, provider settings models, and `get_settings(force=False)`.
 """
 
 from src import settings_loader
-from src.settings_models import ModelSpec, Settings
+from src.settings_models import (
+    AISettings,
+    GeminiSettings,
+    ModelSpec,
+    OpenAISettings,
+    Settings,
+)
 
 _reload_env = settings_loader.reload_env
 

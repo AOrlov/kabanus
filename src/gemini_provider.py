@@ -98,12 +98,13 @@ class _ModelRouter:
 
 class GeminiProvider:
 
-    def __init__(self):
+    def __init__(self, settings: config.Settings):
+        self._settings = settings
         self._client = None
         self._client_api_key = None
         self._system_instructions = ""
-        self._system_instructions_path = None
-        self._system_instructions_mtime = None
+        self._system_instructions_path: Optional[str] = None
+        self._system_instructions_mtime: Optional[float] = None
         self._model_router = _ModelRouter()
 
     def _supports_system_instruction(self, model_name: str) -> bool:
@@ -253,28 +254,28 @@ class GeminiProvider:
         ) from exc
 
     def _get_client(self):
-        settings = config.get_settings()
-        api_key = settings.google_api_key
+        settings = self._settings
+        api_key = settings.ai.gemini.api_key
         if not api_key:
             raise ProviderConfigurationError(
                 "Gemini API key is not configured",
                 provider="gemini",
             )
         if self._client is None or api_key != self._client_api_key:
-            os.environ["GOOGLE_API_KEY"] = api_key
-            self._client = genai.Client()
+            self._client = genai.Client(api_key=api_key)
             self._client_api_key = api_key
         return self._client, settings
 
-    def _get_system_instructions(self, settings):
-        if settings.ai_system_instructions_path == "":
+    def _get_system_instructions(self) -> str:
+        if self._settings.ai.gemini.system_instructions_path == "":
             logger.warning(
                 "AI system instructions path is not set.",
                 extra={"event": "missing_system_instructions"},
             )
             return ""
         path = os.path.join(
-            os.path.dirname(__file__), settings.ai_system_instructions_path
+            os.path.dirname(__file__),
+            self._settings.ai.gemini.system_instructions_path,
         )
         try:
             mtime = os.path.getmtime(path)
@@ -335,7 +336,7 @@ class GeminiProvider:
                 config=self._prepare_config(
                     spec,
                     system_instruction=None,
-                    thinking_budget=settings.thinking_budget,
+                    thinking_budget=settings.ai.gemini.thinking_budget,
                 ),
             )
 
@@ -343,7 +344,7 @@ class GeminiProvider:
             types.GenerateContentResponse,
             self._run_with_retry(
                 client=client,
-                specs=settings.gemini_models,
+                specs=settings.ai.gemini.model_specs,
                 max_attempts=5,
                 run_request=run_request,
             ),
@@ -359,7 +360,7 @@ class GeminiProvider:
         thinking_budget: int,
     ) -> str:
         client, settings = self._get_client()
-        system_instructions = self._get_system_instructions(settings)
+        system_instructions = self._get_system_instructions()
         grounding_tool = types.Tool(google_search=types.GoogleSearch())
         selected_model = ""
 
@@ -399,23 +400,23 @@ class GeminiProvider:
         return text
 
     def generate_text(self, request: TextGenerationRequest) -> str:
-        _, settings = self._get_client()
         return self._generate_with_specs(
             prompt=request.prompt,
-            specs=settings.gemini_models,
-            use_google_search=settings.use_google_search,
-            thinking_budget=settings.thinking_budget,
+            specs=self._settings.ai.gemini.model_specs,
+            use_google_search=self._settings.ai.gemini.use_google_search,
+            thinking_budget=self._settings.ai.gemini.thinking_budget,
         )
 
     def generate_low_cost_text(self, request: TextGenerationRequest) -> str:
         """Generate using the lowest-cost model first (reverse GEMINI_MODELS order)."""
-        _, settings = self._get_client()
-        low_cost_specs = self._prefer_low_cost_first(settings.gemini_models)
+        low_cost_specs = self._prefer_low_cost_first(
+            self._settings.ai.gemini.model_specs
+        )
         return self._generate_with_specs(
             prompt=request.prompt,
             specs=low_cost_specs,
-            use_google_search=settings.use_google_search,
-            thinking_budget=settings.thinking_budget,
+            use_google_search=self._settings.ai.gemini.use_google_search,
+            thinking_budget=self._settings.ai.gemini.thinking_budget,
         )
 
     def select_reaction(self, request: ReactionSelectionRequest) -> str:
@@ -426,7 +427,7 @@ class GeminiProvider:
             "Return only the emoji, nothing else."
         )
         prompt = build_reaction_prompt(request)
-        reaction_specs = self._prefer_gemma_first(settings.gemini_models)
+        reaction_specs = self._prefer_gemma_first(settings.ai.gemini.model_specs)
 
         def run_request(spec: config.ModelSpec):
             logger.debug("Choosing reaction with model", extra={"model": spec.name})
@@ -459,7 +460,7 @@ class GeminiProvider:
 
     def parse_image_event(self, request: ImageToEventRequest) -> dict:
         client, settings = self._get_client()
-        system_instructions = self._get_system_instructions(settings)
+        system_instructions = self._get_system_instructions()
         with open(request.image_path, "rb") as f:
             image_data = f.read()
 
@@ -485,7 +486,7 @@ class GeminiProvider:
                 config=self._prepare_config(
                     spec,
                     system_instruction=system_instruction,
-                    thinking_budget=settings.thinking_budget,
+                    thinking_budget=settings.ai.gemini.thinking_budget,
                 ),
             )
 
@@ -493,7 +494,7 @@ class GeminiProvider:
             types.GenerateContentResponse,
             self._run_with_retry(
                 client=client,
-                specs=settings.gemini_models,
+                specs=settings.ai.gemini.model_specs,
                 max_attempts=5,
                 run_request=run_request,
             ),
@@ -506,7 +507,7 @@ class GeminiProvider:
     def extract_image_text(self, request: ImageToTextRequest) -> str:
         """Extracts readable content from image bytes and returns plain text."""
         client, settings = self._get_client()
-        system_instructions = self._get_system_instructions(settings)
+        system_instructions = self._get_system_instructions()
 
         def run_request(spec: config.ModelSpec):
             self._model_router.record_request(spec)
@@ -531,7 +532,7 @@ class GeminiProvider:
                 config=self._prepare_config(
                     spec,
                     system_instruction=system_instruction,
-                    thinking_budget=settings.thinking_budget,
+                    thinking_budget=settings.ai.gemini.thinking_budget,
                 ),
             )
 
@@ -539,7 +540,7 @@ class GeminiProvider:
             types.GenerateContentResponse,
             self._run_with_retry(
                 client=client,
-                specs=settings.gemini_models,
+                specs=settings.ai.gemini.model_specs,
                 max_attempts=5,
                 run_request=run_request,
             ),

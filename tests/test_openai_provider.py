@@ -6,6 +6,29 @@ from src.openai_provider import OpenAIProvider
 from src.providers.contracts import ReactionSelectionRequest, TextGenerationRequest
 
 
+def _settings(**openai_overrides):
+    openai_settings = SimpleNamespace(
+        api_key="openai-key",
+        auth_json_path="",
+        refresh_url="https://auth.openai.com/oauth/token",
+        refresh_client_id="client-id",
+        refresh_grant_type="refresh_token",
+        auth_leeway_secs=60,
+        auth_timeout_secs=20.0,
+        codex_base_url="https://chatgpt.com/backend-api",
+        codex_default_model="gpt-5.3-codex",
+        text_model="gpt-5.3-codex",
+        low_cost_model="gpt-5.3-codex",
+        reaction_model="gpt-5.3-codex",
+    )
+    for key, value in openai_overrides.items():
+        setattr(openai_settings, key, value)
+    return SimpleNamespace(
+        ai=SimpleNamespace(openai=openai_settings),
+        language="ru",
+    )
+
+
 def _jwt_with_account_id(account_id: str) -> str:
     def _b64(value: dict) -> str:
         raw = json.dumps(value, separators=(",", ":")).encode("utf-8")
@@ -17,15 +40,12 @@ def _jwt_with_account_id(account_id: str) -> str:
 
 
 def test_resolve_client_options_uses_codex_backend_for_auth_json(monkeypatch) -> None:
-    provider = OpenAIProvider()
+    provider = OpenAIProvider(_settings(auth_json_path="auth.json"))
     token = _jwt_with_account_id("acct_123")
-    monkeypatch.setattr(
-        provider, "_resolve_api_key", lambda _settings, force_refresh=False: token
-    )
-    monkeypatch.setattr(provider, "_get_auth_manager", lambda _settings: object())
-    settings = SimpleNamespace(openai_codex_base_url="https://chatgpt.com/backend-api")
+    monkeypatch.setattr(provider, "_resolve_api_key", lambda force_refresh=False: token)
+    monkeypatch.setattr(provider, "_get_auth_manager", lambda: object())
 
-    api_key, base_url, headers = provider._resolve_client_options(settings)
+    api_key, base_url, headers = provider._resolve_client_options()
 
     assert api_key == token
     assert base_url == "https://chatgpt.com/backend-api/codex"
@@ -35,16 +55,13 @@ def test_resolve_client_options_uses_codex_backend_for_auth_json(monkeypatch) ->
 
 
 def test_resolve_client_options_falls_back_without_account_id(monkeypatch) -> None:
-    provider = OpenAIProvider()
+    provider = OpenAIProvider(_settings(auth_json_path="auth.json"))
     monkeypatch.setattr(
-        provider,
-        "_resolve_api_key",
-        lambda _settings, force_refresh=False: "plain-token",
+        provider, "_resolve_api_key", lambda force_refresh=False: "plain-token"
     )
-    monkeypatch.setattr(provider, "_get_auth_manager", lambda _settings: object())
-    settings = SimpleNamespace(openai_codex_base_url="https://chatgpt.com/backend-api")
+    monkeypatch.setattr(provider, "_get_auth_manager", lambda: object())
 
-    api_key, base_url, headers = provider._resolve_client_options(settings)
+    api_key, base_url, headers = provider._resolve_client_options()
 
     assert api_key == "plain-token"
     assert base_url is None
@@ -193,7 +210,7 @@ class _AuthFailStreamingResponses:
 
 
 def test_responses_create_sets_instructions_in_codex_mode(monkeypatch) -> None:
-    provider = OpenAIProvider()
+    provider = OpenAIProvider(_settings(auth_json_path="x"))
     fake = _FakeResponses()
     client = SimpleNamespace(responses=fake)
     settings = SimpleNamespace(
@@ -217,7 +234,7 @@ def test_responses_create_sets_instructions_in_codex_mode(monkeypatch) -> None:
 
 
 def test_responses_create_retries_with_codex_default_model(monkeypatch) -> None:
-    provider = OpenAIProvider()
+    provider = OpenAIProvider(_settings(auth_json_path="x"))
     fake = _ModelFallbackResponses()
     client = SimpleNamespace(responses=fake)
     settings = SimpleNamespace(
@@ -238,7 +255,7 @@ def test_responses_create_retries_with_codex_default_model(monkeypatch) -> None:
 
 
 def test_generate_stream_yields_progressive_snapshots(monkeypatch) -> None:
-    provider = OpenAIProvider()
+    provider = OpenAIProvider(_settings(auth_json_path="x"))
     fake = _StreamingResponses(["he", "llo"])
     client = SimpleNamespace(responses=fake)
     settings = SimpleNamespace(
@@ -259,7 +276,7 @@ def test_generate_stream_yields_progressive_snapshots(monkeypatch) -> None:
 
 
 def test_generate_stream_retries_with_codex_default_model(monkeypatch) -> None:
-    provider = OpenAIProvider()
+    provider = OpenAIProvider(_settings(auth_json_path="x"))
     fake = _StreamingModelFallbackResponses()
     client = SimpleNamespace(responses=fake)
     settings = SimpleNamespace(
@@ -278,7 +295,7 @@ def test_generate_stream_retries_with_codex_default_model(monkeypatch) -> None:
 
 
 def test_generate_stream_refreshes_auth_once(monkeypatch) -> None:
-    provider = OpenAIProvider()
+    provider = OpenAIProvider(_settings(auth_json_path="x"))
     failing_client = SimpleNamespace(responses=_AuthFailStreamingResponses())
     success_responses = _StreamingResponses(["ok"])
     success_client = SimpleNamespace(responses=success_responses)
@@ -304,7 +321,7 @@ def test_generate_stream_refreshes_auth_once(monkeypatch) -> None:
 
 
 def test_choose_reaction_includes_recent_context(monkeypatch) -> None:
-    provider = OpenAIProvider()
+    provider = OpenAIProvider(_settings())
     settings = SimpleNamespace(openai_reaction_model="gpt-5.3-codex")
     monkeypatch.setattr(
         provider,
