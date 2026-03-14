@@ -321,3 +321,20 @@ starting task execution phase
 [26-03-14 10:08:00] The remaining unchecked-task scan is clean. I’m staging the Task 7 docs, helper-script, progress-log, and archived-plan changes now and creating the single final commit for this iteration.
 [26-03-14 10:08:09] Git blocked the progress log because `.ralphex/progress` is ignored. I’m restaging with an explicit force-add for that file so the iteration record and the archive move land in the same final commit.
 [26-03-14 10:08:15] The second attempt only failed because the original plan path no longer exists after the archive move. I’m restaging with `git add -A` for the plan paths so the delete and the new archived file are captured together, then I’ll retry the commit.
+[26-03-14 10:09:29] <<<RALPHEX:ALL_TASKS_DONE>>>
+
+all tasks completed, starting code review...
+
+--- claude review 0: all findings ---
+[26-03-14 10:09:29] agent "quality": model=default, subagent=general-purpose
+[26-03-14 10:09:29] agent "implementation": model=default, subagent=general-purpose
+[26-03-14 10:09:29] agent "testing": model=default, subagent=general-purpose
+[26-03-14 10:09:29] agent "simplification": model=default, subagent=general-purpose
+[26-03-14 10:09:29] agent "documentation": model=default, subagent=general-purpose
+[26-03-14 10:09:57] Reviewing the branch context first, then I’ll launch all five review agents in one parallel batch and wait for all of them before I assess any findings or decide on fixes.
+[26-03-14 10:10:40] Branch history and full diff are loaded. I’m starting the five review agents now in a single parallel batch, each pointed at the branch diff and source context, and I’ll wait for all of them before I verify anything locally.
+[26-03-14 10:10:43] All five agents are running. I’m blocked on their review results by design, so I’m waiting for the full set before I verify any findings locally.
+[26-03-14 10:16:33] One agent finished early and even proposed a fix in its forked workspace. I’m keeping the main review flow intact: I still need the other four agent results before I verify anything locally in this branch.
+[26-03-14 10:27:40] Confirmed one real review finding in src/providers/openai/client.py: refresh-token auth.json mode silently fell back to the standard API endpoint when the token lacked chatgpt_account_id, which would turn malformed Codex auth into guaranteed runtime auth failures instead of a clear configuration error.
+[26-03-14 10:27:40] Fixed that path to fail fast with ProviderConfigurationError, updated the OpenAI provider regression test to lock the behavior, and documented the requirement in README.md.
+[26-03-14 10:27:40] Validation passed after the fix: ./.venv/bin/python -m pytest -q tests/test_openai_provider.py, ./.venv/bin/python -m pytest -q tests/test_documentation_contract.py, ./.venv/bin/python -m pytest -q, ./.venv/bin/python -m pylint src tests, ./.venv/bin/python -m mypy src.

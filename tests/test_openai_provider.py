@@ -2,12 +2,15 @@ import base64
 import json
 from types import SimpleNamespace
 
+import pytest
+
 from src.providers.capabilities import AudioTranscriptionProvider
 from src.providers.contracts import (
     ImageToEventRequest,
     ReactionSelectionRequest,
     TextGenerationRequest,
 )
+from src.providers.errors import ProviderConfigurationError
 from src.providers.openai import OpenAIClientFactory, OpenAIProvider
 
 
@@ -75,7 +78,9 @@ def test_resolve_client_options_uses_codex_backend_for_auth_json(monkeypatch) ->
     assert options.refreshable is True
 
 
-def test_resolve_client_options_falls_back_without_account_id(monkeypatch) -> None:
+def test_resolve_client_options_rejects_refreshable_auth_without_account_id(
+    monkeypatch,
+) -> None:
     factory = OpenAIClientFactory(
         _settings(auth_json_path="auth.json").ai.openai,
         auth_manager=_AuthManagerStub(refreshable=True),
@@ -84,13 +89,11 @@ def test_resolve_client_options_falls_back_without_account_id(monkeypatch) -> No
         factory, "_resolve_api_key", lambda force_refresh=False: "plain-token"
     )
 
-    options = factory.resolve_client_options()
-
-    assert options.api_key == "plain-token"
-    assert options.base_url is None
-    assert options.default_headers == {}
-    assert options.codex_mode is False
-    assert options.refreshable is True
+    with pytest.raises(
+        ProviderConfigurationError,
+        match="chatgpt_account_id",
+    ):
+        factory.resolve_client_options()
 
 
 def test_resolve_client_options_treats_api_key_file_as_standard_api_mode(

@@ -228,6 +228,10 @@ instead of `OPENAI_API_KEY`.
 - Refreshed tokens are written back into the same `auth.json`.
 - Runtime rejects non-file paths and overly broad permissions; refresh writes are atomic
   and enforce private file mode (`0600`) on best effort.
+- Refresh-token/Codex mode also requires an access token that carries
+  `chatgpt_account_id`; use `scripts/openai_codex_oauth.py` to generate that file shape.
+  Runtime now rejects malformed refresh-token files instead of silently falling back to
+  the standard API endpoint.
 
 Supported shapes include top-level keys and `tokens.*` keys. Minimal recommended shape:
 

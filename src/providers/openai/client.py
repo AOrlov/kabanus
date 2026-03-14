@@ -74,8 +74,12 @@ class OpenAIClientFactory:
         account_id = self._extract_chatgpt_account_id(api_key)
         if not account_id:
             if refreshable:
-                logger.warning(
-                    "OpenAI auth.json token is missing chatgpt_account_id; using the default API endpoint"
+                raise ProviderConfigurationError(
+                    (
+                        "OpenAI auth.json refresh-token mode requires a token with "
+                        "chatgpt_account_id; re-run scripts/openai_codex_oauth.py"
+                    ),
+                    provider="openai",
                 )
             return OpenAIClientOptions(
                 api_key=api_key,
