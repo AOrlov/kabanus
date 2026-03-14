@@ -2,8 +2,13 @@ import base64
 import json
 from types import SimpleNamespace
 
-from src.openai_provider import OpenAIProvider
-from src.providers.contracts import ReactionSelectionRequest, TextGenerationRequest
+from src.providers.capabilities import AudioTranscriptionProvider
+from src.providers.contracts import (
+    ImageToEventRequest,
+    ReactionSelectionRequest,
+    TextGenerationRequest,
+)
+from src.providers.openai import OpenAIClientFactory, OpenAIProvider
 
 
 def _settings(**openai_overrides):
@@ -29,6 +34,18 @@ def _settings(**openai_overrides):
     )
 
 
+def _client_options(*, codex_mode: bool = False, refreshable: bool = False):
+    return SimpleNamespace(codex_mode=codex_mode, refreshable=refreshable)
+
+
+class _AuthManagerStub:
+    def __init__(self, *, refreshable: bool) -> None:
+        self._refreshable = refreshable
+
+    def has_refresh_token(self) -> bool:
+        return self._refreshable
+
+
 def _jwt_with_account_id(account_id: str) -> str:
     def _b64(value: dict) -> str:
         raw = json.dumps(value, separators=(",", ":")).encode("utf-8")
@@ -40,32 +57,60 @@ def _jwt_with_account_id(account_id: str) -> str:
 
 
 def test_resolve_client_options_uses_codex_backend_for_auth_json(monkeypatch) -> None:
-    provider = OpenAIProvider(_settings(auth_json_path="auth.json"))
+    factory = OpenAIClientFactory(
+        _settings(auth_json_path="auth.json").ai.openai,
+        auth_manager=_AuthManagerStub(refreshable=True),
+    )
     token = _jwt_with_account_id("acct_123")
-    monkeypatch.setattr(provider, "_resolve_api_key", lambda force_refresh=False: token)
-    monkeypatch.setattr(provider, "_get_auth_manager", lambda: object())
+    monkeypatch.setattr(factory, "_resolve_api_key", lambda force_refresh=False: token)
 
-    api_key, base_url, headers = provider._resolve_client_options()
+    options = factory.resolve_client_options()
 
-    assert api_key == token
-    assert base_url == "https://chatgpt.com/backend-api/codex"
-    assert headers["chatgpt-account-id"] == "acct_123"
-    assert headers["OpenAI-Beta"] == "responses=experimental"
-    assert headers["originator"] == "pi"
+    assert options.api_key == token
+    assert options.base_url == "https://chatgpt.com/backend-api/codex"
+    assert options.default_headers["chatgpt-account-id"] == "acct_123"
+    assert options.default_headers["OpenAI-Beta"] == "responses=experimental"
+    assert options.default_headers["originator"] == "pi"
+    assert options.codex_mode is True
+    assert options.refreshable is True
 
 
 def test_resolve_client_options_falls_back_without_account_id(monkeypatch) -> None:
-    provider = OpenAIProvider(_settings(auth_json_path="auth.json"))
-    monkeypatch.setattr(
-        provider, "_resolve_api_key", lambda force_refresh=False: "plain-token"
+    factory = OpenAIClientFactory(
+        _settings(auth_json_path="auth.json").ai.openai,
+        auth_manager=_AuthManagerStub(refreshable=True),
     )
-    monkeypatch.setattr(provider, "_get_auth_manager", lambda: object())
+    monkeypatch.setattr(
+        factory, "_resolve_api_key", lambda force_refresh=False: "plain-token"
+    )
 
-    api_key, base_url, headers = provider._resolve_client_options()
+    options = factory.resolve_client_options()
 
-    assert api_key == "plain-token"
-    assert base_url is None
-    assert headers == {}
+    assert options.api_key == "plain-token"
+    assert options.base_url is None
+    assert options.default_headers == {}
+    assert options.codex_mode is False
+    assert options.refreshable is True
+
+
+def test_resolve_client_options_treats_api_key_file_as_standard_api_mode(
+    monkeypatch,
+) -> None:
+    factory = OpenAIClientFactory(
+        _settings(auth_json_path="auth.json").ai.openai,
+        auth_manager=_AuthManagerStub(refreshable=False),
+    )
+    monkeypatch.setattr(
+        factory,
+        "_resolve_api_key",
+        lambda force_refresh=False: "sk-test-api-key",
+    )
+
+    options = factory.resolve_client_options()
+
+    assert options.api_key == "sk-test-api-key"
+    assert options.codex_mode is False
+    assert options.refreshable is False
 
 
 class _FakeResponses:
@@ -206,25 +251,23 @@ class _AuthFailStreamingResponses:
             return False
 
     def stream(self, **kwargs):
+        _ = kwargs
         return self._StreamManager()
 
 
-def test_responses_create_sets_instructions_in_codex_mode(monkeypatch) -> None:
-    provider = OpenAIProvider(_settings(auth_json_path="x"))
+def test_generate_text_sets_instructions_in_codex_mode() -> None:
     fake = _FakeResponses()
-    client = SimpleNamespace(responses=fake)
-    settings = SimpleNamespace(
-        openai_auth_json_path="x",
-        openai_codex_default_model="gpt-5.3-codex",
-    )
-    monkeypatch.setattr(
-        provider, "_get_client", lambda force_refresh=False: (client, settings)
+    provider = OpenAIProvider(
+        _settings(auth_json_path="x"),
+        client_factory=SimpleNamespace(
+            get_client_context=lambda force_refresh=False: (
+                SimpleNamespace(responses=fake),
+                _client_options(codex_mode=True, refreshable=True),
+            )
+        ),
     )
 
-    result = provider._responses_create(
-        model="gpt-5.3-codex",
-        user_content=[{"type": "input_text", "text": "hi"}],
-    )
+    result = provider.generate_text(TextGenerationRequest(prompt="hi"))
 
     assert result == "ok"
     assert fake.calls
@@ -233,38 +276,34 @@ def test_responses_create_sets_instructions_in_codex_mode(monkeypatch) -> None:
     assert fake.calls[0].get("stream") is None
 
 
-def test_responses_create_retries_with_codex_default_model(monkeypatch) -> None:
-    provider = OpenAIProvider(_settings(auth_json_path="x"))
+def test_generate_text_retries_with_codex_default_model() -> None:
     fake = _ModelFallbackResponses()
-    client = SimpleNamespace(responses=fake)
-    settings = SimpleNamespace(
-        openai_auth_json_path="x",
-        openai_codex_default_model="gpt-5.3-codex",
-    )
-    monkeypatch.setattr(
-        provider, "_get_client", lambda force_refresh=False: (client, settings)
+    provider = OpenAIProvider(
+        _settings(auth_json_path="x", text_model="legacy-unsupported-model"),
+        client_factory=SimpleNamespace(
+            get_client_context=lambda force_refresh=False: (
+                SimpleNamespace(responses=fake),
+                _client_options(codex_mode=True, refreshable=True),
+            )
+        ),
     )
 
-    result = provider._responses_create(
-        model="legacy-unsupported-model",
-        user_content=[{"type": "input_text", "text": "hi"}],
-    )
+    result = provider.generate_text(TextGenerationRequest(prompt="hi"))
 
     assert result == "ok"
     assert fake.models == ["legacy-unsupported-model", "gpt-5.3-codex"]
 
 
-def test_generate_stream_yields_progressive_snapshots(monkeypatch) -> None:
-    provider = OpenAIProvider(_settings(auth_json_path="x"))
+def test_generate_stream_yields_progressive_snapshots() -> None:
     fake = _StreamingResponses(["he", "llo"])
-    client = SimpleNamespace(responses=fake)
-    settings = SimpleNamespace(
-        openai_auth_json_path="x",
-        openai_model="gpt-5.3-codex",
-        openai_codex_default_model="gpt-5.3-codex",
-    )
-    monkeypatch.setattr(
-        provider, "_get_client", lambda force_refresh=False: (client, settings)
+    provider = OpenAIProvider(
+        _settings(auth_json_path="x"),
+        client_factory=SimpleNamespace(
+            get_client_context=lambda force_refresh=False: (
+                SimpleNamespace(responses=fake),
+                _client_options(codex_mode=True, refreshable=True),
+            )
+        ),
     )
 
     snapshots = list(provider.generate_text_stream(TextGenerationRequest(prompt="hi")))
@@ -275,17 +314,16 @@ def test_generate_stream_yields_progressive_snapshots(monkeypatch) -> None:
     assert fake.calls[0]["store"] is False
 
 
-def test_generate_stream_retries_with_codex_default_model(monkeypatch) -> None:
-    provider = OpenAIProvider(_settings(auth_json_path="x"))
+def test_generate_stream_retries_with_codex_default_model() -> None:
     fake = _StreamingModelFallbackResponses()
-    client = SimpleNamespace(responses=fake)
-    settings = SimpleNamespace(
-        openai_auth_json_path="x",
-        openai_model="legacy-unsupported-model",
-        openai_codex_default_model="gpt-5.3-codex",
-    )
-    monkeypatch.setattr(
-        provider, "_get_client", lambda force_refresh=False: (client, settings)
+    provider = OpenAIProvider(
+        _settings(auth_json_path="x", text_model="legacy-unsupported-model"),
+        client_factory=SimpleNamespace(
+            get_client_context=lambda force_refresh=False: (
+                SimpleNamespace(responses=fake),
+                _client_options(codex_mode=True, refreshable=True),
+            )
+        ),
     )
 
     snapshots = list(provider.generate_text_stream(TextGenerationRequest(prompt="hi")))
@@ -294,25 +332,22 @@ def test_generate_stream_retries_with_codex_default_model(monkeypatch) -> None:
     assert fake.models == ["legacy-unsupported-model", "gpt-5.3-codex"]
 
 
-def test_generate_stream_refreshes_auth_once(monkeypatch) -> None:
-    provider = OpenAIProvider(_settings(auth_json_path="x"))
+def test_generate_stream_refreshes_auth_once() -> None:
     failing_client = SimpleNamespace(responses=_AuthFailStreamingResponses())
     success_responses = _StreamingResponses(["ok"])
     success_client = SimpleNamespace(responses=success_responses)
-    settings = SimpleNamespace(
-        openai_auth_json_path="x",
-        openai_model="gpt-5.3-codex",
-        openai_codex_default_model="gpt-5.3-codex",
-    )
     calls = []
 
-    def _fake_get_client(force_refresh=False):
+    def _get_client_context(force_refresh=False):
         calls.append(force_refresh)
         if force_refresh:
-            return success_client, settings
-        return failing_client, settings
+            return success_client, _client_options(codex_mode=False, refreshable=True)
+        return failing_client, _client_options(codex_mode=False, refreshable=True)
 
-    monkeypatch.setattr(provider, "_get_client", _fake_get_client)
+    provider = OpenAIProvider(
+        _settings(auth_json_path="x"),
+        client_factory=SimpleNamespace(get_client_context=_get_client_context),
+    )
 
     snapshots = list(provider.generate_text_stream(TextGenerationRequest(prompt="hi")))
 
@@ -322,20 +357,18 @@ def test_generate_stream_refreshes_auth_once(monkeypatch) -> None:
 
 def test_choose_reaction_includes_recent_context(monkeypatch) -> None:
     provider = OpenAIProvider(_settings())
-    settings = SimpleNamespace(openai_reaction_model="gpt-5.3-codex")
-    monkeypatch.setattr(
-        provider,
-        "_get_client",
-        lambda force_refresh=False: (SimpleNamespace(), settings),
-    )
     captured = {}
 
-    def _fake_responses_create(*, model, user_content, system_instruction=""):
+    def _fake_run_text_request(
+        *, capability, model, user_content, system_instruction=""
+    ):
+        captured["capability"] = capability
         captured["model"] = model
         captured["prompt"] = user_content[0]["text"]
+        captured["system_instruction"] = system_instruction
         return "😀"
 
-    monkeypatch.setattr(provider, "_responses_create", _fake_responses_create)
+    monkeypatch.setattr(provider, "_run_text_request", _fake_run_text_request)
 
     reaction = provider.select_reaction(
         ReactionSelectionRequest(
@@ -346,8 +379,35 @@ def test_choose_reaction_includes_recent_context(monkeypatch) -> None:
     )
 
     assert reaction == "😀"
+    assert captured["capability"] == "reaction_selection"
     assert captured["model"] == "gpt-5.3-codex"
     assert "Current message: ship it" in captured["prompt"]
     assert "Recent context:" in captured["prompt"]
     assert "Alice: deploy in 10 minutes" in captured["prompt"]
     assert "Allowed reactions: 😀, 😴" in captured["prompt"]
+    assert (
+        "Return exactly one emoji from the allowed list."
+        in captured["system_instruction"]
+    )
+
+
+def test_parse_image_event_returns_empty_dict_on_invalid_json(
+    monkeypatch, tmp_path
+) -> None:
+    image_file = tmp_path / "event.jpg"
+    image_file.write_bytes(b"img")
+    provider = OpenAIProvider(_settings())
+    monkeypatch.setattr(
+        provider,
+        "_run_text_request",
+        lambda **kwargs: "not-json",
+    )
+
+    event = provider.parse_image_event(ImageToEventRequest(image_path=str(image_file)))
+
+    assert event == {}
+
+
+def test_provider_does_not_expose_transcription_capability() -> None:
+    provider = OpenAIProvider(_settings())
+    assert not isinstance(provider, AudioTranscriptionProvider)

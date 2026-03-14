@@ -1,4 +1,6 @@
 import json
+import os
+import stat
 from pathlib import Path
 
 from scripts import openai_codex_oauth
@@ -41,6 +43,9 @@ def test_save_auth_json_updates_tokens_block(tmp_path) -> None:
     assert payload["tokens"]["refresh_token"] == "rt"
     assert payload["tokens"]["client_id"] == "cid"
     assert payload["tokens"]["token_url"] == "https://auth.openai.com/oauth/token"
+    if os.name != "nt":
+        mode = stat.S_IMODE(os.stat(auth_file).st_mode)
+        assert mode == 0o600
 
 
 def test_extract_query_value_reads_fragment() -> None:

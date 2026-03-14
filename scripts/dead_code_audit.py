@@ -16,9 +16,7 @@ TARGETS = [
     "src/memory",
     "src/providers",
     "src/provider_factory.py",
-    "src/openai_provider.py",
     "src/gemini_provider.py",
-    "src/openai_auth.py",
 ]
 
 # Reviewed dead-code candidates from vulture for this scope.

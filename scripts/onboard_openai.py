@@ -1,6 +1,8 @@
 import argparse
 import getpass
 import json
+import os
+import tempfile
 import webbrowser
 from pathlib import Path
 from typing import Callable, Dict
@@ -39,12 +41,16 @@ def maybe_open_openai_keys_page(
         print(f"Please open manually: {OPENAI_KEYS_URL}")
 
 
-def print_runtime_exports(payload: Dict[str, Dict[str, str]]) -> None:
+def print_runtime_exports(
+    payload: Dict[str, Dict[str, str]], *, auth_file: str
+) -> None:
     openai = payload.get("openai", {})
     print("export MODEL_PROVIDER=openai")
-    print(f"export OPENAI_API_KEY='{openai.get('api_key', '')}'")
+    print(f"export OPENAI_AUTH_JSON_PATH='{auth_file}'")
     print(f"export OPENAI_MODEL='{openai.get('model', DEFAULT_MODEL)}'")
-    print(f"export OPENAI_LOW_COST_MODEL='{openai.get('low_cost_model', openai.get('model', DEFAULT_MODEL))}'")
+    print(
+        f"export OPENAI_LOW_COST_MODEL='{openai.get('low_cost_model', openai.get('model', DEFAULT_MODEL))}'"
+    )
     print(
         f"export OPENAI_REACTION_MODEL='{openai.get('reaction_model', openai.get('low_cost_model', openai.get('model', DEFAULT_MODEL)))}'"
     )
@@ -70,6 +76,43 @@ def _default_prompt_open_browser() -> bool:
     return answer in {"", "y", "yes"}
 
 
+def _resolve_auth_file_path(auth_file: str) -> Path:
+    path = Path(auth_file).expanduser().resolve()
+    if path.exists() and not path.is_file():
+        raise ValueError(f"Auth file path must point to a file: {path}")
+    return path
+
+
+def _write_private_json(path: Path, payload: Dict[str, Dict[str, str]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    file_descriptor, temp_path = tempfile.mkstemp(
+        prefix=".openai-onboard-",
+        suffix=".tmp",
+        dir=path.parent,
+    )
+    try:
+        try:
+            os.fchmod(file_descriptor, 0o600)
+        except (AttributeError, OSError):
+            pass
+        with os.fdopen(file_descriptor, "w", encoding="utf-8") as file_obj:
+            json.dump(payload, file_obj, ensure_ascii=False, indent=2)
+            file_obj.write("\n")
+            file_obj.flush()
+            os.fsync(file_obj.fileno())
+        os.replace(temp_path, path)
+        try:
+            os.chmod(path, 0o600)
+        except OSError:
+            pass
+    finally:
+        if os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
+
+
 def onboard(
     auth_file: str,
     *,
@@ -82,7 +125,11 @@ def onboard(
     prompt_input = prompt_input or _default_prompt_input
     prompt_overwrite = prompt_overwrite or _default_prompt_overwrite
 
-    path = Path(auth_file).expanduser()
+    try:
+        path = _resolve_auth_file_path(auth_file)
+    except ValueError as exc:
+        print(str(exc))
+        return 2
     if path.exists() and not prompt_overwrite(str(path)):
         print("Aborted: auth file already exists and overwrite was declined.")
         return 1
@@ -93,8 +140,12 @@ def onboard(
         return 2
 
     model = (prompt_input("OPENAI_MODEL", DEFAULT_MODEL) or "").strip() or DEFAULT_MODEL
-    low_cost_model = (prompt_input("OPENAI_LOW_COST_MODEL", model) or "").strip() or model
-    reaction_model = (prompt_input("OPENAI_REACTION_MODEL", low_cost_model) or "").strip() or low_cost_model
+    low_cost_model = (
+        prompt_input("OPENAI_LOW_COST_MODEL", model) or ""
+    ).strip() or model
+    reaction_model = (
+        prompt_input("OPENAI_REACTION_MODEL", low_cost_model) or ""
+    ).strip() or low_cost_model
 
     if not no_verify:
         try:
@@ -112,18 +163,31 @@ def onboard(
         }
     }
 
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    _write_private_json(path, payload)
     print(f"Saved OpenAI auth settings to: {path}")
-    print_runtime_exports(payload)
+    print_runtime_exports(payload, auth_file=str(path))
     return 0
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Interactive OpenAI API key onboarding")
-    parser.add_argument("--auth-file", default="scripts/openai.auth.json", help="Path to write auth JSON.")
-    parser.add_argument("--no-verify", action="store_true", help="Skip live OpenAI verification request.")
-    parser.add_argument("--open-browser", action="store_true", help="Open OpenAI API keys page automatically.")
+    parser = argparse.ArgumentParser(
+        description="Interactive OpenAI API key onboarding"
+    )
+    parser.add_argument(
+        "--auth-file",
+        default="scripts/openai.auth.json",
+        help="Path to write auth JSON.",
+    )
+    parser.add_argument(
+        "--no-verify",
+        action="store_true",
+        help="Skip live OpenAI verification request.",
+    )
+    parser.add_argument(
+        "--open-browser",
+        action="store_true",
+        help="Open OpenAI API keys page automatically.",
+    )
     args = parser.parse_args()
 
     maybe_open_openai_keys_page(

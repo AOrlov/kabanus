@@ -2,7 +2,9 @@ import argparse
 import base64
 import hashlib
 import json
+import os
 import secrets
+import tempfile
 import threading
 import time
 import urllib.error
@@ -68,7 +70,11 @@ class _CallbackHandler(BaseHTTPRequestHandler):
         err = _extract_query_value(self.path, "error")
         returned_state = _extract_query_value(self.path, "state")
         _CallbackHandler.result["url"] = self.path
-        if returned_state and _CallbackHandler.expected_state and returned_state != _CallbackHandler.expected_state:
+        if (
+            returned_state
+            and _CallbackHandler.expected_state
+            and returned_state != _CallbackHandler.expected_state
+        ):
             _CallbackHandler.result["error"] = "State mismatch"
             _CallbackHandler.event.set()
             self.send_response(400)
@@ -86,7 +92,9 @@ class _CallbackHandler(BaseHTTPRequestHandler):
                 return
             self.send_header("Content-Type", "text/plain; charset=utf-8")
             self.end_headers()
-            self.wfile.write(b"OAuth callback returned an error. Check terminal output.")
+            self.wfile.write(
+                b"OAuth callback returned an error. Check terminal output."
+            )
         else:
             self.send_response(400)
             self.send_header("Content-Type", "text/plain; charset=utf-8")
@@ -99,7 +107,9 @@ class _CallbackHandler(BaseHTTPRequestHandler):
         return
 
 
-def _run_local_callback_server(host: str, port: int, path: str, state: str, timeout_sec: int) -> str:
+def _run_local_callback_server(
+    host: str, port: int, path: str, state: str, timeout_sec: int
+) -> str:
     _CallbackHandler.event.clear()
     _CallbackHandler.result = {"url": "", "error": ""}
     _CallbackHandler.expected_path = path
@@ -199,7 +209,9 @@ def _save_auth_json(
     token_payload: dict,
 ) -> None:
     root = _load_json(path)
-    tokens = dict(root.get("tokens", {})) if isinstance(root.get("tokens"), dict) else {}
+    tokens = (
+        dict(root.get("tokens", {})) if isinstance(root.get("tokens"), dict) else {}
+    )
 
     access_token = str(token_payload.get("access_token", "")).strip()
     refresh_token = str(token_payload.get("refresh_token", "")).strip()
@@ -219,7 +231,8 @@ def _save_auth_json(
             "access_token": access_token,
             "refresh_token": refresh_token,
             "id_token": id_token,
-            "account_id": _extract_account_id(access_token) or tokens.get("account_id", ""),
+            "account_id": _extract_account_id(access_token)
+            or tokens.get("account_id", ""),
             "token_url": token_url,
             "client_id": client_id,
             "grant_type": "refresh_token",
@@ -232,7 +245,32 @@ def _save_auth_json(
         root["OPENAI_API_KEY"] = ""
 
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(root, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    file_descriptor, temp_path = tempfile.mkstemp(
+        prefix=".openai-codex-",
+        suffix=".tmp",
+        dir=path.parent,
+    )
+    try:
+        try:
+            os.fchmod(file_descriptor, 0o600)
+        except (AttributeError, OSError):
+            pass
+        with os.fdopen(file_descriptor, "w", encoding="utf-8") as file_obj:
+            json.dump(root, file_obj, ensure_ascii=False, indent=2)
+            file_obj.write("\n")
+            file_obj.flush()
+            os.fsync(file_obj.fileno())
+        os.replace(temp_path, path)
+        try:
+            os.chmod(path, 0o600)
+        except OSError:
+            pass
+    finally:
+        if os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
 
 
 def _build_auth_url(
@@ -286,7 +324,11 @@ def _parse_authorization_input(value: str) -> Tuple[str, str]:
 
 def run_oauth(args: argparse.Namespace) -> int:
     auth_path = Path(args.auth_file).expanduser().resolve()
-    redirect_path = args.redirect_path if args.redirect_path.startswith("/") else f"/{args.redirect_path}"
+    redirect_path = (
+        args.redirect_path
+        if args.redirect_path.startswith("/")
+        else f"/{args.redirect_path}"
+    )
     redirect_uri = f"http://{args.redirect_host}:{args.redirect_port}{redirect_path}"
     code_verifier, code_challenge = _generate_pkce()
     state = secrets.token_urlsafe(24)
@@ -308,7 +350,9 @@ def run_oauth(args: argparse.Namespace) -> int:
     else:
         print("Opening browser for OpenAI Codex OAuth...")
         webbrowser.open(login_url)
-        print(f"If callback does not auto-complete, paste redirect URL manually. Callback: {redirect_uri}")
+        print(
+            f"If callback does not auto-complete, paste redirect URL manually. Callback: {redirect_uri}"
+        )
         try:
             callback_path = _run_local_callback_server(
                 host=args.redirect_host,
@@ -317,7 +361,9 @@ def run_oauth(args: argparse.Namespace) -> int:
                 state=state,
                 timeout_sec=args.timeout_sec,
             )
-            callback_url = f"http://{args.redirect_host}:{args.redirect_port}{callback_path}"
+            callback_url = (
+                f"http://{args.redirect_host}:{args.redirect_port}{callback_path}"
+            )
         except Exception:
             print("Auto-callback not received. Paste redirect URL:")
             callback_url = input("> ").strip()
@@ -359,18 +405,47 @@ def run_oauth(args: argparse.Namespace) -> int:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="OpenAI Codex OAuth login for bot auth.json")
-    parser.add_argument("--auth-file", default=".secrets/auth.json", help="Path to auth.json to write/update.")
-    parser.add_argument("--remote", action="store_true", help="Remote/VPS mode: manual redirect URL paste.")
-    parser.add_argument("--client-id", default=DEFAULT_CLIENT_ID, help="OAuth client_id.")
-    parser.add_argument("--auth-url", default=DEFAULT_AUTH_URL, help="OAuth authorize endpoint.")
-    parser.add_argument("--token-url", default=DEFAULT_TOKEN_URL, help="OAuth token endpoint.")
+    parser = argparse.ArgumentParser(
+        description="OpenAI Codex OAuth login for bot auth.json"
+    )
+    parser.add_argument(
+        "--auth-file",
+        default=".secrets/auth.json",
+        help="Path to auth.json to write/update.",
+    )
+    parser.add_argument(
+        "--remote",
+        action="store_true",
+        help="Remote/VPS mode: manual redirect URL paste.",
+    )
+    parser.add_argument(
+        "--client-id", default=DEFAULT_CLIENT_ID, help="OAuth client_id."
+    )
+    parser.add_argument(
+        "--auth-url", default=DEFAULT_AUTH_URL, help="OAuth authorize endpoint."
+    )
+    parser.add_argument(
+        "--token-url", default=DEFAULT_TOKEN_URL, help="OAuth token endpoint."
+    )
     parser.add_argument("--scope", default=DEFAULT_SCOPE, help="OAuth scope.")
-    parser.add_argument("--redirect-host", default=DEFAULT_REDIRECT_HOST, help="OAuth callback host.")
-    parser.add_argument("--redirect-port", type=int, default=DEFAULT_REDIRECT_PORT, help="OAuth callback port.")
-    parser.add_argument("--redirect-path", default=DEFAULT_REDIRECT_PATH, help="OAuth callback path.")
-    parser.add_argument("--originator", default=DEFAULT_ORIGINATOR, help="OAuth originator.")
-    parser.add_argument("--timeout-sec", type=int, default=180, help="Local callback wait timeout.")
+    parser.add_argument(
+        "--redirect-host", default=DEFAULT_REDIRECT_HOST, help="OAuth callback host."
+    )
+    parser.add_argument(
+        "--redirect-port",
+        type=int,
+        default=DEFAULT_REDIRECT_PORT,
+        help="OAuth callback port.",
+    )
+    parser.add_argument(
+        "--redirect-path", default=DEFAULT_REDIRECT_PATH, help="OAuth callback path."
+    )
+    parser.add_argument(
+        "--originator", default=DEFAULT_ORIGINATOR, help="OAuth originator."
+    )
+    parser.add_argument(
+        "--timeout-sec", type=int, default=180, help="Local callback wait timeout."
+    )
     args = parser.parse_args()
 
     code = run_oauth(args)

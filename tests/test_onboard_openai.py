@@ -1,4 +1,6 @@
 import json
+import os
+import stat
 
 from scripts import onboard_openai
 
@@ -21,13 +23,18 @@ def test_onboard_writes_json_on_success(tmp_path, monkeypatch) -> None:
     rc = onboard_openai.onboard(
         str(auth_file),
         prompt_secret=lambda _: "sk-test",
-        prompt_input=_prompt_input_factory(["gpt-5.3-codex", "gpt-5.3-codex", "gpt-5.3-codex"]),
+        prompt_input=_prompt_input_factory(
+            ["gpt-5.3-codex", "gpt-5.3-codex", "gpt-5.3-codex"]
+        ),
         prompt_overwrite=lambda _: True,
     )
     assert rc == 0
     payload = json.loads(auth_file.read_text(encoding="utf-8"))
     assert payload["openai"]["api_key"] == "sk-test"
     assert payload["openai"]["model"] == "gpt-5.3-codex"
+    if os.name != "nt":
+        mode = stat.S_IMODE(os.stat(auth_file).st_mode)
+        assert mode == 0o600
 
 
 def test_onboard_respects_overwrite_rejection(tmp_path, monkeypatch) -> None:
@@ -37,7 +44,9 @@ def test_onboard_respects_overwrite_rejection(tmp_path, monkeypatch) -> None:
     rc = onboard_openai.onboard(
         str(auth_file),
         prompt_secret=lambda _: "sk-new",
-        prompt_input=_prompt_input_factory(["gpt-5.3-codex", "gpt-5.3-codex", "gpt-5.3-codex"]),
+        prompt_input=_prompt_input_factory(
+            ["gpt-5.3-codex", "gpt-5.3-codex", "gpt-5.3-codex"]
+        ),
         prompt_overwrite=lambda _: False,
     )
     assert rc == 1
@@ -54,7 +63,9 @@ def test_onboard_verify_failure_blocks_write(tmp_path, monkeypatch) -> None:
     rc = onboard_openai.onboard(
         str(auth_file),
         prompt_secret=lambda _: "sk-test",
-        prompt_input=_prompt_input_factory(["gpt-5.3-codex", "gpt-5.3-codex", "gpt-5.3-codex"]),
+        prompt_input=_prompt_input_factory(
+            ["gpt-5.3-codex", "gpt-5.3-codex", "gpt-5.3-codex"]
+        ),
         prompt_overwrite=lambda _: True,
     )
     assert rc == 2
@@ -73,7 +84,9 @@ def test_onboard_no_verify_writes(tmp_path, monkeypatch) -> None:
         str(auth_file),
         no_verify=True,
         prompt_secret=lambda _: "sk-test",
-        prompt_input=_prompt_input_factory(["gpt-5.3-codex", "gpt-5.3-codex", "gpt-5.3-codex"]),
+        prompt_input=_prompt_input_factory(
+            ["gpt-5.3-codex", "gpt-5.3-codex", "gpt-5.3-codex"]
+        ),
         prompt_overwrite=lambda _: True,
     )
     assert rc == 0
@@ -97,6 +110,19 @@ def test_onboard_model_fallback_chain(tmp_path, monkeypatch) -> None:
     assert payload["openai"]["reaction_model"] == "gpt-5.3-codex"
 
 
+def test_onboard_rejects_directory_path(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(onboard_openai, "verify_openai", lambda api_key, model: None)
+    rc = onboard_openai.onboard(
+        str(tmp_path),
+        prompt_secret=lambda _: "sk-test",
+        prompt_input=_prompt_input_factory(
+            ["gpt-5.3-codex", "gpt-5.3-codex", "gpt-5.3-codex"]
+        ),
+        prompt_overwrite=lambda _: True,
+    )
+    assert rc == 2
+
+
 def test_print_runtime_exports_contains_expected_keys(capsys) -> None:
     onboard_openai.print_runtime_exports(
         {
@@ -106,11 +132,14 @@ def test_print_runtime_exports_contains_expected_keys(capsys) -> None:
                 "low_cost_model": "gpt-5.3-codex",
                 "reaction_model": "gpt-5.3-codex",
             }
-        }
+        },
+        auth_file="/tmp/openai.auth.json",
     )
     captured = capsys.readouterr()
     assert "MODEL_PROVIDER=openai" in captured.out
-    assert "OPENAI_API_KEY='sk-test'" in captured.out
+    assert "OPENAI_AUTH_JSON_PATH='/tmp/openai.auth.json'" in captured.out
+    assert "OPENAI_API_KEY" not in captured.out
+    assert "sk-test" not in captured.out
 
 
 def test_maybe_open_openai_keys_page_auto(monkeypatch, capsys) -> None:

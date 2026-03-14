@@ -68,12 +68,12 @@ Replace the current monolithic AI provider abstraction with explicit capability-
 - Modify: `tests/test_openai_auth.py`
 - Modify: `tests/test_onboard_openai.py`
 
-- [ ] Break OpenAI integration into focused components for client construction, auth/token refresh, request building, streaming, and response parsing
-- [ ] Keep only supported capabilities wired into runtime composition instead of shipping placeholder methods that raise at call time
-- [ ] Tighten secret handling around `auth.json`, path validation, file permissions, and logging hygiene
-- [ ] Preserve the worthwhile behaviors of API-key mode and auth.json/Codex mode without carrying legacy branches only for compatibility
-- [ ] write tests for this task
-- [ ] run project test suite - must pass before task 4
+- [x] Break OpenAI integration into focused components for client construction, auth/token refresh, request building, streaming, and response parsing
+- [x] Keep only supported capabilities wired into runtime composition instead of shipping placeholder methods that raise at call time
+- [x] Tighten secret handling around `auth.json`, path validation, file permissions, and logging hygiene
+- [x] Preserve the worthwhile behaviors of API-key mode and auth.json/Codex mode without carrying legacy branches only for compatibility
+- [x] write tests for this task
+- [x] run project test suite - must pass before task 4
 
 ### Task 4: Split and Harden Gemini Integration
 
