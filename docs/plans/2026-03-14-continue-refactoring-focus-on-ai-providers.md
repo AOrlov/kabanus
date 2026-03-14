@@ -116,13 +116,13 @@ Replace the current monolithic AI provider abstraction with explicit capability-
 
 ### Task 6: Verify Acceptance Criteria
 
-- [ ] manual test: OpenAI text generation and streaming work through the new capability composition
-- [ ] manual test: Gemini transcription, OCR, and event parsing work when those capabilities are routed to Gemini
-- [ ] manual test: invalid capability routing or missing credentials fails at startup with a clear error
-- [ ] run full test suite (`pytest -q`)
-- [ ] run linter (`pylint src tests`)
-- [ ] run type checks (`mypy src`)
-- [ ] verify test coverage meets 80%+
+- [x] manual test: OpenAI text generation and streaming work through the new capability composition
+- [x] manual test: Gemini transcription, OCR, and event parsing work when those capabilities are routed to Gemini
+- [x] manual test: invalid capability routing or missing credentials fails at startup with a clear error
+- [x] run full test suite (`pytest -q`)
+- [x] run linter (`pylint src tests`)
+- [x] run type checks (`mypy src`)
+- [x] verify test coverage meets 80%+
 
 ### Task 7: Update Documentation
 
