@@ -54,6 +54,10 @@ def print_runtime_exports(
     print(
         f"export OPENAI_REACTION_MODEL='{openai.get('reaction_model', openai.get('low_cost_model', openai.get('model', DEFAULT_MODEL)))}'"
     )
+    print("export AI_PROVIDER_AUDIO_TRANSCRIPTION=gemini")
+    print(
+        "# Also set GEMINI_API_KEY or GOOGLE_API_KEY for the routed audio transcription capability."
+    )
 
 
 def _default_prompt_secret(label: str) -> str:

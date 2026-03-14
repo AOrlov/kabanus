@@ -14,18 +14,21 @@
   - `src/memory/summary_store.py`
   - `src/memory/context_builder.py`
 - Keep settings parsing in `src/settings_loader.py` and types in `src/settings_models.py`.
-- Keep provider contracts and routing in:
+- Keep provider contracts, errors, and routing in:
   - `src/providers/contracts.py`
-  - `src/model_provider.py`
+  - `src/providers/capabilities.py`
+  - `src/providers/errors.py`
   - `src/provider_factory.py`
+  - `src/providers/openai/*`
+  - `src/providers/gemini/*`
 
 ## Compatibility Rules
 - Do not rename or silently change env var semantics without explicit migration notes.
 - Preserve `config.get_settings(force=...)` behavior. Do not reintroduce module-level dynamic config attributes.
 - Preserve existing `message_store` callable surface unless a deliberate break is documented.
 - Preserve the startup contract (`python -m src.main` -> `src.main.run` -> `src.bot.app.run`).
-- Preserve provider fallback semantics in `RoutedModelProvider`.
-- Use typed provider request contracts; do not add legacy untyped convenience wrapper methods back to `ModelProvider`.
+- Keep provider routing explicit per capability and fail fast on unsupported combinations or missing credentials.
+- Use typed provider request contracts, capability protocols, and provider errors; do not reintroduce a monolithic `ModelProvider` abstraction or fallback-driven routing.
 
 ## Testing and Validation
 - Add or update targeted unit tests for every behavior change.

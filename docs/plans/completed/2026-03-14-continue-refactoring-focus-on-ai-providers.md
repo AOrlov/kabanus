@@ -126,9 +126,9 @@ Replace the current monolithic AI provider abstraction with explicit capability-
 
 ### Task 7: Update Documentation
 
-- [ ] update `README.md` for the new provider configuration and routing model
-- [ ] update `docs/architecture/refactor-overview.md` to reflect the new AI provider boundaries and dropped compatibility guarantees
-- [ ] update `CLAUDE.md` if internal provider/refactor guidance changes
-- [ ] update provider onboarding documentation or helper scripts impacted by the new settings shape
-- [ ] move this plan to `docs/plans/completed/`
+- [x] update `README.md` for the new provider configuration and routing model
+- [x] update `docs/architecture/refactor-overview.md` to reflect the new AI provider boundaries and dropped compatibility guarantees
+- [x] update `CLAUDE.md` if internal provider/refactor guidance changes
+- [x] update provider onboarding documentation or helper scripts impacted by the new settings shape
+- [x] move this plan to `docs/plans/completed/`
 ---

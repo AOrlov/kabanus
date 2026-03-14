@@ -1,16 +1,17 @@
 # Telegram Speech-to-Text & Event Bot
 
-Telegram bot for group interaction, voice message transcription, and (optionally) Google Calendar event creation from event poster photos. Supports OpenAI and Gemini model providers with runtime switching. Designed for easy Docker deployment and notifies an admin on critical errors.
+Telegram bot for group interaction, AI replies, voice transcription, OCR, and optional Google Calendar event creation from event poster photos. AI behavior is assembled from explicit provider capabilities: each capability is routed to OpenAI or Gemini at startup, validated up front, and exposed to the bot through narrow contracts instead of a monolithic provider abstraction.
 
 ## Features
 - Listens for voice and text messages in Telegram groups
-- Transcribes speech to text using Gemini
-- Replies with the transcription or an error message
-- Supports OpenAI/Gemini for text generation and context-aware replies
+- Supports context-aware AI replies for text, voice, and images
+- Explicit per-capability AI routing with fail-fast startup validation
+- OpenAI capabilities: text generation, streaming drafts, low-cost text generation, OCR, reaction selection, event parsing
+- Gemini capabilities: text generation, low-cost text generation, audio transcription, OCR, reaction selection, event parsing
+- Typed provider failures for auth, quota, capability, configuration, and invalid responses
 - Supports context memory optimization with recent-window + optional long-term summaries
-- Can auto-react to messages using Gemini (optional)
-- Optional multi-model Gemini routing with per-model RPM/RPD limits
-- Provider fallback: when OpenAI is selected, Gemini is used as fallback and for transcription
+- Optional multi-model Gemini quota handling with explicit model roles
+- Can auto-react to messages (optional)
 - Can create Google Calendar events from event poster photos (optional)
 - Notifies admin on critical errors
 - Logs to stdout and temporary files
@@ -21,8 +22,9 @@ Telegram bot for group interaction, voice message transcription, and (optionally
 - Docker (recommended) or Python 3.9+
 - Telegram bot token
 - Allowed chat/user IDs (for access control)
-- OpenAI API key (for OpenAI provider)
-- Google Gemini API key (optional; required only for Gemini provider/fallback and transcription)
+- OpenAI API key or `auth.json` credentials when any routed capability uses OpenAI
+- Google Gemini API key when any routed capability uses Gemini
+- For the full shipped capability map, both providers are usually required because OpenAI does not implement audio transcription and Gemini does not implement streaming text generation
 - (Optional) Admin Telegram chat ID (for error notifications)
 - (Optional) Google Calendar credentials and calendar ID (for event creation)
 
@@ -56,31 +58,42 @@ TELEGRAM_BOT_TOKEN=your-telegram-bot-token
 ALLOWED_CHAT_IDS=comma,separated,chat,ids
 ADMIN_CHAT_ID=your-admin-chat-id           # Optional, for error notifications
 
-# Provider selection
-MODEL_PROVIDER=openai                       # Optional, openai|gemini (default: openai)
-OPENAI_API_KEY=your-openai-api-key         # Required when MODEL_PROVIDER=openai
-OPENAI_AUTH_JSON_PATH=path/to/auth.json    # Optional alternative to OPENAI_API_KEY (refresh-token flow)
-OPENAI_REFRESH_URL=https://auth.openai.com/oauth/token # Optional token refresh endpoint for OPENAI_AUTH_JSON_PATH
-OPENAI_REFRESH_CLIENT_ID=                  # Optional refresh client_id override
-OPENAI_REFRESH_GRANT_TYPE=refresh_token    # Optional refresh grant type
-OPENAI_AUTH_LEEWAY_SECS=60                 # Optional pre-expiry refresh window
-OPENAI_AUTH_TIMEOUT_SECS=20                # Optional refresh HTTP timeout
-OPENAI_CODEX_BASE_URL=https://chatgpt.com/backend-api # Optional Codex backend base URL for auth.json tokens
-OPENAI_CODEX_DEFAULT_MODEL=gpt-5.3-codex   # Optional default model used for auth.json Codex sessions
-OPENAI_MODEL=gpt-5.3-codex                 # Optional. For auth.json flow, defaults to OPENAI_CODEX_DEFAULT_MODEL when unset
-OPENAI_LOW_COST_MODEL=gpt-5.3-codex        # Optional. Defaults to OPENAI_MODEL (or Codex default in auth.json flow)
-OPENAI_REACTION_MODEL=gpt-5.3-codex        # Optional. Defaults to OPENAI_LOW_COST_MODEL
+# AI routing
+MODEL_PROVIDER=openai                       # Default provider for all capabilities: openai|gemini
+AI_PROVIDER_TEXT_GENERATION=openai          # Optional override; defaults to MODEL_PROVIDER
+AI_PROVIDER_STREAMING_TEXT_GENERATION=openai
+AI_PROVIDER_LOW_COST_TEXT_GENERATION=openai
+AI_PROVIDER_AUDIO_TRANSCRIPTION=gemini
+AI_PROVIDER_OCR=openai
+AI_PROVIDER_REACTION_SELECTION=openai
+AI_PROVIDER_EVENT_PARSING=openai
 
-# Gemini and AI behavior
-GEMINI_API_KEY=your-gemini-api-key         # Required for Gemini support
-GOOGLE_API_KEY=your-google-api-key         # Optional, defaults to GEMINI_API_KEY if unset
-GEMINI_MODEL=gemini-2.0-flash              # Optional, default is gemini-2.0-flash
-GEMINI_MODELS=[{"name":"gemini-2.5-flash","rpm":60,"rpd":1000}] # Optional JSON list ordered by preference, overrides GEMINI_MODEL
-THINKING_BUDGET=0                          # Optional, Gemini thinking budget
-USE_GOOGLE_SEARCH=false                    # Optional, enable Gemini grounding with Google Search
-SYSTEM_INSTRUCTIONS_PATH=system_instructions.txt # Optional, path (relative to src/) for system prompt
-LANGUAGE=ru                                # Optional, bot response language (default: ru)
-TOKEN_LIMIT=500000                         # Optional, context token limit
+# OpenAI settings
+OPENAI_API_KEY=your-openai-api-key         # API-key mode
+OPENAI_AUTH_JSON_PATH=path/to/auth.json    # Optional alternative to OPENAI_API_KEY
+OPENAI_REFRESH_URL=https://auth.openai.com/oauth/token
+OPENAI_REFRESH_CLIENT_ID=
+OPENAI_REFRESH_GRANT_TYPE=refresh_token
+OPENAI_AUTH_LEEWAY_SECS=60
+OPENAI_AUTH_TIMEOUT_SECS=20
+OPENAI_CODEX_BASE_URL=https://chatgpt.com/backend-api
+OPENAI_CODEX_DEFAULT_MODEL=gpt-5.3-codex
+OPENAI_MODEL=gpt-5.3-codex
+OPENAI_LOW_COST_MODEL=gpt-5.3-codex
+OPENAI_REACTION_MODEL=gpt-5.3-codex
+
+# Gemini settings
+GEMINI_API_KEY=your-gemini-api-key         # GOOGLE_API_KEY is also accepted
+GOOGLE_API_KEY=your-google-api-key         # Optional alias; wins over GEMINI_API_KEY when set
+GEMINI_MODEL=gemini-2.0-flash              # Preferred text + multimodal Gemini model
+GEMINI_LOW_COST_MODEL=gemini-2.0-flash     # Preferred low-cost Gemini model
+REACTION_GEMINI_MODEL=gemini-2.0-flash     # Preferred Gemini model for reaction selection
+GEMINI_MODELS=[{"name":"gemini-2.0-flash","rpm":60,"rpd":1000}]
+THINKING_BUDGET=0
+USE_GOOGLE_SEARCH=false
+SYSTEM_INSTRUCTIONS_PATH=system_instructions.txt
+LANGUAGE=ru
+TOKEN_LIMIT=500000
 
 # Features
 ENABLE_MESSAGE_HANDLING=true               # Enable text/voice message handling (default: false)
@@ -124,6 +137,44 @@ SETTINGS_CACHE_TTL=1.0                     # Optional, settings cache TTL in sec
 SETTINGS_REFRESH_INTERVAL=1.0              # Optional, refresh interval (used if job enabled)
 ```
 
+### 4.1 Capability Routing and Provider Support
+
+`MODEL_PROVIDER` seeds the routing map, and each `AI_PROVIDER_*` variable can override one capability.
+Startup rejects unsupported routing or missing credentials before the bot begins polling.
+
+| Capability | Env var | OpenAI | Gemini |
+| --- | --- | --- | --- |
+| Text generation | `AI_PROVIDER_TEXT_GENERATION` | Yes | Yes |
+| Streaming text generation | `AI_PROVIDER_STREAMING_TEXT_GENERATION` | Yes | No |
+| Low-cost text generation | `AI_PROVIDER_LOW_COST_TEXT_GENERATION` | Yes | Yes |
+| Audio transcription | `AI_PROVIDER_AUDIO_TRANSCRIPTION` | No | Yes |
+| OCR | `AI_PROVIDER_OCR` | Yes | Yes |
+| Reaction selection | `AI_PROVIDER_REACTION_SELECTION` | Yes | Yes |
+| Event parsing | `AI_PROVIDER_EVENT_PARSING` | Yes | Yes |
+
+OpenAI-first baseline:
+
+```dotenv
+MODEL_PROVIDER=openai
+AI_PROVIDER_AUDIO_TRANSCRIPTION=gemini
+OPENAI_API_KEY=...
+GEMINI_API_KEY=...
+```
+
+Gemini-first baseline:
+
+```dotenv
+MODEL_PROVIDER=gemini
+AI_PROVIDER_STREAMING_TEXT_GENERATION=openai
+OPENAI_API_KEY=...
+GEMINI_API_KEY=...
+```
+
+If `GEMINI_MODELS` is set, the preferred role models named by `GEMINI_MODEL`,
+`GEMINI_LOW_COST_MODEL`, and `REACTION_GEMINI_MODEL` must appear in that list.
+The preferred model is tried first and the remaining configured Gemini models act as
+same-provider quota fallbacks.
+
 ### 5. Build and Run with Docker
 ```
 docker build -t kabanus .
@@ -139,6 +190,8 @@ PYTHONPATH=. python3 -m scripts.onboard_openai
 ```
 
 The wizard prints `export ...` lines for runtime. Apply them before starting the bot.
+It now prints the required `AI_PROVIDER_AUDIO_TRANSCRIPTION=gemini` override for the
+current capability map, but you still need Gemini credentials in the environment.
 Use `--open-browser` to open the OpenAI API keys page automatically.
 
 For OpenAI Codex OAuth flow (local callback on `http://localhost:1455/auth/callback`):
@@ -173,7 +226,8 @@ instead of `OPENAI_API_KEY`.
   (default `https://auth.openai.com/oauth/token`) with `grant_type`, `refresh_token`,
   and optional `client_id`.
 - Refreshed tokens are written back into the same `auth.json`.
-- Refresh writes are atomic and enforce private file mode (`0600`) on best effort.
+- Runtime rejects non-file paths and overly broad permissions; refresh writes are atomic
+  and enforce private file mode (`0600`) on best effort.
 
 Supported shapes include top-level keys and `tokens.*` keys. Minimal recommended shape:
 
@@ -205,7 +259,9 @@ python -m src.main
   `/summary` (last chunk), `/summary 5`, `/summary index 42`, `/summary budget api`, `/summary --head 10 --grep budget`.
   `/summary help` shows command usage.
   Summary command requests and responses are not saved into chat history.
-- If `GEMINI_MODELS` is set, the bot tries models in order of desirability and skips any that hit RPM/RPD limits.
+- If `GEMINI_MODELS` is set, Gemini uses the explicit role models from `GEMINI_MODEL`,
+  `GEMINI_LOW_COST_MODEL`, and `REACTION_GEMINI_MODEL` first, then falls back to the
+  remaining configured Gemini models when RPM/RPD limits are exhausted.
 - If `REACTION_ENABLED=true`, the bot may react to messages within configured budget/cooldown and considers recent dialogue context when choosing emoji.
 
 ## Utilities
@@ -229,26 +285,28 @@ The codebase now separates a reusable Telegram framework layer from Kabanus prod
   - `error_reporting.py`: admin notification and exception formatting
 - Product composition lives in `src/bot/app.py` and feature registration modules in `src/bot/features/*`.
 - Product behavior lives in `src/bot/handlers/*` and `src/bot/services/*`.
-- Cross-layer dependencies use explicit protocols in `src/bot/contracts.py` (no implicit module-level globals).
+- Cross-layer dependencies use explicit protocols and capability bundles in `src/bot/contracts.py` (no implicit module-level globals).
 - Memory internals live in `src/memory/*`; `src/message_store.py` exposes the public memory API.
 - Settings parsing internals live in `src/settings_loader.py` and `src/settings_models.py`; `src/config.py` is a thin facade around `get_settings(force=...)`.
-- Provider routing and typed contracts are in `src/provider_factory.py`, `src/model_provider.py`, and `src/providers/contracts.py`.
+- Provider routing and typed contracts are in `src/provider_factory.py`, `src/providers/contracts.py`, `src/providers/capabilities.py`, and `src/providers/errors.py`.
+- Concrete provider implementations live in `src/providers/openai/*` and `src/providers/gemini/*`.
 
 Detailed module boundaries, extension points, compatibility guarantees, and migration notes:
 - `docs/architecture/refactor-overview.md`
 
-## Backward Compatibility Guarantees
-- Environment variable names/defaults and validation semantics are preserved.
+## Compatibility and Migration
 - Bot startup entrypoint remains `python -m src.main`.
-- Provider routing fallback behavior remains equivalent to previous `RoutedModelProvider` semantics.
-
-The refactor no longer guarantees broad legacy Python API compatibility. Internal module
-shapes and helper functions may change as long as runtime behavior and configuration
-contract remain stable.
+- `config.get_settings(force=...)` remains the public settings facade.
+- Provider configuration is now explicit per capability. Hidden fallback routing is gone.
+- Legacy monolithic modules such as `src/model_provider.py`, `src/openai_provider.py`,
+  and `src/gemini_provider.py` were removed in favor of provider packages and capability
+  protocols.
+- Runtime and provider consumers should handle typed provider errors instead of catching
+  broad generic exceptions.
 
 Removed internal compatibility shims include:
 - `config.<UPPERCASE_ENV_NAME>` module-level dynamic attribute access
-- Legacy untyped provider convenience wrappers in favor of typed request contracts
+- Monolithic provider wrappers in favor of typed request contracts and capability protocols
 
 ## Migration Notes (Internal Integrations)
 - If you imported private internals from monolithic modules, migrate to new focused modules:
@@ -257,6 +315,7 @@ Removed internal compatibility shims include:
   - Bot flow internals: `src/bot/handlers/*`, `src/bot/services/*`
   - Memory internals: `src/memory/history_store.py`, `src/memory/summary_store.py`, `src/memory/context_builder.py`
   - Settings internals: `src/settings_loader.py`, `src/settings_models.py`
+- Provider internals: `src/providers/openai/*`, `src/providers/gemini/*`, `src/providers/capabilities.py`, `src/providers/errors.py`
 - Use `config.get_settings(force=...)` and `Settings` fields directly; do not rely on module-level env-var aliases.
 - Prefer typed provider request wrappers from `src/providers/contracts.py` for provider integrations.
 - Keep framework modules product-agnostic; compose product handlers/services via `src/bot/features/*` and `src/bot/app.py`.
@@ -311,12 +370,16 @@ A `.vscode/launch.json` is provided. Use the "Run Telegram Bot (src.main)" or "D
 ## Notes
 - Imports in `src/` use package-qualified paths (for example `from src import config`).
 - Do not run files in `src/` directly; always use the `-m` module syntax from the project root.
-- OpenAI provider uses `OPENAI_API_KEY` (official API key auth).
-- Optional `OPENAI_AUTH_JSON_PATH` can be used to load/refresh bearer tokens from `auth.json` (refresh token required).
+- A valid routing map must be fully supported at startup even if some product features are disabled.
+- OpenAI uses `OPENAI_API_KEY` or `OPENAI_AUTH_JSON_PATH` (refresh token required for auth refresh).
 - In `OPENAI_AUTH_JSON_PATH` mode, runtime automatically uses Codex-compatible request flags
   (`instructions`, `store=false`, streaming) and defaults models to `OPENAI_CODEX_DEFAULT_MODEL`
   when `OPENAI_MODEL` is not explicitly set.
+- OpenAI auth file handling requires an existing file path and private permissions (`0600`) on non-Windows hosts.
 - Gemini support requires a valid API key from Google AI Studio.
+- `GOOGLE_API_KEY` overrides `GEMINI_API_KEY` when both are set.
+- The OpenAI onboarding helpers only provision OpenAI credentials; keep the printed
+  `AI_PROVIDER_AUDIO_TRANSCRIPTION=gemini` override and add Gemini credentials separately.
 - Google Calendar event creation requires a valid calendar ID and service account credentials.
 - `ALLOWED_CHAT_IDS` is required; if empty, the bot denies all users.
 - `DEBUG_MODE` controls your app debug logs (`src.*`, `__main__`).

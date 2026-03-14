@@ -138,6 +138,8 @@ def test_print_runtime_exports_contains_expected_keys(capsys) -> None:
     captured = capsys.readouterr()
     assert "MODEL_PROVIDER=openai" in captured.out
     assert "OPENAI_AUTH_JSON_PATH='/tmp/openai.auth.json'" in captured.out
+    assert "AI_PROVIDER_AUDIO_TRANSCRIPTION=gemini" in captured.out
+    assert "GEMINI_API_KEY" in captured.out
     assert "OPENAI_API_KEY" not in captured.out
     assert "sk-test" not in captured.out
 

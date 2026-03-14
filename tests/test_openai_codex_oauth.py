@@ -51,3 +51,13 @@ def test_save_auth_json_updates_tokens_block(tmp_path) -> None:
 def test_extract_query_value_reads_fragment() -> None:
     url = "http://localhost:1455/#code=abc123&state=st1"
     assert openai_codex_oauth._extract_query_value(url, "code") == "abc123"
+
+
+def test_print_runtime_exports_includes_transcription_override(capsys) -> None:
+    openai_codex_oauth.print_runtime_exports(Path("/tmp/auth.json"))
+
+    captured = capsys.readouterr()
+    assert "MODEL_PROVIDER=openai" in captured.out
+    assert "OPENAI_AUTH_JSON_PATH='/tmp/auth.json'" in captured.out
+    assert "AI_PROVIDER_AUDIO_TRANSCRIPTION=gemini" in captured.out
+    assert "GEMINI_API_KEY" in captured.out

@@ -25,6 +25,7 @@ DEFAULT_REDIRECT_PORT = 1455
 DEFAULT_REDIRECT_HOST = "localhost"
 DEFAULT_REDIRECT_PATH = "/auth/callback"
 DEFAULT_ORIGINATOR = "pi"
+DEFAULT_MODEL = "gpt-5.3-codex"
 
 
 def _b64url_no_pad(raw: bytes) -> str:
@@ -199,6 +200,18 @@ def _load_json(path: Path) -> dict:
     except Exception:
         return {}
     return data if isinstance(data, dict) else {}
+
+
+def print_runtime_exports(auth_path: Path) -> None:
+    print("export MODEL_PROVIDER=openai")
+    print(f"export OPENAI_AUTH_JSON_PATH='{auth_path}'")
+    print(f"export OPENAI_MODEL='{DEFAULT_MODEL}'")
+    print(f"export OPENAI_LOW_COST_MODEL='{DEFAULT_MODEL}'")
+    print(f"export OPENAI_REACTION_MODEL='{DEFAULT_MODEL}'")
+    print("export AI_PROVIDER_AUDIO_TRANSCRIPTION=gemini")
+    print(
+        "# Also set GEMINI_API_KEY or GOOGLE_API_KEY for the routed audio transcription capability."
+    )
 
 
 def _save_auth_json(
@@ -396,11 +409,7 @@ def run_oauth(args: argparse.Namespace) -> int:
     )
     print(f"OAuth credentials saved to: {auth_path}")
     print("\nSet env for bot runtime:")
-    print("export MODEL_PROVIDER=openai")
-    print(f"export OPENAI_AUTH_JSON_PATH='{auth_path}'")
-    print("export OPENAI_MODEL='gpt-5.3-codex'")
-    print("export OPENAI_LOW_COST_MODEL='gpt-5.3-codex'")
-    print("export OPENAI_REACTION_MODEL='gpt-5.3-codex'")
+    print_runtime_exports(auth_path)
     return 0
 
 
