@@ -4,6 +4,15 @@ from dataclasses import dataclass
 from typing import Any, Dict, Literal, Optional, Sequence
 
 ProviderName = Literal["openai", "gemini"]
+CapabilityName = Literal[
+    "text_generation",
+    "streaming_text_generation",
+    "low_cost_text_generation",
+    "audio_transcription",
+    "ocr",
+    "reaction_selection",
+    "event_parsing",
+]
 EventPayload = Dict[str, Any]
 
 

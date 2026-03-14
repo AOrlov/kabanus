@@ -14,13 +14,14 @@ from typing import (
 )
 
 from telegram import Update
-from src.providers.contracts import (
-    AudioTranscriptionRequest,
-    EventPayload,
-    ImageToEventRequest,
-    ImageToTextRequest,
-    ReactionSelectionRequest,
-    TextGenerationRequest,
+from src.providers.capabilities import (
+    AudioTranscriptionProvider,
+    EventParsingProvider,
+    LowCostTextGenerationProvider,
+    OcrProvider,
+    ReactionSelectionProvider,
+    StreamingTextGenerationProvider,
+    TextGenerationProvider,
 )
 
 
@@ -68,20 +69,17 @@ class BotSettings(Protocol):
     def reaction_context_token_limit(self) -> int: ...
 
 
-class ProductProvider(Protocol):
-    def transcribe_audio(self, request: AudioTranscriptionRequest) -> str: ...
-
-    def generate_text(self, request: TextGenerationRequest) -> str: ...
-
-    def generate_text_stream(self, request: TextGenerationRequest) -> Iterable[str]: ...
-
-    def generate_low_cost_text(self, request: TextGenerationRequest) -> str: ...
-
-    def select_reaction(self, request: ReactionSelectionRequest) -> str: ...
-
-    def parse_image_event(self, request: ImageToEventRequest) -> EventPayload: ...
-
-    def extract_image_text(self, request: ImageToTextRequest) -> str: ...
+class ProductProvider(
+    AudioTranscriptionProvider,
+    TextGenerationProvider,
+    StreamingTextGenerationProvider,
+    LowCostTextGenerationProvider,
+    ReactionSelectionProvider,
+    EventParsingProvider,
+    OcrProvider,
+    Protocol,
+):
+    pass
 
 
 SettingsGetter = Callable[[], BotSettings]

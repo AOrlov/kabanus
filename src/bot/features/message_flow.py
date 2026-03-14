@@ -6,6 +6,7 @@ from telegram import Update
 from telegram.ext import Application, ContextTypes, MessageHandler, filters
 
 from src import config
+from src.bot.contracts import ProductProvider
 from src.bot.handlers.message_handler import MessageHandler as AddressedMessageHandler
 from src.bot.services.media_service import MediaService
 from src.bot.services.reaction_service import ReactionService, ReactionState
@@ -13,7 +14,6 @@ from src.bot.services.reply_service import (
     ReplyService,
     message_drafts_unavailable_reason,
 )
-from src.model_provider import ModelProvider
 
 MessageCallback = Callable[
     [Update, ContextTypes.DEFAULT_TYPE], Coroutine[Any, Any, None]
@@ -29,7 +29,7 @@ class MessageFlowComponents:
 def build_message_flow(
     *,
     settings_getter: Callable[..., config.Settings],
-    provider_getter: Callable[[], ModelProvider],
+    provider_getter: Callable[[], ProductProvider],
     is_allowed_fn: Callable[[Update], bool],
     storage_id_fn: Callable[[Update], Optional[str]],
     add_message_fn: Callable[..., None],

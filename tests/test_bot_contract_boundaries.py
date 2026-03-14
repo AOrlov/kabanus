@@ -1,6 +1,17 @@
 import ast
 from pathlib import Path
 
+from src.bot.contracts import ProductProvider
+from src.providers.capabilities import (
+    AudioTranscriptionProvider,
+    EventParsingProvider,
+    LowCostTextGenerationProvider,
+    OcrProvider,
+    ReactionSelectionProvider,
+    StreamingTextGenerationProvider,
+    TextGenerationProvider,
+)
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 TARGET_MODULES = (
     PROJECT_ROOT / "src" / "bot" / "handlers" / "message_handler.py",
@@ -48,3 +59,15 @@ def test_product_handlers_and_services_use_contracts_instead_of_concrete_modules
                     )
 
     assert violations == []
+
+
+def test_product_provider_contract_composes_capability_protocols() -> None:
+    provider_mro = ProductProvider.__mro__
+
+    assert AudioTranscriptionProvider in provider_mro
+    assert TextGenerationProvider in provider_mro
+    assert StreamingTextGenerationProvider in provider_mro
+    assert LowCostTextGenerationProvider in provider_mro
+    assert ReactionSelectionProvider in provider_mro
+    assert EventParsingProvider in provider_mro
+    assert OcrProvider in provider_mro

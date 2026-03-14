@@ -1,8 +1,8 @@
 from types import SimpleNamespace
 
 from src import provider_factory
-from src.model_provider import ModelProvider
 from src.provider_factory import RoutedModelProvider
+from src.providers.capabilities import ProviderCapabilities
 from src.providers.contracts import (
     AudioTranscriptionRequest,
     ImageToEventRequest,
@@ -10,11 +10,15 @@ from src.providers.contracts import (
     ReactionSelectionRequest,
     TextGenerationRequest,
 )
+from src.providers.errors import ProviderAuthError
 
 
-class _OkProvider(ModelProvider):
+class _OkProvider:
     def transcribe_audio(self, request: AudioTranscriptionRequest) -> str:
         return f"t:{request.audio_path}"
+
+    def generate_text_stream(self, request: TextGenerationRequest):
+        yield self.generate_text(request)
 
     def generate_text(self, request: TextGenerationRequest) -> str:
         return f"g:{request.prompt}"
@@ -143,6 +147,27 @@ def test_routed_provider_forwards_reaction_context_to_fallback() -> None:
 
     assert reaction == "😀"
     assert fallback.last_context == "Alice: hi"
+
+
+def test_routed_provider_does_not_fallback_on_auth_errors() -> None:
+    class _AuthFailProvider(_OkProvider):
+        def generate_text(self, request: TextGenerationRequest) -> str:
+            _ = request
+            raise ProviderAuthError(
+                "bad credentials",
+                provider="openai",
+                capability="text_generation",
+            )
+
+    provider = RoutedModelProvider(primary=_AuthFailProvider(), fallback=_OkProvider())
+
+    try:
+        provider.generate_text(TextGenerationRequest(prompt="hello"))
+    except ProviderAuthError as exc:
+        assert exc.provider == "openai"
+        assert exc.capability == "text_generation"
+    else:
+        raise AssertionError("expected ProviderAuthError")
 
 
 def test_build_provider_openai_uses_gemini_transcribe_fallback(monkeypatch) -> None:

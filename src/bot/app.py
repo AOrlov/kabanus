@@ -11,6 +11,7 @@ from telegram.ext import (
 
 from src import config, logging_utils
 from src.bot import features as bot_features
+from src.bot.contracts import ProductProvider
 from src.bot.handlers.events_handler import EventsHandler
 from src.bot.handlers.message_handler import MessageHandler as AddressedMessageHandler
 from src.bot.handlers.summary_handler import SummaryHandler
@@ -23,7 +24,6 @@ from src.message_store import (
     get_message_by_telegram_message_id,
     get_summary_view_text,
 )
-from src.model_provider import ModelProvider
 from src.provider_factory import build_provider, build_provider_for_settings
 from src.telegram_framework import application as framework_application
 from src.telegram_framework import error_reporting as framework_error_reporting
@@ -43,7 +43,7 @@ class BotRuntime:
         self,
         *,
         settings_getter: Callable[..., config.Settings],
-        provider_getter: Callable[[], ModelProvider],
+        provider_getter: Callable[[], ProductProvider],
         reaction_service: ReactionService,
         summary_handler: SummaryHandler,
         message_handler: AddressedMessageHandler,
@@ -71,7 +71,7 @@ class BotRuntime:
         )
         self._log_context = log_context_fn
 
-    def provider(self) -> ModelProvider:
+    def provider(self) -> ProductProvider:
         return self._provider_getter()
 
     def get_settings(self, force: bool = False) -> config.Settings:
@@ -156,8 +156,8 @@ class BotRuntime:
 def build_runtime(
     *,
     settings_getter: Callable[..., config.Settings] = config.get_settings,
-    provider: Optional[ModelProvider] = None,
-    provider_getter: Optional[Callable[[], ModelProvider]] = None,
+    provider: Optional[ProductProvider] = None,
+    provider_getter: Optional[Callable[[], ProductProvider]] = None,
     add_message_fn: Callable[..., None] = add_message,
     build_context_fn: Callable[..., str] = build_context,
     get_all_messages_fn: Callable[[str], list] = get_all_messages,
@@ -181,7 +181,7 @@ def build_runtime(
                     SettingsResolver(settings_getter).get()
                 )
 
-        def provider_getter() -> ModelProvider:
+        def provider_getter() -> ProductProvider:
             assert provider_instance is not None
             return provider_instance
 

@@ -19,8 +19,10 @@ from src.providers.contracts import (
     TextGenerationRequest,
     build_reaction_prompt,
 )
-
-from .model_provider import ModelProvider
+from src.providers.errors import (
+    ProviderConfigurationError,
+    ProviderQuotaError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -94,7 +96,7 @@ class _ModelRouter:
         usage.mark_exhausted(datetime.now().date())
 
 
-class GeminiProvider(ModelProvider):
+class GeminiProvider:
 
     def __init__(self):
         self._client = None
@@ -227,7 +229,10 @@ class GeminiProvider(ModelProvider):
                 "Gemini model not found",
                 extra={"model": spec.name, "available_models": all_models},
             )
-            raise exc
+            raise ProviderConfigurationError(
+                f"Gemini model '{spec.name}' is not available",
+                provider="gemini",
+            ) from exc
         if exc.status != "RESOURCE_EXHAUSTED":
             return False
         logger.error(
@@ -242,11 +247,19 @@ class GeminiProvider(ModelProvider):
         self._model_router.mark_exhausted(spec)
         if attempt < max_attempts:
             return True
-        return False
+        raise ProviderQuotaError(
+            "Gemini model quota exhausted",
+            provider="gemini",
+        ) from exc
 
     def _get_client(self):
         settings = config.get_settings()
         api_key = settings.google_api_key
+        if not api_key:
+            raise ProviderConfigurationError(
+                "Gemini API key is not configured",
+                provider="gemini",
+            )
         if self._client is None or api_key != self._client_api_key:
             os.environ["GOOGLE_API_KEY"] = api_key
             self._client = genai.Client()
@@ -284,13 +297,24 @@ class GeminiProvider(ModelProvider):
         specs: List[config.ModelSpec],
         max_attempts: int,
         run_request: Callable[[config.ModelSpec], object],
-    ) -> Optional[object]:
-        return retry_utils.retry_with_item(
+    ) -> object:
+        if not specs:
+            raise ProviderConfigurationError(
+                "No Gemini models are configured",
+                provider="gemini",
+            )
+        result = retry_utils.retry_with_item(
             max_attempts=max_attempts,
             pick_item=lambda: self._model_router.pick_model(specs),
             run=run_request,
             on_error=functools.partial(self._on_generate_error, client),
         )
+        if result is None:
+            raise ProviderQuotaError(
+                "No Gemini models are currently available for the requested capability",
+                provider="gemini",
+            )
+        return result
 
     def transcribe_audio(self, request: AudioTranscriptionRequest) -> str:
         client, settings = self._get_client()
@@ -316,7 +340,7 @@ class GeminiProvider(ModelProvider):
             )
 
         response = cast(
-            Optional[types.GenerateContentResponse],
+            types.GenerateContentResponse,
             self._run_with_retry(
                 client=client,
                 specs=settings.gemini_models,
@@ -324,8 +348,6 @@ class GeminiProvider(ModelProvider):
                 run_request=run_request,
             ),
         )
-        if response is None:
-            return ""
         return response.text.strip() if response.text else ""
 
     def _generate_with_specs(
@@ -363,7 +385,7 @@ class GeminiProvider(ModelProvider):
             )
 
         response = cast(
-            Optional[types.GenerateContentResponse],
+            types.GenerateContentResponse,
             self._run_with_retry(
                 client=client,
                 specs=specs,
@@ -371,9 +393,6 @@ class GeminiProvider(ModelProvider):
                 run_request=run_request,
             ),
         )
-        if response is None:
-            return ""
-
         text = (response.text or "").strip() if response.text else ""
         if not text:
             self._log_empty_generation_response(selected_model, response)
@@ -428,7 +447,7 @@ class GeminiProvider(ModelProvider):
             )
 
         response = cast(
-            Optional[types.GenerateContentResponse],
+            types.GenerateContentResponse,
             self._run_with_retry(
                 client=client,
                 specs=reaction_specs,
@@ -436,8 +455,6 @@ class GeminiProvider(ModelProvider):
                 run_request=run_request,
             ),
         )
-        if response is None:
-            return ""
         return response.text.strip() if response.text else ""
 
     def parse_image_event(self, request: ImageToEventRequest) -> dict:
@@ -473,7 +490,7 @@ class GeminiProvider(ModelProvider):
             )
 
         response = cast(
-            Optional[types.GenerateContentResponse],
+            types.GenerateContentResponse,
             self._run_with_retry(
                 client=client,
                 specs=settings.gemini_models,
@@ -481,8 +498,6 @@ class GeminiProvider(ModelProvider):
                 run_request=run_request,
             ),
         )
-        if response is None:
-            return {}
         event_data = json.loads(utils.strip_markdown_to_json(response.text or ""))
         logger.info("Event data from model", extra={"event_data": event_data})
 
@@ -521,7 +536,7 @@ class GeminiProvider(ModelProvider):
             )
 
         response = cast(
-            Optional[types.GenerateContentResponse],
+            types.GenerateContentResponse,
             self._run_with_retry(
                 client=client,
                 specs=settings.gemini_models,
@@ -529,6 +544,4 @@ class GeminiProvider(ModelProvider):
                 run_request=run_request,
             ),
         )
-        if response is None:
-            return ""
         return (response.text or "").strip()

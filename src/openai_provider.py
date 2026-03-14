@@ -7,7 +7,6 @@ from openai import APIStatusError, AuthenticationError, OpenAI
 
 from src import config, utils
 from src.openai_auth import OpenAIAuthManager
-from src.model_provider import ModelProvider
 from src.providers.contracts import (
     AudioTranscriptionRequest,
     ImageToEventRequest,
@@ -16,11 +15,18 @@ from src.providers.contracts import (
     TextGenerationRequest,
     build_reaction_prompt,
 )
+from src.providers.errors import (
+    ProviderAuthError,
+    ProviderCapabilityError,
+    ProviderConfigurationError,
+    ProviderError,
+    ProviderQuotaError,
+)
 
 logger = logging.getLogger(__name__)
 
 
-class OpenAIProvider(ModelProvider):
+class OpenAIProvider:
     def __init__(self) -> None:
         self._client: Optional[OpenAI] = None
         self._client_signature: Optional[Tuple[str, str, str]] = None
@@ -108,8 +114,9 @@ class OpenAIProvider(ModelProvider):
             settings, force_refresh=force_refresh
         )
         if not api_key:
-            raise RuntimeError(
-                "OpenAI auth is not configured (missing API key and auth.json token)"
+            raise ProviderConfigurationError(
+                "OpenAI auth is not configured (missing API key and auth.json token)",
+                provider="openai",
             )
         signature = (
             api_key,
@@ -122,10 +129,19 @@ class OpenAIProvider(ModelProvider):
                 kwargs["base_url"] = base_url
             if default_headers:
                 kwargs["default_headers"] = default_headers
-            self._client = OpenAI(**kwargs)
+            try:
+                self._client = OpenAI(**kwargs)
+            except Exception as exc:
+                raise ProviderConfigurationError(
+                    "Failed to initialize OpenAI client",
+                    provider="openai",
+                ) from exc
             self._client_signature = signature
         if self._client is None:
-            raise RuntimeError("Failed to initialize OpenAI client")
+            raise ProviderConfigurationError(
+                "Failed to initialize OpenAI client",
+                provider="openai",
+            )
         return self._client, settings
 
     def _is_auth_error(self, exc: Exception) -> bool:
@@ -141,6 +157,39 @@ class OpenAIProvider(ModelProvider):
             return True
         text = str(exc).lower()
         return "401" in text or "unauthorized" in text or "invalid api key" in text
+
+    def _is_quota_error(self, exc: Exception) -> bool:
+        if isinstance(exc, APIStatusError) and getattr(exc, "status_code", None) == 429:
+            return True
+        if getattr(exc, "status_code", None) == 429:
+            return True
+        text = str(exc).lower()
+        return any(
+            marker in text
+            for marker in ("429", "quota", "rate limit", "resource exhausted")
+        )
+
+    def _as_provider_error(
+        self,
+        exc: Exception,
+        *,
+        capability: str,
+    ) -> Exception:
+        if isinstance(exc, ProviderError):
+            return exc
+        if self._is_auth_error(exc):
+            return ProviderAuthError(
+                str(exc),
+                provider="openai",
+                capability=capability,
+            )
+        if self._is_quota_error(exc):
+            return ProviderQuotaError(
+                str(exc),
+                provider="openai",
+                capability=capability,
+            )
+        return exc
 
     def _should_attempt_refresh(self, exc: Exception) -> bool:
         text = str(exc).lower()
@@ -244,18 +293,36 @@ class OpenAIProvider(ModelProvider):
                         model,
                         fallback_model,
                     )
-                    response = _create_response(fallback_model)
+                    try:
+                        response = _create_response(fallback_model)
+                    except Exception as fallback_exc:
+                        raise self._as_provider_error(
+                            fallback_exc,
+                            capability="text_generation",
+                        ) from fallback_exc
                 else:
-                    raise
+                    raise self._as_provider_error(
+                        exc,
+                        capability="text_generation",
+                    ) from exc
             # For auth.json-based flow, attempt one forced refresh and retry.
             elif settings.openai_auth_json_path and self._should_attempt_refresh(exc):
                 logger.warning(
                     "OpenAI auth failed; attempting token refresh from auth.json"
                 )
                 client, _ = self._get_client(force_refresh=True)
-                response = _create_response(model)
+                try:
+                    response = _create_response(model)
+                except Exception as refresh_exc:
+                    raise self._as_provider_error(
+                        refresh_exc,
+                        capability="text_generation",
+                    ) from refresh_exc
             else:
-                raise
+                raise self._as_provider_error(
+                    exc,
+                    capability="text_generation",
+                ) from exc
         return self._extract_text(response)
 
     def _text_user_content(self, prompt: str) -> list[dict[str, str]]:
@@ -266,8 +333,10 @@ class OpenAIProvider(ModelProvider):
 
     def transcribe_audio(self, request: AudioTranscriptionRequest) -> str:
         _ = request
-        raise NotImplementedError(
-            "OpenAI transcription is intentionally disabled in this iteration"
+        raise ProviderCapabilityError(
+            "OpenAI transcription is intentionally disabled in this iteration",
+            provider="openai",
+            capability="audio_transcription",
         )
 
     def generate_text_stream(self, request: TextGenerationRequest) -> Iterator[str]:
@@ -316,7 +385,10 @@ class OpenAIProvider(ModelProvider):
             yield from _emit(client, settings.openai_model)
         except Exception as exc:
             if emitted:
-                raise
+                raise self._as_provider_error(
+                    exc,
+                    capability="streaming_text_generation",
+                ) from exc
             if codex_mode and self._is_codex_model_mismatch_error(exc):
                 fallback_model = settings.openai_codex_default_model
                 if fallback_model and fallback_model != settings.openai_model:
@@ -325,17 +397,35 @@ class OpenAIProvider(ModelProvider):
                         settings.openai_model,
                         fallback_model,
                     )
-                    yield from _emit(client, fallback_model)
+                    try:
+                        yield from _emit(client, fallback_model)
+                    except Exception as fallback_exc:
+                        raise self._as_provider_error(
+                            fallback_exc,
+                            capability="streaming_text_generation",
+                        ) from fallback_exc
                     return
-                raise
+                raise self._as_provider_error(
+                    exc,
+                    capability="streaming_text_generation",
+                ) from exc
             if settings.openai_auth_json_path and self._should_attempt_refresh(exc):
                 logger.warning(
                     "OpenAI auth failed; attempting token refresh from auth.json"
                 )
                 refreshed_client, _ = self._get_client(force_refresh=True)
-                yield from _emit(refreshed_client, settings.openai_model)
+                try:
+                    yield from _emit(refreshed_client, settings.openai_model)
+                except Exception as refresh_exc:
+                    raise self._as_provider_error(
+                        refresh_exc,
+                        capability="streaming_text_generation",
+                    ) from refresh_exc
                 return
-            raise
+            raise self._as_provider_error(
+                exc,
+                capability="streaming_text_generation",
+            ) from exc
 
     def generate_text(self, request: TextGenerationRequest) -> str:
         _, settings = self._get_client()

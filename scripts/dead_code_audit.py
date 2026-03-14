@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 TARGETS = [
     "src/bot",
     "src/memory",
-    "src/model_provider.py",
+    "src/providers",
     "src/provider_factory.py",
     "src/openai_provider.py",
     "src/gemini_provider.py",

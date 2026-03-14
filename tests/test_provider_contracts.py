@@ -1,10 +1,19 @@
 from types import SimpleNamespace
 
-from src.model_provider import ModelProvider
 from src.provider_factory import (
     RoutedModelProvider,
     build_provider_for_settings,
     resolve_provider_routing,
+)
+from src.providers.capabilities import (
+    AudioTranscriptionProvider,
+    EventParsingProvider,
+    LowCostTextGenerationProvider,
+    OcrProvider,
+    ProviderCapabilities,
+    ReactionSelectionProvider,
+    StreamingTextGenerationProvider,
+    TextGenerationProvider,
 )
 from src.providers.contracts import (
     AudioTranscriptionRequest,
@@ -15,13 +24,14 @@ from src.providers.contracts import (
     TextGenerationRequest,
     build_reaction_prompt,
 )
+from src.providers.errors import ProviderAuthError, ProviderConfigurationError
 
 # Contract note:
 # - Stable compatibility contract is configuration behavior.
 # - Provider/runtime API shape assertions here are characterization-only and may change.
 
 
-class _ContractSpyProvider(ModelProvider):
+class _ContractSpyProvider:
     def __init__(self) -> None:
         self.calls = []
 
@@ -63,7 +73,7 @@ class _ContractSpyProvider(ModelProvider):
         return f"{request.mime_type}:{len(request.image_bytes)}"
 
 
-class _ConfigurableProvider(ModelProvider):
+class _ConfigurableProvider:
     def __init__(
         self,
         name: str,
@@ -130,8 +140,17 @@ def test_build_reaction_prompt_contract() -> None:
     assert with_context.endswith("Allowed reactions: 😀, 😴")
 
 
-def test_model_provider_typed_contract_invocations() -> None:
+def test_provider_capability_protocol_contract_invocations() -> None:
     provider = _ContractSpyProvider()
+
+    assert isinstance(provider, AudioTranscriptionProvider)
+    assert isinstance(provider, TextGenerationProvider)
+    assert isinstance(provider, StreamingTextGenerationProvider)
+    assert isinstance(provider, LowCostTextGenerationProvider)
+    assert isinstance(provider, ReactionSelectionProvider)
+    assert isinstance(provider, EventParsingProvider)
+    assert isinstance(provider, OcrProvider)
+    assert isinstance(provider, ProviderCapabilities)
 
     assert (
         provider.transcribe_audio(AudioTranscriptionRequest(audio_path="voice.ogg"))
@@ -215,11 +234,11 @@ def test_build_provider_for_settings_routes_operations_and_context() -> None:
     )
     gemini = _ConfigurableProvider("gemini")
 
-    def _openai_factory() -> ModelProvider:
+    def _openai_factory() -> ProviderCapabilities:
         build_order.append("openai")
         return openai
 
-    def _gemini_factory() -> ModelProvider:
+    def _gemini_factory() -> ProviderCapabilities:
         build_order.append("gemini")
         return gemini
 
@@ -267,3 +286,71 @@ def test_routed_provider_keeps_partial_stream_without_fallback() -> None:
         "openai-partial"
     ]
     assert fallback.stream_calls == 0
+
+
+def test_provider_errors_preserve_provider_and_capability_context() -> None:
+    error = ProviderAuthError(
+        "bad credentials",
+        provider="openai",
+        capability="text_generation",
+    )
+
+    assert str(error) == "bad credentials"
+    assert error.provider == "openai"
+    assert error.capability == "text_generation"
+
+
+def test_routed_provider_does_not_fallback_on_typed_provider_errors() -> None:
+    fallback = _ConfigurableProvider("gemini")
+
+    class _AuthFailProvider(_ConfigurableProvider):
+        def generate_text(self, request: TextGenerationRequest) -> str:
+            _ = request
+            raise ProviderAuthError(
+                "bad credentials",
+                provider="openai",
+                capability="text_generation",
+            )
+
+    routed = RoutedModelProvider(
+        primary=_AuthFailProvider("openai"),
+        fallback=fallback,
+    )
+
+    try:
+        routed.generate_text(TextGenerationRequest(prompt="hello"))
+    except ProviderAuthError as exc:
+        assert exc.provider == "openai"
+        assert exc.capability == "text_generation"
+    else:
+        raise AssertionError("expected ProviderAuthError")
+
+
+def test_routed_provider_does_not_fallback_on_configuration_errors() -> None:
+    fallback = _ConfigurableProvider("gemini")
+
+    class _ConfigFailProvider(_ConfigurableProvider):
+        def select_reaction(self, request: ReactionSelectionRequest) -> str:
+            _ = request
+            raise ProviderConfigurationError(
+                "missing settings",
+                provider="openai",
+                capability="reaction_selection",
+            )
+
+    routed = RoutedModelProvider(
+        primary=_ConfigFailProvider("openai"),
+        fallback=fallback,
+    )
+
+    try:
+        routed.select_reaction(
+            ReactionSelectionRequest(message="hello", allowed_reactions=["😀"])
+        )
+    except ProviderConfigurationError as exc:
+        assert exc.provider == "openai"
+        assert exc.capability == "reaction_selection"
+    else:
+        raise AssertionError("expected ProviderConfigurationError")
+
+    assert fallback.reaction_contexts == []

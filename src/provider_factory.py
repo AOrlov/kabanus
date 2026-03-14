@@ -3,8 +3,8 @@ from typing import Callable, Iterator, Optional, TypeVar
 
 from src import config
 from src.gemini_provider import GeminiProvider
-from src.model_provider import ModelProvider
 from src.openai_provider import OpenAIProvider
+from src.providers.capabilities import ProviderCapabilities
 from src.providers.contracts import (
     AudioTranscriptionRequest,
     ImageToEventRequest,
@@ -13,6 +13,12 @@ from src.providers.contracts import (
     ReactionSelectionRequest,
     TextGenerationRequest,
 )
+from src.providers.errors import (
+    ProviderAuthError,
+    ProviderCapabilityError,
+    ProviderConfigurationError,
+    ProviderQuotaError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -20,11 +26,11 @@ T = TypeVar("T")
 R = TypeVar("R")
 
 
-class RoutedModelProvider(ModelProvider):
+class RoutedModelProvider:
     def __init__(
         self,
-        primary: ModelProvider,
-        fallback: Optional[ModelProvider],
+        primary: ProviderCapabilities,
+        fallback: Optional[ProviderCapabilities],
         *,
         transcribe_use_fallback: bool = False,
     ) -> None:
@@ -32,17 +38,32 @@ class RoutedModelProvider(ModelProvider):
         self._fallback = fallback
         self._transcribe_use_fallback = transcribe_use_fallback
 
+    def _should_raise_without_fallback(self, exc: Exception) -> bool:
+        return isinstance(
+            exc,
+            (
+                ProviderAuthError,
+                ProviderCapabilityError,
+                ProviderConfigurationError,
+                ProviderQuotaError,
+            ),
+        )
+
     def _call(
         self,
         op_name: str,
         request: R,
-        primary_fn: Callable[[ModelProvider, R], T],
-        fallback_fn: Optional[Callable[[ModelProvider, R], T]] = None,
+        primary_fn: Callable[[ProviderCapabilities, R], T],
+        fallback_fn: Optional[Callable[[ProviderCapabilities, R], T]] = None,
     ) -> T:
         try:
             return primary_fn(self._primary, request)
         except Exception as exc:
-            if self._fallback is None or fallback_fn is None:
+            if (
+                self._fallback is None
+                or fallback_fn is None
+                or self._should_raise_without_fallback(exc)
+            ):
                 raise
             logger.warning(
                 "Primary provider operation failed, falling back",
@@ -82,7 +103,7 @@ class RoutedModelProvider(ModelProvider):
                     extra={"operation": "generate_text_stream", "error": str(exc)},
                 )
                 return
-            if self._fallback is None:
+            if self._fallback is None or self._should_raise_without_fallback(exc):
                 raise
             logger.warning(
                 "Primary provider operation failed, falling back",
@@ -171,16 +192,16 @@ def resolve_provider_routing(settings: config.Settings) -> ProviderRouting:
 def build_provider_for_settings(
     settings: config.Settings,
     *,
-    openai_factory: Optional[Callable[[], ModelProvider]] = None,
-    gemini_factory: Optional[Callable[[], ModelProvider]] = None,
-) -> ModelProvider:
+    openai_factory: Optional[Callable[[], ProviderCapabilities]] = None,
+    gemini_factory: Optional[Callable[[], ProviderCapabilities]] = None,
+) -> ProviderCapabilities:
     if openai_factory is None:
         openai_factory = OpenAIProvider
     if gemini_factory is None:
         gemini_factory = GeminiProvider
 
     routing = resolve_provider_routing(settings)
-    factories: dict[str, Callable[[], ModelProvider]] = {
+    factories: dict[str, Callable[[], ProviderCapabilities]] = {
         "openai": openai_factory,
         "gemini": gemini_factory,
     }
@@ -193,6 +214,6 @@ def build_provider_for_settings(
     )
 
 
-def build_provider() -> ModelProvider:
+def build_provider() -> ProviderCapabilities:
     settings = config.get_settings()
     return build_provider_for_settings(settings)
