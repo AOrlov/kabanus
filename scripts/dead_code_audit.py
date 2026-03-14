@@ -16,7 +16,6 @@ TARGETS = [
     "src/memory",
     "src/providers",
     "src/provider_factory.py",
-    "src/gemini_provider.py",
 ]
 
 # Reviewed dead-code candidates from vulture for this scope.

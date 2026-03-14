@@ -2,7 +2,6 @@ import logging
 from typing import Callable, Dict, Iterable, Optional, cast
 
 from src import config
-from src.gemini_provider import GeminiProvider
 from src.providers.capabilities import (
     AudioTranscriptionProvider,
     EventParsingProvider,
@@ -23,6 +22,7 @@ from src.providers.contracts import (
     TextGenerationRequest,
 )
 from src.providers.errors import ProviderCapabilityError, ProviderConfigurationError
+from src.providers.gemini import GeminiProvider
 from src.providers.openai import OpenAIProvider
 
 logger = logging.getLogger(__name__)

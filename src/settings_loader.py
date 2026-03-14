@@ -204,7 +204,10 @@ def _load_settings_from_env() -> Settings:
             "ENABLE_MESSAGE_HANDLING and ENABLE_SCHEDULE_EVENTS are mutually exclusive; enable only one."
         )
 
-    gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.0-flash").lower()
+    gemini_model = (
+        os.getenv("GEMINI_MODEL", "gemini-2.0-flash").strip().lower()
+        or "gemini-2.0-flash"
+    )
 
     gemini_models_raw = os.getenv("GEMINI_MODELS", "").strip()
     gemini_models: List[ModelSpec] = []
@@ -251,11 +254,18 @@ def _load_settings_from_env() -> Settings:
     gemini_settings = GeminiSettings(
         api_key=gemini_api_key,
         default_model=gemini_model,
+        low_cost_model=(
+            os.getenv("GEMINI_LOW_COST_MODEL", gemini_model).strip().lower()
+            or gemini_model
+        ),
         model_specs=gemini_models,
         thinking_budget=int(os.getenv("THINKING_BUDGET", 0)),
         use_google_search=_env_bool("USE_GOOGLE_SEARCH"),
         system_instructions_path=os.getenv("SYSTEM_INSTRUCTIONS_PATH", ""),
-        reaction_model=os.getenv("REACTION_GEMINI_MODEL", gemini_model).lower(),
+        reaction_model=(
+            os.getenv("REACTION_GEMINI_MODEL", gemini_model).strip().lower()
+            or gemini_model
+        ),
     )
     routing = _load_provider_routing(model_provider)
     _validate_routed_credentials(

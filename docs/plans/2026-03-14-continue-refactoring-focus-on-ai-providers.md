@@ -83,12 +83,12 @@ Replace the current monolithic AI provider abstraction with explicit capability-
 - Modify: `tests/test_gemini_provider.py`
 - Modify: `tests/test_provider_factory.py`
 
-- [ ] Extract model selection/quota tracking, system-instruction loading, request assembly, and response parsing into smaller units with isolated tests
-- [ ] Remove implicit global environment mutation for Gemini credentials and keep client construction explicit and local
-- [ ] Normalize empty/invalid model responses so failures are observable and typed instead of silently returning empty strings where that hides real problems
-- [ ] Make model-role decisions explicit in configuration rather than relying on incidental `GEMINI_MODELS` ordering side effects
-- [ ] write tests for this task
-- [ ] run project test suite - must pass before task 5
+- [x] Extract model selection/quota tracking, system-instruction loading, request assembly, and response parsing into smaller units with isolated tests
+- [x] Remove implicit global environment mutation for Gemini credentials and keep client construction explicit and local
+- [x] Normalize empty/invalid model responses so failures are observable and typed instead of silently returning empty strings where that hides real problems
+- [x] Make model-role decisions explicit in configuration rather than relying on incidental `GEMINI_MODELS` ordering side effects
+- [x] write tests for this task
+- [x] run project test suite - must pass before task 5
 
 ### Task 5: Update Runtime and Bot Services to Consume Capabilities
 

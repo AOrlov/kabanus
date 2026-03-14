@@ -37,6 +37,7 @@ class OpenAISettings:
 class GeminiSettings:
     api_key: str
     default_model: str
+    low_cost_model: str
     model_specs: List[ModelSpec]
     thinking_budget: int
     use_google_search: bool
@@ -180,3 +181,7 @@ class Settings:
     @property
     def reaction_gemini_model(self) -> str:
         return self.ai.gemini.reaction_model
+
+    @property
+    def gemini_low_cost_model(self) -> str:
+        return self.ai.gemini.low_cost_model

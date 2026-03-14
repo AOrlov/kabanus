@@ -36,3 +36,7 @@ class ProviderQuotaError(ProviderError):
 
 class ProviderCapabilityError(ProviderError):
     """Raised when a provider does not support the requested capability."""
+
+
+class ProviderResponseError(ProviderError):
+    """Raised when a provider returns an empty or invalid response payload."""

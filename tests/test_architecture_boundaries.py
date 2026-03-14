@@ -15,6 +15,8 @@ FORBIDDEN_PRODUCT_IMPORT_PREFIXES = (
     "src.openai_auth",
     "src.openai_provider",
     "src.provider_factory",
+    "src.providers.gemini",
+    "src.providers.openai",
     "src.settings_loader",
     "src.settings_models",
 )

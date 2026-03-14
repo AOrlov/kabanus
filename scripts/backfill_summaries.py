@@ -10,6 +10,7 @@ from typing import Dict, List
 
 from src import config
 from src.message_store import estimate_token_count, maybe_rollup_summary
+from src.providers.contracts import TextGenerationRequest
 
 
 def load_messages(path: str) -> List[Dict]:
@@ -64,8 +65,10 @@ def estimate_input_tokens(messages: List[Dict], start: int, chunk_size: int) -> 
     total = 0
     end = start + ((len(messages) - start) // chunk_size) * chunk_size
     for offset in range(start, end, chunk_size):
-        chunk = messages[offset:offset + chunk_size]
-        dialogue = "\n".join(f"{msg.get('sender', 'Unknown')}: {msg.get('text', '')}" for msg in chunk)
+        chunk = messages[offset : offset + chunk_size]
+        dialogue = "\n".join(
+            f"{msg.get('sender', 'Unknown')}: {msg.get('text', '')}" for msg in chunk
+        )
         prompt = (
             "Summarize this chat dialogue chunk. Return JSON only, no markdown.\n"
             "Schema:\n"
@@ -128,14 +131,16 @@ def make_ollama_summarize_fn(
 def check_ollama_ready(ollama_url: str, timeout_sec: int) -> None:
     # /api/generate -> /api/tags for a lightweight health probe.
     if ollama_url.endswith("/api/generate"):
-        tags_url = ollama_url[:-len("/api/generate")] + "/api/tags"
+        tags_url = ollama_url[: -len("/api/generate")] + "/api/tags"
     else:
         tags_url = ollama_url.rstrip("/") + "/api/tags"
     req = urllib.request.Request(tags_url, method="GET")
     try:
         with urllib.request.urlopen(req, timeout=timeout_sec) as resp:
             if resp.status != 200:
-                raise RuntimeError(f"Ollama health check failed with status {resp.status}")
+                raise RuntimeError(
+                    f"Ollama health check failed with status {resp.status}"
+                )
             body = resp.read().decode("utf-8")
     except urllib.error.URLError as exc:
         raise RuntimeError(f"Ollama health check failed: {exc}") from exc
@@ -196,9 +201,15 @@ def make_retrying_summarize_fn(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Backfill chunk summaries from existing JSONL history.")
-    parser.add_argument("--chat-id", required=True, help="Chat id used for the summary state filename.")
-    parser.add_argument("--source-jsonl", required=True, help="Path to history JSONL file.")
+    parser = argparse.ArgumentParser(
+        description="Backfill chunk summaries from existing JSONL history."
+    )
+    parser.add_argument(
+        "--chat-id", required=True, help="Chat id used for the summary state filename."
+    )
+    parser.add_argument(
+        "--source-jsonl", required=True, help="Path to history JSONL file."
+    )
     parser.add_argument(
         "--no-model",
         action="store_true",
@@ -307,7 +318,11 @@ def main() -> None:
         return
 
     chunk_size = settings.memory_summary_chunk_size
-    processed = 0 if args.force_rebuild else min(load_last_processed_count(args.chat_id), len(messages))
+    processed = (
+        0
+        if args.force_rebuild
+        else min(load_last_processed_count(args.chat_id), len(messages))
+    )
     pending_messages = max(0, len(messages) - processed)
     pending_chunks = pending_messages // chunk_size
 
@@ -328,7 +343,9 @@ def main() -> None:
     print(f"- provider: {provider_name}")
 
     if provider_name == "gemini":
-        in_tokens = estimate_input_tokens(messages, start=processed, chunk_size=chunk_size)
+        in_tokens = estimate_input_tokens(
+            messages, start=processed, chunk_size=chunk_size
+        )
         out_tokens = max(0, args.avg_output_tokens) * pending_chunks
         input_cost = (in_tokens / 1_000_000.0) * max(0.0, args.input_price_per_1m)
         output_cost = (out_tokens / 1_000_000.0) * max(0.0, args.output_price_per_1m)
@@ -347,9 +364,12 @@ def main() -> None:
 
     summarize_fn = None
     if provider_name == "gemini":
-        from src.gemini_provider import GeminiProvider
-        provider = GeminiProvider()
-        summarize_fn = provider.generate_low_cost
+        from src.providers.gemini import GeminiProvider
+
+        provider = GeminiProvider(config.get_settings())
+        summarize_fn = lambda prompt: provider.generate_low_cost_text(
+            TextGenerationRequest(prompt=prompt)
+        )
     elif provider_name == "ollama":
         check_ollama_ready(
             ollama_url=args.ollama_url,
@@ -373,12 +393,16 @@ def main() -> None:
     if args.benchmark_workers:
         benchmark_workers = parse_workers(args.benchmark_workers)
         if summarize_fn is None:
-            raise RuntimeError("Benchmark requires a model provider (not --no-model/provider none).")
+            raise RuntimeError(
+                "Benchmark requires a model provider (not --no-model/provider none)."
+            )
         if pending_chunks <= 0:
             print("No chunks to benchmark.")
         else:
             chunks_per_trial = min(max(1, args.benchmark_chunks), pending_chunks)
-            sample_messages = messages[processed:processed + chunks_per_trial * chunk_size]
+            sample_messages = messages[
+                processed : processed + chunks_per_trial * chunk_size
+            ]
             print("Benchmark:")
             print(f"- chunks_per_trial: {chunks_per_trial}")
             print(f"- workers: {benchmark_workers}")
@@ -403,7 +427,9 @@ def main() -> None:
         if args.benchmark_only:
             return
 
-    run_chunk_limit = pending_chunks if args.max_chunks <= 0 else min(pending_chunks, args.max_chunks)
+    run_chunk_limit = (
+        pending_chunks if args.max_chunks <= 0 else min(pending_chunks, args.max_chunks)
+    )
 
     progress_done = 0
     total_chunks = run_chunk_limit

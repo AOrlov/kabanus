@@ -58,6 +58,7 @@ def test_config_default_contract_snapshot(monkeypatch) -> None:
     assert settings.ai.openai.text_model == "gpt-5.3-codex"
     assert settings.ai.openai.low_cost_model == "gpt-5.3-codex"
     assert settings.ai.openai.reaction_model == "gpt-5.3-codex"
+    assert settings.ai.gemini.low_cost_model == settings.ai.gemini.default_model
     assert settings.allowed_chat_ids == ["1"]
     assert settings.bot_aliases == []
     assert settings.language == "ru"
@@ -119,6 +120,12 @@ def test_config_default_contract_snapshot(monkeypatch) -> None:
             "gemini",
             "ai.routing.audio_transcription",
             "gemini",
+        ),
+        (
+            "GEMINI_LOW_COST_MODEL",
+            "gemini-2.0-flash-lite",
+            "ai.gemini.low_cost_model",
+            "gemini-2.0-flash-lite",
         ),
         ("GEMINI_API_KEY", "gem-key", "ai.gemini.api_key", "gem-key"),
     ],
