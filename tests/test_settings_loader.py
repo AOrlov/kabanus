@@ -80,6 +80,11 @@ def test_settings_loader_matches_config_facade_behavior(monkeypatch) -> None:
             "AI_PROVIDER_STREAMING_TEXT_GENERATION must be either 'openai' or 'gemini'",
         ),
         (
+            {"GEMINI_MODELS": "not-json"},
+            [],
+            "Failed to parse GEMINI_MODELS",
+        ),
+        (
             {},
             ["OPENAI_API_KEY", "OPENAI_AUTH_JSON_PATH"],
             "OPENAI_API_KEY or OPENAI_AUTH_JSON_PATH is missing",

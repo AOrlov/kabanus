@@ -164,6 +164,11 @@ def test_env_var_name_contract(
             "Gemini is routed for audio_transcription",
         ),
         (
+            {"GEMINI_MODELS": "not-json"},
+            [],
+            "Failed to parse GEMINI_MODELS",
+        ),
+        (
             {},
             ["OPENAI_API_KEY", "OPENAI_AUTH_JSON_PATH"],
             "OPENAI_API_KEY or OPENAI_AUTH_JSON_PATH is missing",

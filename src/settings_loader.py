@@ -1,7 +1,6 @@
 """Settings parser and cache implementation."""
 
 import json
-import logging
 import os
 import time
 from threading import Lock
@@ -232,8 +231,7 @@ def _load_settings_from_env() -> Settings:
                     )
                 )
         except (ValueError, json.JSONDecodeError) as exc:
-            logging.error("Failed to parse GEMINI_MODELS: %s", exc)
-            gemini_models = []
+            raise RuntimeError(f"Failed to parse GEMINI_MODELS: {exc}") from exc
     if not gemini_models:
         gemini_models = [ModelSpec(name=gemini_model, rpm=None, rpd=None)]
 
