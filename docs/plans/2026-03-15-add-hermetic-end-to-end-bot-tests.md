@@ -66,12 +66,12 @@ Add a hermetic pytest e2e layer that exercises the composed bot runtime with syn
 **Files:**
 - Modify: `tests/test_bot_e2e.py`
 
-- [ ] Add one disallowed-chat or disabled-feature scenario that verifies the composed app produces no reply and no persistence side effects
-- [ ] Add one failure-path scenario for event parsing or downstream provider failure that verifies the user-facing fallback and admin notification path
-- [ ] Add one command-parse or malformed-update scenario only if it exercises cross-component behavior not already owned by unit tests
-- [ ] Keep negative-path coverage focused on regressions that could break production behavior across module boundaries
-- [ ] Write tests for this task
-- [ ] Run `pytest -q tests/test_bot_e2e.py` and keep it green before moving on
+- [x] Add one disallowed-chat or disabled-feature scenario that verifies the composed app produces no reply and no persistence side effects
+- [x] Add one failure-path scenario for event parsing or downstream provider failure that verifies the user-facing fallback and admin notification path
+- [x] Add one command-parse or malformed-update scenario only if it exercises cross-component behavior not already owned by unit tests
+- [x] Keep negative-path coverage focused on regressions that could break production behavior across module boundaries
+- [x] Write tests for this task
+- [x] Run `pytest -q tests/test_bot_e2e.py` and keep it green before moving on
 
 ### Task 5: Verify Acceptance Criteria
 

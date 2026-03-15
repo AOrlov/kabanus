@@ -327,15 +327,19 @@ class _HermeticBotHarness:
         self,
         command: str,
         *,
+        args=None,
         chat_id: int = 111,
         user_id: int = 111,
         chat_type: str = "private",
     ) -> Update:
+        command_text = f"/{command}"
+        if args:
+            command_text = " ".join([command_text, *args])
         update = self._build_update(
             chat_id=chat_id,
             user_id=user_id,
             chat_type=chat_type,
-            text=f"/{command}",
+            text=command_text,
             entities=[{"type": "bot_command", "offset": 0, "length": len(command) + 1}],
         )
         self._dispatch(update)
@@ -548,6 +552,23 @@ def test_hermetic_harness_dispatches_summary_command_end_to_end(bot_harness) -> 
     assert message_store.get_all_messages("111") == []
 
 
+def test_hermetic_harness_rejects_malformed_summary_command_without_persistence(
+    bot_harness,
+) -> None:
+    bot_harness.dispatch_command("summary", args=["index"])
+
+    assert bot_harness.reply_texts == [
+        "Missing value for index\n\nSummary command examples:\n"
+        "/summary               -> last chunk\n"
+        "/summary 5             -> last 5 chunks\n"
+        "/summary index 12      -> chunk #12\n"
+        "/summary budget api    -> search text in summary/facts/decisions/open_items\n"
+        "/summary --head 10 --grep budget\n"
+        "Alias: /tldr"
+    ]
+    assert message_store.get_all_messages("111") == []
+
+
 def test_group_addressed_message_flow_persists_history_and_bot_reply(
     bot_harness,
 ) -> None:
@@ -585,6 +606,32 @@ def test_group_addressed_message_flow_persists_history_and_bot_reply(
     ]
     assert [message["kind"] for message in stored_messages] == ["user", "user", "bot"]
     assert stored_messages[1]["telegram_message_id"] == mention_update.message.message_id
+
+
+def test_disallowed_group_message_produces_no_reply_or_persistence(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    bot_harness = _HermeticBotHarness(
+        monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
+        features={"message_handling": True, "schedule_events": False},
+    )
+
+    bot_harness.dispatch_text(
+        "@kaban can you see this?",
+        chat_id=-333,
+        user_id=333,
+        chat_type="group",
+        entities=[{"type": "mention", "offset": 0, "length": 6}],
+    )
+
+    assert bot_harness.bot.sent_messages == []
+    assert bot_harness.providers.text.prompts == []
+    assert bot_harness.providers.low_cost.prompts == []
+
+    bot_harness.clear_state()
+    assert message_store.get_all_messages("-333") == []
 
 
 def test_voice_message_flow_uses_fake_download_and_cleans_temp_file(
@@ -669,6 +716,67 @@ def test_schedule_events_photo_flow_creates_event_and_cleans_temp_file(
     assert created_event["start_time"].strftime("%Y-%m-%d %H:%M") == "2030-06-20 14:00"
     assert created_event["location"] == "Office"
     assert created_event["description"] == "Discuss architecture"
+    assert len(removed_paths) == 1
+    assert removed_paths[0] == telegram_file.drive_paths[0]
+    assert not Path(removed_paths[0]).exists()
+
+
+def test_schedule_events_photo_failure_notifies_user_and_admin_and_cleans_temp_file(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    created_events = []
+    bot_harness = _HermeticBotHarness(
+        monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
+        features={"message_handling": False, "schedule_events": True},
+        created_events=created_events,
+    )
+    removed_paths = []
+    original_remove = os.remove
+
+    def _capture_remove(path: str) -> None:
+        removed_paths.append(path)
+        original_remove(path)
+
+    parse_requests = []
+
+    def _raise_parse_error(request):
+        parse_requests.append(request.image_path)
+        raise RuntimeError("parser down")
+
+    monkeypatch.setattr(os, "remove", _capture_remove)
+    monkeypatch.setattr(
+        bot_harness.providers.events,
+        "parse_image_event",
+        _raise_parse_error,
+    )
+
+    telegram_file = bot_harness.register_file(file_id="event-photo-error", payload=b"photo")
+
+    bot_harness.dispatch_photo(file_id="event-photo-error")
+
+    user_messages = [
+        message
+        for message in bot_harness.bot.sent_messages
+        if message["chat_id"] == 111
+    ]
+    admin_messages = [
+        message
+        for message in bot_harness.bot.sent_messages
+        if message["chat_id"] == "999"
+    ]
+
+    assert [message["text"] for message in user_messages] == [
+        "Sorry, I couldn't process the photo. Please make sure it contains clear event information."
+    ]
+    assert len(admin_messages) == 1
+    assert admin_messages[0]["parse_mode"] is not None
+    assert "Photo processing failed for user 111: parser down" in admin_messages[0][
+        "text"
+    ]
+    assert parse_requests == telegram_file.drive_paths
+    assert created_events == []
     assert len(removed_paths) == 1
     assert removed_paths[0] == telegram_file.drive_paths[0]
     assert not Path(removed_paths[0]).exists()
