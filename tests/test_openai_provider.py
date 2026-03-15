@@ -6,11 +6,16 @@ import pytest
 
 from src.providers.capabilities import AudioTranscriptionProvider
 from src.providers.contracts import (
+    AudioTranscriptionRequest,
     ImageToEventRequest,
     ReactionSelectionRequest,
     TextGenerationRequest,
 )
-from src.providers.errors import ProviderConfigurationError
+from src.providers.errors import (
+    ProviderAuthError,
+    ProviderConfigurationError,
+    ProviderQuotaError,
+)
 from src.providers.openai import OpenAIClientFactory, OpenAIProvider
 
 
@@ -28,6 +33,7 @@ def _settings(**openai_overrides):
         text_model="gpt-5.3-codex",
         low_cost_model="gpt-5.3-codex",
         reaction_model="gpt-5.3-codex",
+        transcription_model="gpt-4o-mini-transcribe",
     )
     for key, value in openai_overrides.items():
         setattr(openai_settings, key, value)
@@ -114,6 +120,28 @@ def test_resolve_client_options_treats_api_key_file_as_standard_api_mode(
     assert options.api_key == "sk-test-api-key"
     assert options.codex_mode is False
     assert options.refreshable is False
+
+
+def test_resolve_client_options_allows_standard_api_for_refreshable_auth(
+    monkeypatch,
+) -> None:
+    factory = OpenAIClientFactory(
+        _settings(auth_json_path="auth.json").ai.openai,
+        auth_manager=_AuthManagerStub(refreshable=True),
+    )
+    monkeypatch.setattr(
+        factory,
+        "_resolve_api_key",
+        lambda force_refresh=False: "plain-refreshable-token",
+    )
+
+    options = factory.resolve_client_options(use_codex=False)
+
+    assert options.api_key == "plain-refreshable-token"
+    assert options.base_url is None
+    assert options.default_headers == {}
+    assert options.codex_mode is False
+    assert options.refreshable is True
 
 
 class _FakeResponses:
@@ -258,6 +286,25 @@ class _AuthFailStreamingResponses:
         return self._StreamManager()
 
 
+class _StatusError(RuntimeError):
+    def __init__(self, message: str, *, status_code: int) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
+
+class _FakeTranscriptions:
+    def __init__(self, *responses) -> None:
+        self.calls = []
+        self._responses = list(responses)
+
+    def create(self, **kwargs):
+        self.calls.append(kwargs)
+        response = self._responses.pop(0)
+        if isinstance(response, Exception):
+            raise response
+        return response
+
+
 def test_generate_text_sets_instructions_in_codex_mode() -> None:
     fake = _FakeResponses()
     provider = OpenAIProvider(
@@ -277,6 +324,141 @@ def test_generate_text_sets_instructions_in_codex_mode() -> None:
     assert fake.calls[0]["instructions"] == "You are a helpful assistant."
     assert fake.calls[0]["store"] is False
     assert fake.calls[0].get("stream") is None
+
+
+def test_transcribe_audio_uses_standard_api_client_with_api_key(tmp_path) -> None:
+    audio_file = tmp_path / "voice.ogg"
+    audio_file.write_bytes(b"voice")
+    transcriptions = _FakeTranscriptions("hello from api key")
+    calls = []
+
+    def _get_client_context(force_refresh=False, use_codex=True):
+        calls.append((force_refresh, use_codex))
+        return (
+            SimpleNamespace(
+                audio=SimpleNamespace(transcriptions=transcriptions),
+            ),
+            _client_options(codex_mode=False, refreshable=False),
+        )
+
+    provider = OpenAIProvider(
+        _settings(),
+        client_factory=SimpleNamespace(get_client_context=_get_client_context),
+    )
+
+    result = provider.transcribe_audio(
+        AudioTranscriptionRequest(audio_path=str(audio_file))
+    )
+
+    assert result == "hello from api key"
+    assert calls == [(False, False)]
+    assert transcriptions.calls[0]["model"] == "gpt-4o-mini-transcribe"
+    assert transcriptions.calls[0]["language"] == "ru"
+    assert transcriptions.calls[0]["response_format"] == "text"
+    assert transcriptions.calls[0]["file"].name == str(audio_file)
+
+
+def test_transcribe_audio_uses_standard_api_client_with_auth_json(
+    tmp_path,
+) -> None:
+    audio_file = tmp_path / "voice.ogg"
+    audio_file.write_bytes(b"voice")
+    transcriptions = _FakeTranscriptions(SimpleNamespace(text="hello from auth json"))
+    calls = []
+
+    def _get_client_context(force_refresh=False, use_codex=True):
+        calls.append((force_refresh, use_codex))
+        return (
+            SimpleNamespace(
+                audio=SimpleNamespace(transcriptions=transcriptions),
+            ),
+            _client_options(codex_mode=False, refreshable=True),
+        )
+
+    provider = OpenAIProvider(
+        _settings(auth_json_path="auth.json"),
+        client_factory=SimpleNamespace(get_client_context=_get_client_context),
+    )
+
+    result = provider.transcribe_audio(
+        AudioTranscriptionRequest(audio_path=str(audio_file))
+    )
+
+    assert result == "hello from auth json"
+    assert calls == [(False, False)]
+
+
+def test_transcribe_audio_refreshes_auth_once(tmp_path) -> None:
+    audio_file = tmp_path / "voice.ogg"
+    audio_file.write_bytes(b"voice")
+    failing_client = SimpleNamespace(
+        audio=SimpleNamespace(
+            transcriptions=_FakeTranscriptions(
+                _StatusError("401 unauthorized", status_code=401)
+            )
+        )
+    )
+    success_transcriptions = _FakeTranscriptions("fresh transcript")
+    success_client = SimpleNamespace(
+        audio=SimpleNamespace(transcriptions=success_transcriptions)
+    )
+    calls = []
+
+    def _get_client_context(force_refresh=False, use_codex=True):
+        calls.append((force_refresh, use_codex))
+        if force_refresh:
+            return success_client, _client_options(codex_mode=False, refreshable=True)
+        return failing_client, _client_options(codex_mode=False, refreshable=True)
+
+    provider = OpenAIProvider(
+        _settings(auth_json_path="auth.json"),
+        client_factory=SimpleNamespace(get_client_context=_get_client_context),
+    )
+
+    result = provider.transcribe_audio(
+        AudioTranscriptionRequest(audio_path=str(audio_file))
+    )
+
+    assert result == "fresh transcript"
+    assert calls == [(False, False), (True, False)]
+    assert len(success_transcriptions.calls) == 1
+
+
+@pytest.mark.parametrize(
+    ("status_code", "message", "error_type"),
+    [
+        (401, "bad key", ProviderAuthError),
+        (429, "quota exceeded", ProviderQuotaError),
+    ],
+)
+def test_transcribe_audio_maps_typed_errors(
+    tmp_path,
+    status_code: int,
+    message: str,
+    error_type,
+) -> None:
+    audio_file = tmp_path / "voice.ogg"
+    audio_file.write_bytes(b"voice")
+    provider = OpenAIProvider(
+        _settings(),
+        client_factory=SimpleNamespace(
+            get_client_context=lambda force_refresh=False, use_codex=True: (
+                SimpleNamespace(
+                    audio=SimpleNamespace(
+                        transcriptions=_FakeTranscriptions(
+                            _StatusError(message, status_code=status_code)
+                        )
+                    )
+                ),
+                _client_options(codex_mode=False, refreshable=False),
+            )
+        ),
+    )
+
+    with pytest.raises(error_type, match=message) as exc_info:
+        provider.transcribe_audio(AudioTranscriptionRequest(audio_path=str(audio_file)))
+
+    assert exc_info.value.capability == "audio_transcription"
 
 
 def test_generate_text_retries_with_codex_default_model() -> None:
@@ -411,6 +593,6 @@ def test_parse_image_event_returns_empty_dict_on_invalid_json(
     assert event == {}
 
 
-def test_provider_does_not_expose_transcription_capability() -> None:
+def test_provider_exposes_transcription_capability() -> None:
     provider = OpenAIProvider(_settings())
-    assert not isinstance(provider, AudioTranscriptionProvider)
+    assert isinstance(provider, AudioTranscriptionProvider)

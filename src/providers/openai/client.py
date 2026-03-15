@@ -63,13 +63,20 @@ class OpenAIClientFactory:
         self,
         *,
         force_refresh: bool = False,
+        use_codex: bool = True,
     ) -> OpenAIClientOptions:
         api_key = self._resolve_api_key(force_refresh=force_refresh)
         if not api_key:
             return OpenAIClientOptions(api_key="")
+        refreshable = False
         if self._auth_manager is None:
             return OpenAIClientOptions(api_key=api_key)
         refreshable = self._auth_manager.has_refresh_token()
+        if not use_codex:
+            return OpenAIClientOptions(
+                api_key=api_key,
+                refreshable=refreshable,
+            )
 
         account_id = self._extract_chatgpt_account_id(api_key)
         if not account_id:
@@ -107,8 +114,12 @@ class OpenAIClientFactory:
         self,
         *,
         force_refresh: bool = False,
+        use_codex: bool = True,
     ) -> tuple[OpenAI, OpenAIClientOptions]:
-        options = self.resolve_client_options(force_refresh=force_refresh)
+        options = self.resolve_client_options(
+            force_refresh=force_refresh,
+            use_codex=use_codex,
+        )
         if not options.api_key:
             raise ProviderConfigurationError(
                 "OpenAI auth is not configured (missing API key and auth.json token)",

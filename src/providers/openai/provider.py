@@ -9,6 +9,7 @@ from typing import Any, Dict, Iterator
 from openai import APIStatusError, AuthenticationError, OpenAI
 
 from src.providers.contracts import (
+    AudioTranscriptionRequest,
     CapabilityName,
     ImageToEventRequest,
     ImageToTextRequest,
@@ -37,6 +38,8 @@ from src.providers.openai.response_parser import (
 )
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_TRANSCRIPTION_MODEL = "gpt-4o-mini-transcribe"
 
 
 class OpenAIProvider:
@@ -147,6 +150,20 @@ class OpenAIProvider:
         if system_instruction:
             kwargs["instructions"] = system_instruction
         return client.responses.create(**kwargs)
+
+    def _transcription_model(self) -> str:
+        model = getattr(self._settings, "transcription_model", "")
+        if isinstance(model, str) and model.strip():
+            return model.strip()
+        return DEFAULT_TRANSCRIPTION_MODEL
+
+    def _extract_transcription_text(self, response: Any) -> str:
+        if isinstance(response, str):
+            return response.strip()
+        text = getattr(response, "text", None)
+        if isinstance(text, str):
+            return text.strip()
+        return extract_response_text(response)
 
     def _run_text_request(
         self,
@@ -334,6 +351,43 @@ class OpenAIProvider:
             model=self._settings.text_model,
             user_content=build_text_user_content(request.prompt),
         )
+
+    def transcribe_audio(self, request: AudioTranscriptionRequest) -> str:
+        def _transcribe(active_client: OpenAI) -> str:
+            with open(request.audio_path, "rb") as file_obj:
+                response = active_client.audio.transcriptions.create(
+                    file=file_obj,
+                    model=self._transcription_model(),
+                    language=self._language,
+                    response_format="text",
+                )
+            return self._extract_transcription_text(response)
+
+        client, client_options = self._client_factory.get_client_context(
+            use_codex=False
+        )
+        try:
+            return _transcribe(client)
+        except Exception as exc:
+            if client_options.refreshable and self._should_attempt_refresh(exc):
+                logger.warning(
+                    "OpenAI auth failed; attempting token refresh from auth.json"
+                )
+                refreshed_client, _ = self._client_factory.get_client_context(
+                    force_refresh=True,
+                    use_codex=False,
+                )
+                try:
+                    return _transcribe(refreshed_client)
+                except Exception as refresh_exc:
+                    raise self._as_provider_error(
+                        refresh_exc,
+                        capability="audio_transcription",
+                    ) from refresh_exc
+            raise self._as_provider_error(
+                exc,
+                capability="audio_transcription",
+            ) from exc
 
     def generate_low_cost_text(self, request: TextGenerationRequest) -> str:
         return self._run_text_request(
