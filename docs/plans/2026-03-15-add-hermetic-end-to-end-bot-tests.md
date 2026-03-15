@@ -41,12 +41,12 @@ Add a hermetic pytest e2e layer that exercises the composed bot runtime with syn
 - Modify: `tests/test_bot_e2e.py`
 - Modify: `tests/test_message_store.py` (only if a missing test helper or pattern needs to be codified)
 
-- [ ] Add a `/hi` or `/summary` command scenario that proves command routing, callback execution, and reply capture work through the composed application
-- [ ] Add a group-text addressed-message scenario that proves mention detection, context assembly, provider invocation, reply sending, and message persistence all happen in one flow
-- [ ] Verify stored history and reply outputs with the real `message_store` API against a temporary store path instead of ad hoc in-memory assertions
-- [ ] Keep provider doubles behavior-focused: one fake for generated text, one fake for low-cost text, no routing cross-product explosion
-- [ ] Write tests for this task
-- [ ] Run `pytest -q tests/test_bot_e2e.py tests/test_message_store.py` and keep it green before moving on
+- [x] Add a `/hi` or `/summary` command scenario that proves command routing, callback execution, and reply capture work through the composed application
+- [x] Add a group-text addressed-message scenario that proves mention detection, context assembly, provider invocation, reply sending, and message persistence all happen in one flow
+- [x] Verify stored history and reply outputs with the real `message_store` API against a temporary store path instead of ad hoc in-memory assertions
+- [x] Keep provider doubles behavior-focused: one fake for generated text, one fake for low-cost text, no routing cross-product explosion
+- [x] Write tests for this task
+- [x] Run `pytest -q tests/test_bot_e2e.py tests/test_message_store.py` and keep it green before moving on
 
 ### Task 3: Cover Media and Event Scheduling Flows
 

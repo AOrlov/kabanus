@@ -18,6 +18,7 @@ from src.bot.contracts import (
     MessageFlowCapabilities,
     RuntimeCapabilities,
 )
+from src.memory import summary_store
 from src.providers.contracts import ProviderRouting
 
 
@@ -444,3 +445,75 @@ def test_hermetic_harness_dispatches_hi_command_end_to_end(bot_harness) -> None:
     assert "Available AI capabilities:" in bot_harness.reply_texts[1]
     assert "Configured AI routing:" in bot_harness.reply_texts[2]
     assert message_store.get_all_messages("111") == []
+
+
+def test_hermetic_harness_dispatches_summary_command_end_to_end(bot_harness) -> None:
+    summary_store.save_summary_state(
+        "111",
+        {
+            "version": 1,
+            "last_message_count": 4,
+            "chunks": [
+                {
+                    "id": "chunk-0-3",
+                    "source_message_ids": ["m1", "m2", "m3", "m4"],
+                    "summary": "Need follow-up on launch checklist",
+                    "facts": ["Budget approved"],
+                    "decisions": ["Ship on Friday"],
+                    "open_items": ["Confirm owner"],
+                }
+            ],
+        },
+    )
+
+    bot_harness.dispatch_command("summary")
+
+    assert len(bot_harness.reply_texts) == 1
+    reply = bot_harness.reply_texts[0]
+    assert "Summary overview" in reply
+    assert "Chunks total: 1" in reply
+    assert "Summary: Need follow-up on launch checklist" in reply
+    assert "Facts (1):" in reply
+    assert "- Budget approved" in reply
+    assert "- Ship on Friday" in reply
+    assert "- Confirm owner" in reply
+    assert message_store.get_all_messages("111") == []
+
+
+def test_group_addressed_message_flow_persists_history_and_bot_reply(
+    bot_harness,
+) -> None:
+    bot_harness.providers.text.response = "Let us draft the rollout plan next."
+
+    bot_harness.dispatch_text(
+        "Project status: build passed and QA signed off.",
+        chat_id=-222,
+        user_id=333,
+        chat_type="group",
+    )
+    mention_update = bot_harness.dispatch_text(
+        "@kaban what should we do next?",
+        chat_id=-222,
+        user_id=444,
+        chat_type="group",
+        entities=[{"type": "mention", "offset": 0, "length": 6}],
+    )
+
+    assert bot_harness.reply_texts == ["Let us draft the rollout plan next."]
+    assert len(bot_harness.providers.text.prompts) == 1
+    prompt = bot_harness.providers.text.prompts[0]
+    assert "[RECENT_DIALOGUE]" in prompt
+    assert "Project status: build passed and QA signed off." in prompt
+    assert prompt.endswith("Alice: @kaban what should we do next?")
+    assert bot_harness.providers.low_cost.prompts == []
+
+    bot_harness.clear_state()
+    stored_messages = message_store.get_all_messages("-222")
+
+    assert [message["text"] for message in stored_messages] == [
+        "Project status: build passed and QA signed off.",
+        "@kaban what should we do next?",
+        "Let us draft the rollout plan next.",
+    ]
+    assert [message["kind"] for message in stored_messages] == ["user", "user", "bot"]
+    assert stored_messages[1]["telegram_message_id"] == mention_update.message.message_id
