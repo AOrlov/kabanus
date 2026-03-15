@@ -1,3 +1,4 @@
+import argparse
 import json
 import os
 import stat
@@ -53,11 +54,71 @@ def test_extract_query_value_reads_fragment() -> None:
     assert openai_codex_oauth._extract_query_value(url, "code") == "abc123"
 
 
-def test_print_runtime_exports_includes_transcription_override(capsys) -> None:
+def test_print_runtime_exports_includes_full_openai_support(capsys) -> None:
     openai_codex_oauth.print_runtime_exports(Path("/tmp/auth.json"))
 
     captured = capsys.readouterr()
     assert "MODEL_PROVIDER=openai" in captured.out
     assert "OPENAI_AUTH_JSON_PATH='/tmp/auth.json'" in captured.out
-    assert "AI_PROVIDER_AUDIO_TRANSCRIPTION=gemini" in captured.out
-    assert "GEMINI_API_KEY" in captured.out
+    assert "OPENAI_TRANSCRIPTION_MODEL='gpt-4o-mini-transcribe'" in captured.out
+    assert "AI_PROVIDER_AUDIO_TRANSCRIPTION=gemini" not in captured.out
+    assert "GEMINI_API_KEY" not in captured.out
+
+
+def test_run_oauth_remote_flow_does_not_print_tokens(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    auth_file = tmp_path / "auth.json"
+    monkeypatch.setattr(
+        openai_codex_oauth,
+        "_generate_pkce",
+        lambda: ("verifier", "challenge"),
+    )
+    monkeypatch.setattr(
+        openai_codex_oauth.secrets,
+        "token_urlsafe",
+        lambda _size: "state-123",
+    )
+    monkeypatch.setattr(
+        openai_codex_oauth,
+        "_exchange_code_for_tokens",
+        lambda **_kwargs: {
+            "access_token": "header.payload.signature",
+            "refresh_token": "refresh-secret",
+            "id_token": "id-secret",
+            "expires_in": 3600,
+        },
+    )
+    monkeypatch.setattr(
+        "builtins.input",
+        lambda _prompt="": (
+            "http://localhost:1455/auth/callback?code=oauth-code&state=state-123"
+        ),
+    )
+
+    rc = openai_codex_oauth.run_oauth(
+        argparse.Namespace(
+            auth_file=str(auth_file),
+            remote=True,
+            client_id="cid",
+            auth_url="https://auth.openai.com/oauth/authorize",
+            token_url="https://auth.openai.com/oauth/token",
+            scope="openid profile email offline_access",
+            redirect_host="localhost",
+            redirect_port=1455,
+            redirect_path="/auth/callback",
+            originator="pi",
+            timeout_sec=1,
+        )
+    )
+
+    assert rc == 0
+    payload = json.loads(auth_file.read_text(encoding="utf-8"))
+    assert payload["tokens"]["refresh_token"] == "refresh-secret"
+    captured = capsys.readouterr()
+    assert "OPENAI_TRANSCRIPTION_MODEL='gpt-4o-mini-transcribe'" in captured.out
+    assert "AI_PROVIDER_AUDIO_TRANSCRIPTION=gemini" not in captured.out
+    assert "GEMINI_API_KEY" not in captured.out
+    assert "header.payload.signature" not in captured.out
+    assert "refresh-secret" not in captured.out
+    assert "id-secret" not in captured.out

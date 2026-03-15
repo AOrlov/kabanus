@@ -7,9 +7,9 @@ import webbrowser
 from pathlib import Path
 from typing import Callable, Dict
 
-
 OPENAI_KEYS_URL = "https://platform.openai.com/api-keys"
 DEFAULT_MODEL = "gpt-5.3-codex"
+DEFAULT_TRANSCRIPTION_MODEL = "gpt-4o-mini-transcribe"
 
 
 def verify_openai(api_key: str, model: str) -> None:
@@ -45,19 +45,19 @@ def print_runtime_exports(
     payload: Dict[str, Dict[str, str]], *, auth_file: str
 ) -> None:
     openai = payload.get("openai", {})
+    model = openai.get("model", DEFAULT_MODEL)
+    low_cost_model = openai.get("low_cost_model", model)
+    reaction_model = openai.get("reaction_model", low_cost_model)
+    transcription_model = openai.get(
+        "transcription_model",
+        DEFAULT_TRANSCRIPTION_MODEL,
+    )
     print("export MODEL_PROVIDER=openai")
     print(f"export OPENAI_AUTH_JSON_PATH='{auth_file}'")
-    print(f"export OPENAI_MODEL='{openai.get('model', DEFAULT_MODEL)}'")
-    print(
-        f"export OPENAI_LOW_COST_MODEL='{openai.get('low_cost_model', openai.get('model', DEFAULT_MODEL))}'"
-    )
-    print(
-        f"export OPENAI_REACTION_MODEL='{openai.get('reaction_model', openai.get('low_cost_model', openai.get('model', DEFAULT_MODEL)))}'"
-    )
-    print("export AI_PROVIDER_AUDIO_TRANSCRIPTION=gemini")
-    print(
-        "# Also set GEMINI_API_KEY or GOOGLE_API_KEY for the routed audio transcription capability."
-    )
+    print(f"export OPENAI_MODEL='{model}'")
+    print(f"export OPENAI_LOW_COST_MODEL='{low_cost_model}'")
+    print(f"export OPENAI_REACTION_MODEL='{reaction_model}'")
+    print(f"export OPENAI_TRANSCRIPTION_MODEL='{transcription_model}'")
 
 
 def _default_prompt_secret(label: str) -> str:
@@ -150,6 +150,9 @@ def onboard(
     reaction_model = (
         prompt_input("OPENAI_REACTION_MODEL", low_cost_model) or ""
     ).strip() or low_cost_model
+    transcription_model = (
+        prompt_input("OPENAI_TRANSCRIPTION_MODEL", DEFAULT_TRANSCRIPTION_MODEL) or ""
+    ).strip() or DEFAULT_TRANSCRIPTION_MODEL
 
     if not no_verify:
         try:
@@ -164,6 +167,7 @@ def onboard(
             "model": model,
             "low_cost_model": low_cost_model,
             "reaction_model": reaction_model,
+            "transcription_model": transcription_model,
         }
     }
 

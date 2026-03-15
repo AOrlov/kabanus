@@ -64,12 +64,12 @@ Implement OpenAI audio transcription so every shipped bot capability can run on 
 - Modify: `tests/test_onboard_openai.py`
 - Modify: `tests/test_openai_codex_oauth.py`
 
-- [ ] Update the API-key onboarding wizard to collect or emit `OPENAI_TRANSCRIPTION_MODEL` and stop printing the hard-coded Gemini transcription override
-- [ ] Update the Codex OAuth helper exports so `OPENAI_AUTH_JSON_PATH` users can configure a full-OpenAI deployment without separate Gemini instructions
-- [ ] Keep both scripts secret-safe: no API keys or refresh tokens in printed output, and no regression in private-file handling
-- [ ] Add regression tests that both onboarding flows now describe full OpenAI support rather than mixed-provider-only support
-- [ ] write tests for this task
-- [ ] run project test suite - must pass before task 4
+- [x] Update the API-key onboarding wizard to collect or emit `OPENAI_TRANSCRIPTION_MODEL` and stop printing the hard-coded Gemini transcription override
+- [x] Update the Codex OAuth helper exports so `OPENAI_AUTH_JSON_PATH` users can configure a full-OpenAI deployment without separate Gemini instructions
+- [x] Keep both scripts secret-safe: no API keys or refresh tokens in printed output, and no regression in private-file handling
+- [x] Add regression tests that both onboarding flows now describe full OpenAI support rather than mixed-provider-only support
+- [x] write tests for this task
+- [x] run project test suite - must pass before task 4
 
 ### Task 4: Verify Acceptance Criteria
 

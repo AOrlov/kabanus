@@ -16,7 +16,6 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Tuple
 
-
 DEFAULT_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
 DEFAULT_AUTH_URL = "https://auth.openai.com/oauth/authorize"
 DEFAULT_TOKEN_URL = "https://auth.openai.com/oauth/token"
@@ -26,6 +25,7 @@ DEFAULT_REDIRECT_HOST = "localhost"
 DEFAULT_REDIRECT_PATH = "/auth/callback"
 DEFAULT_ORIGINATOR = "pi"
 DEFAULT_MODEL = "gpt-5.3-codex"
+DEFAULT_TRANSCRIPTION_MODEL = "gpt-4o-mini-transcribe"
 
 
 def _b64url_no_pad(raw: bytes) -> str:
@@ -208,10 +208,7 @@ def print_runtime_exports(auth_path: Path) -> None:
     print(f"export OPENAI_MODEL='{DEFAULT_MODEL}'")
     print(f"export OPENAI_LOW_COST_MODEL='{DEFAULT_MODEL}'")
     print(f"export OPENAI_REACTION_MODEL='{DEFAULT_MODEL}'")
-    print("export AI_PROVIDER_AUDIO_TRANSCRIPTION=gemini")
-    print(
-        "# Also set GEMINI_API_KEY or GOOGLE_API_KEY for the routed audio transcription capability."
-    )
+    print(f"export OPENAI_TRANSCRIPTION_MODEL='{DEFAULT_TRANSCRIPTION_MODEL}'")
 
 
 def _save_auth_json(
