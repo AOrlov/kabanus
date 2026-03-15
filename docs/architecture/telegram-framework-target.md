@@ -43,3 +43,9 @@ The framework layer should be extractable into a standalone repository with mini
 - Framework package can be copied to another repo without product code.
 - Framework tests pass with fake/injected product handlers.
 - Product tests validate feature behavior independently of framework internals.
+
+## Test Layer Guidance
+- Framework-layer tests should continue using fake or injected product handlers.
+- Product-level bot integration coverage should live in the hermetic e2e layer in `tests/test_bot_e2e.py`.
+- That e2e layer composes `src.bot.app.build_runtime()` and `src.bot.app.build_application()`, dispatches synthetic Telegram `Update` objects through registered handlers, and fakes provider, calendar, and Telegram I/O.
+- Persistence assertions in that layer should go through exported `src.message_store` APIs against temp-backed store paths. Live Telegram credentials and live external services do not belong in this test layer.

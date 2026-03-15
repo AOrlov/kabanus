@@ -32,6 +32,8 @@
 
 ## Testing and Validation
 - Add or update targeted unit tests for every behavior change.
+- Put cross-module bot-flow regressions in `tests/test_bot_e2e.py`. Keep that layer hermetic: compose via `src.bot.app.build_runtime()` and `src.bot.app.build_application()`, dispatch synthetic Telegram updates through registered handlers, use fake provider/calendar/Telegram I/O only, and assert persistence through exported `src.message_store` APIs with temp-backed paths.
+- Keep branch-heavy handler/service permutations in focused unit tests; reserve the hermetic e2e layer for high-value runtime composition, handler registration, persistence, policy, and non-text bot flows.
 - Run and keep green:
   - `pytest -q`
   - `pylint src tests`

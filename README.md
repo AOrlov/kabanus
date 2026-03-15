@@ -255,6 +255,12 @@ source .venv/bin/activate
 python -m src.main
 ```
 
+## Testing
+- `pytest -q` runs the full test suite.
+- `pytest -q tests/test_bot_e2e.py` runs the hermetic bot end-to-end layer.
+- `pylint src tests` and `mypy src` cover linting and type checks.
+- The hermetic e2e suite composes the real runtime through `src.bot.app.build_runtime()` and `src.bot.app.build_application()`, dispatches synthetic Telegram updates through registered handlers, uses fake provider/calendar/Telegram I/O only, and verifies persistence against temp-backed `src.message_store` paths.
+
 ## Usage
 - If `ENABLE_SCHEDULE_EVENTS=true`, send a photo of an event poster to create a Google Calendar event (requires calendar credentials and ID).
 - If `ENABLE_MESSAGE_HANDLING=true`, send a voice, text, or image to interact with the bot. Mention the bot or reply to its message for a response.

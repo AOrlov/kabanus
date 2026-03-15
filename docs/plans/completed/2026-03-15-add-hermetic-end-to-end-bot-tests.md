@@ -83,8 +83,8 @@ Add a hermetic pytest e2e layer that exercises the composed bot runtime with syn
 
 ### Task 6: Update Documentation
 
-- [ ] Update `README.md` only if contributor test workflow or recommended commands changed
-- [ ] Update `CLAUDE.md` if internal test-layer guidance or workflow expectations changed
-- [ ] Update any internal contributor notes if the repo documents test-layer boundaries elsewhere
-- [ ] Move this plan to `docs/plans/completed/` after the work lands
+- [x] Update `README.md` only if contributor test workflow or recommended commands changed
+- [x] Update `CLAUDE.md` if internal test-layer guidance or workflow expectations changed
+- [x] Update any internal contributor notes if the repo documents test-layer boundaries elsewhere
+- [x] Move this plan to `docs/plans/completed/` after the work lands
 ---
