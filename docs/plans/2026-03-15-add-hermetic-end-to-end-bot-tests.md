@@ -75,11 +75,11 @@ Add a hermetic pytest e2e layer that exercises the composed bot runtime with syn
 
 ### Task 5: Verify Acceptance Criteria
 
-- [ ] Manual test: inspect the e2e suite and confirm every scenario uses synthetic Telegram updates plus fake external services only
-- [ ] Run full test suite with `pytest -q`
-- [ ] Run linter with `pylint src tests`
-- [ ] Verify the new e2e tests cover runtime composition, handler registration, persistence, and at least one non-text path without live network calls
-- [ ] Verify test coverage meets 80%+
+- [x] Manual test: inspect the e2e suite and confirm every scenario uses synthetic Telegram updates plus fake external services only
+- [x] Run full test suite with `pytest -q`
+- [x] Run linter with `pylint src tests`
+- [x] Verify the new e2e tests cover runtime composition, handler registration, persistence, and at least one non-text path without live network calls
+- [x] Verify test coverage meets 80%+
 
 ### Task 6: Update Documentation
 
