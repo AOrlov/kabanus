@@ -501,6 +501,71 @@ def test_build_application_skips_optional_handlers_when_features_disabled(
     assert _events not in message_callbacks
 
 
+def test_build_application_accepts_custom_builder_factory(monkeypatch) -> None:
+    async def _hi(update, context):
+        del update, context
+        return None
+
+    async def _summary(update, context):
+        del update, context
+        return None
+
+    async def _message(update, context):
+        del update, context
+        return None
+
+    async def _events(update, context):
+        del update, context
+        return None
+
+    async def _error(update, context):
+        del update, context
+        return None
+
+    applied = []
+    captured = {}
+    fake_app = object()
+    runtime = SimpleNamespace(
+        summary_handler=SimpleNamespace(view_summary=_summary),
+        message_handler=SimpleNamespace(handle_addressed_message=_message),
+        events_handler=SimpleNamespace(schedule_events=_events),
+        hi=_hi,
+        error_handler=_error,
+        apply_log_level=lambda settings: applied.append(settings),
+    )
+    settings = SimpleNamespace(
+        telegram_bot_token="token",
+        features={"message_handling": True, "schedule_events": True},
+        debug_mode=False,
+    )
+
+    def _builder_factory():
+        return object()
+
+    def _fake_build_application(**kwargs):
+        captured.update(kwargs)
+        return fake_app
+
+    monkeypatch.setattr(
+        bot_app.framework_application,
+        "build_application",
+        _fake_build_application,
+    )
+
+    app = bot_app.build_application(
+        runtime,
+        settings=settings,
+        application_builder_factory=_builder_factory,
+    )
+
+    assert app is fake_app
+    assert applied == [settings]
+    assert captured["token"] == "token"
+    assert captured["error_handler"] is _error
+    assert captured["application_builder_factory"] is _builder_factory
+    assert callable(captured["register_handlers"])
+
+
 def test_run_polling_builds_runtime_when_not_provided(monkeypatch) -> None:
     settings = SimpleNamespace(debug_mode=False, features={"message_handling": True})
     runtime = SimpleNamespace(get_settings=lambda: settings)

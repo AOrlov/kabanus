@@ -1,6 +1,6 @@
 import logging
 from dataclasses import dataclass
-from typing import Callable, Optional, cast
+from typing import Any, Callable, Optional, cast
 
 from telegram import Update
 from telegram.ext import (
@@ -413,9 +413,13 @@ def build_application(
     runtime: BotRuntime,
     *,
     settings: Optional[config.Settings] = None,
+    application_builder_factory: Optional[Callable[[], Any]] = None,
 ) -> Application:
     active_settings = settings or runtime.get_settings()
     runtime.apply_log_level(active_settings)
+    active_application_builder_factory = (
+        application_builder_factory or ApplicationBuilder
+    )
 
     return framework_application.build_application(
         token=active_settings.telegram_bot_token,
@@ -425,7 +429,7 @@ def build_application(
             runtime,
             settings=active_settings,
         ),
-        application_builder_factory=ApplicationBuilder,
+        application_builder_factory=active_application_builder_factory,
     )
 
 
