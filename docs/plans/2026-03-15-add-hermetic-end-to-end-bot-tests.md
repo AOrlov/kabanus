@@ -54,12 +54,12 @@ Add a hermetic pytest e2e layer that exercises the composed bot runtime with syn
 - Modify: `tests/test_bot_e2e.py`
 - Modify: `tests/test_bot_events_handler.py` (only if an existing helper can be reused or tightened)
 
-- [ ] Add one media-based conversation scenario, choosing the highest-value path among voice, photo OCR, or image document, and drive it through the same composed harness
-- [ ] Add one event-scheduling photo scenario that uses a fake event parser and fake calendar provider and verifies both the success reply and created event payload
-- [ ] Verify Telegram file-download interactions stay fake and temp-file cleanup remains observable in the hermetic test path
-- [ ] Resist adding all media permutations to e2e; leave detailed branch coverage in the existing handler or service tests
-- [ ] Write tests for this task
-- [ ] Run `pytest -q tests/test_bot_e2e.py tests/test_bot_events_handler.py` and keep it green before moving on
+- [x] Add one media-based conversation scenario, choosing the highest-value path among voice, photo OCR, or image document, and drive it through the same composed harness
+- [x] Add one event-scheduling photo scenario that uses a fake event parser and fake calendar provider and verifies both the success reply and created event payload
+- [x] Verify Telegram file-download interactions stay fake and temp-file cleanup remains observable in the hermetic test path
+- [x] Resist adding all media permutations to e2e; leave detailed branch coverage in the existing handler or service tests
+- [x] Write tests for this task
+- [x] Run `pytest -q tests/test_bot_e2e.py tests/test_bot_events_handler.py` and keep it green before moving on
 
 ### Task 4: Add High-Value Negative and Gating Scenarios
 

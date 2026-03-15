@@ -1,4 +1,5 @@
 import asyncio
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -22,15 +23,27 @@ from src.memory import summary_store
 from src.providers.contracts import ProviderRouting
 
 
-def _settings(store_path: Path):
+def _settings(store_path: Path, *, features=None):
+    default_features = {
+        "commands": {"hi": True},
+        "message_handling": True,
+        "schedule_events": True,
+    }
+    if features is None:
+        resolved_features = default_features
+    else:
+        resolved_features = {
+            **default_features,
+            **features,
+            "commands": {
+                **default_features["commands"],
+                **features.get("commands", {}),
+            },
+        }
     return SimpleNamespace(
         telegram_bot_token="123:TEST",
         admin_chat_id="999",
-        features={
-            "commands": {"hi": True},
-            "message_handling": True,
-            "schedule_events": True,
-        },
+        features=resolved_features,
         allowed_chat_ids=["111", "-222"],
         bot_aliases=["kaban"],
         debug_mode=False,
@@ -100,12 +113,13 @@ class _FakeLowCostTextGenerationProvider:
 
 
 class _FakeAudioTranscriptionProvider:
-    def __init__(self) -> None:
+    def __init__(self, response: str = "voice transcript") -> None:
         self.audio_paths = []
+        self.response = response
 
     def transcribe_audio(self, request):
         self.audio_paths.append(request.audio_path)
-        return "voice transcript"
+        return self.response
 
 
 class _FakeOcrProvider:
@@ -129,10 +143,7 @@ class _FakeReactionSelectionProvider:
 class _FakeEventParsingProvider:
     def __init__(self) -> None:
         self.requests = []
-
-    def parse_image_event(self, request):
-        self.requests.append(request.image_path)
-        return {
+        self.event_data = {
             "title": "Design Review",
             "date": "2030-06-20",
             "time": "14:00",
@@ -140,6 +151,18 @@ class _FakeEventParsingProvider:
             "description": "Discuss architecture",
             "confidence": 0.95,
         }
+
+    def parse_image_event(self, request):
+        self.requests.append(request.image_path)
+        return dict(self.event_data)
+
+
+class _RecordingCalendarProvider:
+    def __init__(self, created_events: list[dict]) -> None:
+        self._created_events = created_events
+
+    def create_event(self, **kwargs) -> None:
+        self._created_events.append(kwargs)
 
 
 def _runtime_capabilities(providers) -> RuntimeCapabilities:
@@ -241,9 +264,16 @@ class _InjectedBotBuilder:
 
 
 class _HermeticBotHarness:
-    def __init__(self, *, monkeypatch, tmp_path: Path) -> None:
+    def __init__(
+        self,
+        *,
+        monkeypatch,
+        tmp_path: Path,
+        features=None,
+        created_events=None,
+    ) -> None:
         store_path = tmp_path / "messages.jsonl"
-        self.settings = _settings(store_path)
+        self.settings = _settings(store_path, features=features)
         self.providers = SimpleNamespace(
             text=_FakeTextGenerationProvider(),
             streaming=_FakeStreamingTextGenerationProvider(),
@@ -256,6 +286,7 @@ class _HermeticBotHarness:
         self.bot = _FakeBot()
         self._next_update_id = 1
         self._next_message_id = 1
+        self.created_events = [] if created_events is None else created_events
 
         message_store.clear_memory_state()
         monkeypatch.setattr(config, "get_settings", lambda force=False: self.settings)
@@ -264,6 +295,11 @@ class _HermeticBotHarness:
             "update_log_level",
             lambda _level: None,
         )
+        if created_events is not None:
+            monkeypatch.setattr(
+                "src.bot.features.events.CalendarProvider",
+                lambda: _RecordingCalendarProvider(self.created_events),
+            )
 
         self.runtime = bot_app.build_runtime(
             settings_getter=lambda force=False: self.settings,
@@ -352,6 +388,32 @@ class _HermeticBotHarness:
         self._dispatch(update)
         return update
 
+    def dispatch_voice(
+        self,
+        *,
+        file_id: str,
+        chat_id: int = 111,
+        user_id: int = 111,
+        chat_type: str = "private",
+        caption: str = "",
+        caption_entities=None,
+    ) -> Update:
+        update = self._build_update(
+            chat_id=chat_id,
+            user_id=user_id,
+            chat_type=chat_type,
+            caption=caption,
+            caption_entities=caption_entities,
+            voice={
+                "file_id": file_id,
+                "file_unique_id": f"{file_id}-unique",
+                "duration": 1,
+                "mime_type": "audio/ogg",
+            },
+        )
+        self._dispatch(update)
+        return update
+
     def _dispatch(self, update: Update) -> None:
         asyncio.run(self._dispatch_async(update))
 
@@ -371,7 +433,9 @@ class _HermeticBotHarness:
         text=None,
         entities=None,
         caption=None,
+        caption_entities=None,
         photo=None,
+        voice=None,
         reply_to_message=None,
     ) -> Update:
         message_id = self._next_message_id
@@ -389,8 +453,12 @@ class _HermeticBotHarness:
             message_payload["entities"] = entities
         if caption is not None:
             message_payload["caption"] = caption
+        if caption_entities is not None:
+            message_payload["caption_entities"] = caption_entities
         if photo is not None:
             message_payload["photo"] = photo
+        if voice is not None:
+            message_payload["voice"] = voice
         if reply_to_message is not None:
             message_payload["reply_to_message"] = reply_to_message
 
@@ -517,3 +585,90 @@ def test_group_addressed_message_flow_persists_history_and_bot_reply(
     ]
     assert [message["kind"] for message in stored_messages] == ["user", "user", "bot"]
     assert stored_messages[1]["telegram_message_id"] == mention_update.message.message_id
+
+
+def test_voice_message_flow_uses_fake_download_and_cleans_temp_file(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    bot_harness = _HermeticBotHarness(
+        monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
+        features={"message_handling": True, "schedule_events": False},
+    )
+    removed_paths = []
+    original_remove = os.remove
+
+    def _capture_remove(path: str) -> None:
+        removed_paths.append(path)
+        original_remove(path)
+
+    monkeypatch.setattr(os, "remove", _capture_remove)
+
+    bot_harness.providers.audio.response = "kaban review the roadmap"
+    bot_harness.providers.text.response = "Voice plan confirmed."
+    telegram_file = bot_harness.register_file(file_id="voice-1", payload=b"voice-bytes")
+
+    bot_harness.dispatch_voice(file_id="voice-1")
+
+    assert bot_harness.reply_texts == [">>kaban review the roadmap\n\nVoice plan confirmed."]
+    assert len(bot_harness.providers.text.prompts) == 1
+    assert bot_harness.providers.text.prompts[0].endswith(
+        "Alice: kaban review the roadmap"
+    )
+    assert bot_harness.providers.audio.audio_paths == telegram_file.drive_paths
+    assert len(removed_paths) == 1
+    assert removed_paths[0] == telegram_file.drive_paths[0]
+    assert not Path(removed_paths[0]).exists()
+
+    bot_harness.clear_state()
+    stored_messages = message_store.get_all_messages("111")
+    assert [message["text"] for message in stored_messages] == [
+        "kaban review the roadmap",
+        ">>kaban review the roadmap\n\nVoice plan confirmed.",
+    ]
+    assert [message["kind"] for message in stored_messages] == ["user", "bot"]
+
+
+def test_schedule_events_photo_flow_creates_event_and_cleans_temp_file(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    created_events = []
+    bot_harness = _HermeticBotHarness(
+        monkeypatch=monkeypatch,
+        tmp_path=tmp_path,
+        features={"message_handling": False, "schedule_events": True},
+        created_events=created_events,
+    )
+    removed_paths = []
+    original_remove = os.remove
+
+    def _capture_remove(path: str) -> None:
+        removed_paths.append(path)
+        original_remove(path)
+
+    monkeypatch.setattr(os, "remove", _capture_remove)
+
+    telegram_file = bot_harness.register_file(file_id="event-photo", payload=b"photo")
+
+    bot_harness.dispatch_photo(file_id="event-photo")
+
+    assert bot_harness.reply_texts == [
+        "Event created successfully!\n"
+        "Title: Design Review\n"
+        "Date: 2030-06-20\n"
+        f"Time: 14:00 ({created_events[0]['start_time'].tzinfo})\n"
+        "Location: Office"
+    ]
+    assert bot_harness.providers.events.requests == telegram_file.drive_paths
+    assert len(created_events) == 1
+    created_event = created_events[0]
+    assert created_event["title"] == "Design Review"
+    assert created_event["is_all_day"] is False
+    assert created_event["start_time"].strftime("%Y-%m-%d %H:%M") == "2030-06-20 14:00"
+    assert created_event["location"] == "Office"
+    assert created_event["description"] == "Discuss architecture"
+    assert len(removed_paths) == 1
+    assert removed_paths[0] == telegram_file.drive_paths[0]
+    assert not Path(removed_paths[0]).exists()
