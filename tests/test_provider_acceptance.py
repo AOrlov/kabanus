@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -25,11 +26,12 @@ def _settings(
     routing: ProviderRouting,
     *,
     openai_api_key: str = "openai-key",
+    openai_auth_json_path: str = "",
     gemini_api_key: str = "gemini-key",
 ):
     openai_settings = SimpleNamespace(
         api_key=openai_api_key,
-        auth_json_path="",
+        auth_json_path=openai_auth_json_path,
         refresh_url="https://auth.openai.com/oauth/token",
         refresh_client_id="client-id",
         refresh_grant_type="refresh_token",
@@ -40,7 +42,8 @@ def _settings(
         text_model="gpt-5.3-codex",
         low_cost_model="gpt-5.3-mini",
         reaction_model="gpt-5.3-mini",
-        configured=bool(openai_api_key),
+        transcription_model="gpt-4o-mini-transcribe",
+        configured=bool(openai_api_key or openai_auth_json_path),
     )
     gemini_settings = SimpleNamespace(
         api_key=gemini_api_key,
@@ -173,6 +176,58 @@ class _FullCapabilityProviderStub(_OpenAIMessageFlowStub):
         return {"image_path": request.image_path}
 
 
+def test_acceptance_full_openai_composition_supports_all_capabilities(
+    tmp_path: Path,
+) -> None:
+    routing = ProviderRouting(
+        text_generation="openai",
+        streaming_text_generation="openai",
+        low_cost_text_generation="openai",
+        audio_transcription="openai",
+        ocr="openai",
+        reaction_selection="openai",
+        event_parsing="openai",
+    )
+    settings = _settings(routing, gemini_api_key="")
+    audio_path = tmp_path / "voice.ogg"
+    audio_path.write_bytes(b"voice")
+
+    provider = provider_factory.build_provider_for_settings(
+        settings,
+        openai_factory=lambda _configured_settings: _FullCapabilityProviderStub(),
+        gemini_factory=lambda _configured_settings: pytest.fail(
+            "gemini factory should not be used"
+        ),
+    )
+
+    assert provider.generate_text(TextGenerationRequest(prompt="hello")) == "stub:hello"
+    assert list(
+        provider.generate_text_stream(TextGenerationRequest(prompt="hello"))
+    ) == ["stub:hello"]
+    assert (
+        provider.generate_low_cost_text(TextGenerationRequest(prompt="hello"))
+        == "stub-low:hello"
+    )
+    assert provider.transcribe_audio(
+        AudioTranscriptionRequest(audio_path=str(audio_path))
+    ) == str(audio_path)
+    assert (
+        provider.extract_image_text(
+            ImageToTextRequest(image_bytes=b"image", mime_type="image/png")
+        )
+        == "image/png"
+    )
+    assert (
+        provider.select_reaction(
+            ReactionSelectionRequest(message="hi", allowed_reactions=["😀", "😴"])
+        )
+        == "😀"
+    )
+    assert provider.parse_image_event(ImageToEventRequest(image_path="event.png")) == {
+        "image_path": "event.png"
+    }
+
+
 def test_acceptance_openai_text_and_streaming_work_through_routed_composition() -> None:
     routing = ProviderRouting(
         text_generation="openai",
@@ -246,9 +301,7 @@ def test_acceptance_gemini_multimodal_capabilities_work_through_routed_compositi
     )
 
     assert (
-        provider.transcribe_audio(
-            AudioTranscriptionRequest(audio_path=str(audio_path))
-        )
+        provider.transcribe_audio(AudioTranscriptionRequest(audio_path=str(audio_path)))
         == "meeting transcript"
     )
     assert (
@@ -283,6 +336,45 @@ def test_acceptance_runtime_capability_listing_matches_available_composition() -
         "reaction_selection",
         "event_parsing",
     ]
+
+
+@pytest.mark.parametrize(
+    ("auth_payload", "error_pattern"),
+    [
+        ("{", "not valid JSON"),
+        ('{"kind":"missing-credentials"}', "access_token, api_key, or refresh_token"),
+    ],
+)
+def test_acceptance_startup_fails_fast_for_invalid_openai_transcription_auth(
+    tmp_path: Path,
+    auth_payload: str,
+    error_pattern: str,
+) -> None:
+    auth_file = tmp_path / "auth.json"
+    auth_file.write_text(auth_payload, encoding="utf-8")
+    if os.name != "nt":
+        auth_file.chmod(0o600)
+
+    settings = _settings(
+        ProviderRouting(
+            text_generation="openai",
+            streaming_text_generation="openai",
+            low_cost_text_generation="openai",
+            audio_transcription="openai",
+            ocr="openai",
+            reaction_selection="openai",
+            event_parsing="openai",
+        ),
+        openai_api_key="",
+        openai_auth_json_path=str(auth_file),
+        gemini_api_key="",
+    )
+
+    with pytest.raises(ProviderConfigurationError, match=error_pattern):
+        provider_factory.build_capability_providers_for_settings(
+            settings,
+            required_capabilities=("audio_transcription",),
+        )
 
 
 @pytest.mark.parametrize(

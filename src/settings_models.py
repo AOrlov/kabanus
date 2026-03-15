@@ -27,6 +27,7 @@ class OpenAISettings:
     text_model: str
     low_cost_model: str
     reaction_model: str
+    transcription_model: str
 
     @property
     def configured(self) -> bool:
@@ -165,6 +166,10 @@ class Settings:
     @property
     def openai_reaction_model(self) -> str:
         return self.ai.openai.reaction_model
+
+    @property
+    def openai_transcription_model(self) -> str:
+        return self.ai.openai.transcription_model
 
     @property
     def thinking_budget(self) -> int:

@@ -56,6 +56,8 @@ class OpenAIClientFactory:
                 leeway_secs=self._settings.auth_leeway_secs,
                 timeout_secs=self._settings.auth_timeout_secs,
             )
+        if self._auth_manager is not None:
+            self._auth_manager.validate_standard_api_credentials()
         self._client: Optional[OpenAI] = None
         self._client_signature: Optional[Tuple[str, str, str]] = None
 

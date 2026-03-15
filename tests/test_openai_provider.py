@@ -54,6 +54,9 @@ class _AuthManagerStub:
     def has_refresh_token(self) -> bool:
         return self._refreshable
 
+    def validate_standard_api_credentials(self) -> None:
+        return None
+
 
 def _jwt_with_account_id(account_id: str) -> str:
     def _b64(value: dict) -> str:

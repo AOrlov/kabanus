@@ -43,6 +43,7 @@ _PROVIDER_SUPPORTED_CAPABILITIES = {
             "text_generation",
             "streaming_text_generation",
             "low_cost_text_generation",
+            "audio_transcription",
             "ocr",
             "reaction_selection",
             "event_parsing",

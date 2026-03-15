@@ -32,6 +32,7 @@ def test_openai_provider_defaults(monkeypatch) -> None:
     monkeypatch.delenv("OPENAI_MODEL", raising=False)
     monkeypatch.delenv("OPENAI_LOW_COST_MODEL", raising=False)
     monkeypatch.delenv("OPENAI_REACTION_MODEL", raising=False)
+    monkeypatch.delenv("OPENAI_TRANSCRIPTION_MODEL", raising=False)
     _reset_settings_cache()
 
     settings = config.get_settings(force=True)
@@ -39,6 +40,8 @@ def test_openai_provider_defaults(monkeypatch) -> None:
     assert settings.ai.openai.text_model == "gpt-5.3-codex"
     assert settings.ai.openai.low_cost_model == settings.ai.openai.text_model
     assert settings.ai.openai.reaction_model == settings.ai.openai.low_cost_model
+    assert settings.ai.openai.transcription_model == "gpt-4o-mini-transcribe"
+    assert settings.openai_transcription_model == "gpt-4o-mini-transcribe"
     assert settings.reaction_context_turns == 8
     assert settings.reaction_context_token_limit == 1200
     assert settings.ai.openai.refresh_url == "https://auth.openai.com/oauth/token"
@@ -65,6 +68,22 @@ def test_openai_provider_accepts_auth_json_without_api_key(
     assert settings.ai.openai.text_model == "gpt-5.3-codex"
     assert settings.ai.openai.low_cost_model == "gpt-5.3-codex"
     assert settings.ai.openai.reaction_model == "gpt-5.3-codex"
+    assert settings.ai.openai.transcription_model == "gpt-4o-mini-transcribe"
+
+
+def test_openai_provider_accepts_custom_transcription_model(monkeypatch) -> None:
+    monkeypatch.setattr(config, "_reload_env", lambda: None)
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "t")
+    monkeypatch.setenv("ALLOWED_CHAT_IDS", "1")
+    monkeypatch.setenv("MODEL_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "k")
+    monkeypatch.setenv("OPENAI_TRANSCRIPTION_MODEL", "gpt-4o-transcribe")
+    _reset_settings_cache()
+
+    settings = config.get_settings(force=True)
+
+    assert settings.ai.openai.transcription_model == "gpt-4o-transcribe"
+    assert settings.openai_transcription_model == "gpt-4o-transcribe"
 
 
 def test_reaction_context_env_values_are_clamped(monkeypatch) -> None:

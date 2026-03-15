@@ -49,12 +49,12 @@ Implement OpenAI audio transcription so every shipped bot capability can run on 
 - Modify: `tests/test_config_openai.py`
 - Modify: `tests/test_config_compat_contract.py`
 
-- [ ] Add a dedicated `OPENAI_TRANSCRIPTION_MODEL` setting with an OpenAI speech-to-text-capable default rather than reusing the existing Codex/text model fields
-- [ ] Update the OpenAI supported-capability matrix so `audio_transcription=openai` is a valid routed combination and startup validation no longer contradicts the current default `MODEL_PROVIDER=openai` routing
-- [ ] Preserve fail-fast validation for truly invalid cases such as missing OpenAI credentials, malformed auth files, or auth modes that cannot initialize a transcription-capable client
-- [ ] Extend acceptance coverage to a pure-OpenAI provider composition that exercises text, streaming, low-cost text, transcription, OCR, reaction selection, and event parsing together
-- [ ] write tests for this task
-- [ ] run project test suite - must pass before task 3
+- [x] Add a dedicated `OPENAI_TRANSCRIPTION_MODEL` setting with an OpenAI speech-to-text-capable default rather than reusing the existing Codex/text model fields
+- [x] Update the OpenAI supported-capability matrix so `audio_transcription=openai` is a valid routed combination and startup validation no longer contradicts the current default `MODEL_PROVIDER=openai` routing
+- [x] Preserve fail-fast validation for truly invalid cases such as missing OpenAI credentials, malformed auth files, or auth modes that cannot initialize a transcription-capable client
+- [x] Extend acceptance coverage to a pure-OpenAI provider composition that exercises text, streaming, low-cost text, transcription, OCR, reaction selection, and event parsing together
+- [x] write tests for this task
+- [x] run project test suite - must pass before task 3
 
 ### Task 3: Update OpenAI Onboarding and Auth Tooling
 

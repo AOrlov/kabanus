@@ -39,6 +39,7 @@ def test_settings_loader_matches_config_facade_behavior(monkeypatch) -> None:
     monkeypatch.setenv("GEMINI_API_KEY", "gem-key")
     monkeypatch.setenv("BOT_ALIASES", "Kaban, Helper")
     monkeypatch.setenv("TELEGRAM_USE_MESSAGE_DRAFTS", "true")
+    monkeypatch.setenv("OPENAI_TRANSCRIPTION_MODEL", "gpt-4o-transcribe")
     monkeypatch.setenv("REACTION_CONTEXT_TURNS", "5")
     monkeypatch.setenv("AI_PROVIDER_AUDIO_TRANSCRIPTION", "gemini")
     monkeypatch.setattr(config, "_reload_env", lambda: None)
@@ -59,6 +60,7 @@ def test_settings_loader_matches_config_facade_behavior(monkeypatch) -> None:
     assert loader_settings.ai.gemini.api_key == "gem-key"
     assert loader_settings.ai.routing.text_generation == "openai"
     assert loader_settings.ai.routing.audio_transcription == "gemini"
+    assert loader_settings.ai.openai.transcription_model == "gpt-4o-transcribe"
 
 
 @pytest.mark.parametrize(

@@ -23,6 +23,7 @@ _ENV_LOCK = Lock()
 _SETTINGS_CACHE: Optional[Settings] = None
 _SETTINGS_CACHE_TS = 0.0
 _CACHE_TTL = 1.0
+_DEFAULT_OPENAI_TRANSCRIPTION_MODEL = "gpt-4o-mini-transcribe"
 
 
 def reload_env() -> None:
@@ -173,6 +174,13 @@ def _load_settings_from_env() -> Settings:
     openai_model = (openai_model_env or "gpt-5.3-codex").strip()
     openai_low_cost_model = (openai_low_cost_model_env or openai_model).strip()
     openai_reaction_model = (openai_reaction_model_env or openai_low_cost_model).strip()
+    openai_transcription_model = (
+        os.getenv(
+            "OPENAI_TRANSCRIPTION_MODEL",
+            _DEFAULT_OPENAI_TRANSCRIPTION_MODEL,
+        ).strip()
+        or _DEFAULT_OPENAI_TRANSCRIPTION_MODEL
+    )
     if openai_auth_json_path:
         if openai_model_env is None:
             openai_model = openai_codex_default_model
@@ -248,6 +256,7 @@ def _load_settings_from_env() -> Settings:
         text_model=openai_model,
         low_cost_model=openai_low_cost_model,
         reaction_model=openai_reaction_model,
+        transcription_model=openai_transcription_model,
     )
     gemini_settings = GeminiSettings(
         api_key=gemini_api_key,

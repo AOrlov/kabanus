@@ -21,6 +21,7 @@ def _set_base_openai_env(monkeypatch) -> None:
         "OPENAI_MODEL",
         "OPENAI_LOW_COST_MODEL",
         "OPENAI_REACTION_MODEL",
+        "OPENAI_TRANSCRIPTION_MODEL",
         "BOT_ALIASES",
         "LANGUAGE",
         "TOKEN_LIMIT",
@@ -58,6 +59,7 @@ def test_config_default_contract_snapshot(monkeypatch) -> None:
     assert settings.ai.openai.text_model == "gpt-5.3-codex"
     assert settings.ai.openai.low_cost_model == "gpt-5.3-codex"
     assert settings.ai.openai.reaction_model == "gpt-5.3-codex"
+    assert settings.ai.openai.transcription_model == "gpt-4o-mini-transcribe"
     assert settings.ai.gemini.low_cost_model == settings.ai.gemini.default_model
     assert settings.allowed_chat_ids == ["1"]
     assert settings.bot_aliases == []
@@ -120,6 +122,12 @@ def test_config_default_contract_snapshot(monkeypatch) -> None:
             "gemini",
             "ai.routing.audio_transcription",
             "gemini",
+        ),
+        (
+            "OPENAI_TRANSCRIPTION_MODEL",
+            "gpt-4o-transcribe",
+            "openai_transcription_model",
+            "gpt-4o-transcribe",
         ),
         (
             "GEMINI_LOW_COST_MODEL",

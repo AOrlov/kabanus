@@ -62,24 +62,24 @@ class OpenAIAuthManager:
     def has_refresh_token(self) -> bool:
         document = self._read_auth_json()
         data = document.target
-        return bool(
-            self._extract_text(data, "refresh_token")
-            or self._extract_text(data, "tokens.refresh_token")
+        return bool(self._extract_refresh_token(data))
+
+    def validate_standard_api_credentials(self) -> None:
+        document = self._read_auth_json()
+        data = document.target
+        if self._extract_access_token(data) or self._extract_refresh_token(data):
+            return
+        raise ProviderConfigurationError(
+            "OpenAI auth.json must contain access_token, api_key, or refresh_token",
+            provider="openai",
         )
 
     def get_access_token(self, force_refresh: bool = False) -> str:
         with self._lock:
             document = self._read_auth_json()
             data = document.target
-            token = (
-                self._extract_text(data, "access_token")
-                or self._extract_text(data, "tokens.access_token")
-                or self._extract_text(data, "api_key")
-                or self._extract_text(data, "OPENAI_API_KEY")
-            )
-            refresh_token = self._extract_text(
-                data, "refresh_token"
-            ) or self._extract_text(data, "tokens.refresh_token")
+            token = self._extract_access_token(data)
+            refresh_token = self._extract_refresh_token(data)
             expires_at = self._parse_expires_at(data)
             token_url = (
                 self._extract_text(data, "token_url")
@@ -126,6 +126,20 @@ class OpenAIAuthManager:
                 grant_type=grant_type,
             )
             return new_access_token
+
+    def _extract_access_token(self, data: Dict[str, Any]) -> str:
+        return (
+            self._extract_text(data, "access_token")
+            or self._extract_text(data, "tokens.access_token")
+            or self._extract_text(data, "api_key")
+            or self._extract_text(data, "OPENAI_API_KEY")
+        )
+
+    def _extract_refresh_token(self, data: Dict[str, Any]) -> str:
+        return self._extract_text(data, "refresh_token") or self._extract_text(
+            data,
+            "tokens.refresh_token",
+        )
 
     def _validate_path(self, auth_json_path: str) -> Path:
         raw_path = auth_json_path.strip()

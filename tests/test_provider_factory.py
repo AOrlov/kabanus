@@ -169,6 +169,33 @@ def test_build_provider_uses_explicit_capability_routes(monkeypatch) -> None:
     )
 
 
+def test_build_provider_accepts_openai_audio_transcription_route() -> None:
+    settings = _settings(
+        ProviderRouting(
+            text_generation="openai",
+            streaming_text_generation="openai",
+            low_cost_text_generation="openai",
+            audio_transcription="openai",
+            ocr="openai",
+            reaction_selection="openai",
+            event_parsing="openai",
+        )
+    )
+
+    provider = provider_factory.build_provider_for_settings(
+        settings,
+        openai_factory=_OpenAIProvider,
+        gemini_factory=lambda _configured_settings: pytest.fail(
+            "gemini factory should not be used"
+        ),
+    )
+
+    assert (
+        provider.transcribe_audio(AudioTranscriptionRequest(audio_path="voice.ogg"))
+        == "openai:voice.ogg"
+    )
+
+
 def test_build_provider_rejects_missing_credentials_for_routed_provider() -> None:
     settings = _settings(
         ProviderRouting(
@@ -184,6 +211,30 @@ def test_build_provider_rejects_missing_credentials_for_routed_provider() -> Non
     )
 
     with pytest.raises(ProviderConfigurationError, match="Gemini credentials"):
+        provider_factory.build_provider_for_settings(
+            settings,
+            openai_factory=_OpenAIProvider,
+            gemini_factory=_GeminiProvider,
+        )
+
+
+def test_build_provider_rejects_missing_openai_credentials_for_transcription_route() -> (
+    None
+):
+    settings = _settings(
+        ProviderRouting(
+            text_generation="gemini",
+            streaming_text_generation="openai",
+            low_cost_text_generation="gemini",
+            audio_transcription="openai",
+            ocr="gemini",
+            reaction_selection="gemini",
+            event_parsing="gemini",
+        ),
+        openai_configured=False,
+    )
+
+    with pytest.raises(ProviderConfigurationError, match="OpenAI credentials"):
         provider_factory.build_provider_for_settings(
             settings,
             openai_factory=_OpenAIProvider,
@@ -212,7 +263,9 @@ def test_build_provider_rejects_unsupported_capability_route() -> None:
         )
 
 
-def test_build_capability_providers_scopes_validation_to_required_capabilities() -> None:
+def test_build_capability_providers_scopes_validation_to_required_capabilities() -> (
+    None
+):
     settings = _settings(
         ProviderRouting(
             text_generation="openai",
