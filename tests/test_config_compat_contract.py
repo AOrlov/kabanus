@@ -172,11 +172,6 @@ def test_env_var_name_contract(
             "Gemini is routed for audio_transcription",
         ),
         (
-            {"GEMINI_MODELS": "not-json"},
-            [],
-            "Failed to parse GEMINI_MODELS",
-        ),
-        (
             {},
             ["OPENAI_API_KEY", "OPENAI_AUTH_JSON_PATH"],
             "OPENAI_API_KEY or OPENAI_AUTH_JSON_PATH is missing",
@@ -200,6 +195,19 @@ def test_config_validation_contract(
 
     with pytest.raises(RuntimeError, match=error_pattern):
         config.get_settings(force=True)
+
+
+def test_invalid_gemini_models_fall_back_to_default_model(monkeypatch) -> None:
+    _set_base_openai_env(monkeypatch)
+    monkeypatch.setenv("GEMINI_MODEL", "gemini-2.5-flash")
+    monkeypatch.setenv("GEMINI_MODELS", "not-json")
+    _reset_settings_cache()
+
+    settings = config.get_settings(force=True)
+
+    assert settings.ai.gemini.model_specs == [
+        config.ModelSpec(name="gemini-2.5-flash", rpm=None, rpd=None)
+    ]
 
 
 def test_legacy_module_level_attributes_are_not_exposed(monkeypatch) -> None:

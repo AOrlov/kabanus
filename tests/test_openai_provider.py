@@ -599,3 +599,36 @@ def test_parse_image_event_returns_empty_dict_on_invalid_json(
 def test_provider_exposes_transcription_capability() -> None:
     provider = OpenAIProvider(_settings())
     assert isinstance(provider, AudioTranscriptionProvider)
+
+
+def test_provider_refreshes_runtime_settings_from_callable(monkeypatch) -> None:
+    current_settings = {"value": _settings(text_model="model-a")}
+
+    class _Factory:
+        def __init__(self, settings) -> None:
+            self._settings = settings
+
+        def get_client_context(self, *, force_refresh: bool = False, use_codex: bool = True):
+            del force_refresh, use_codex
+            model_name = self._settings.text_model
+            client = SimpleNamespace(
+                responses=SimpleNamespace(
+                    create=lambda **kwargs: SimpleNamespace(
+                        output_text=f"{model_name}:{kwargs['model']}"
+                    )
+                )
+            )
+            return client, _client_options(codex_mode=False, refreshable=False)
+
+    monkeypatch.setattr(
+        "src.providers.openai.provider.OpenAIClientFactory",
+        _Factory,
+    )
+    provider = OpenAIProvider(lambda: current_settings["value"])
+
+    first = provider.generate_text(TextGenerationRequest(prompt="hello"))
+    current_settings["value"] = _settings(text_model="model-b")
+    second = provider.generate_text(TextGenerationRequest(prompt="hello"))
+
+    assert first == "model-a:model-a"
+    assert second == "model-b:model-b"

@@ -42,6 +42,8 @@ from src.providers.capabilities import (
 )
 from src.providers.contracts import CapabilityName
 from src.providers.errors import ProviderConfigurationError
+from src.providers.gemini import GeminiProvider
+from src.providers.openai import OpenAIProvider
 from src.telegram_framework import application as framework_application
 from src.telegram_framework import error_reporting as framework_error_reporting
 from src.telegram_framework import policy as framework_policy
@@ -328,6 +330,12 @@ def build_runtime(
             capability_providers = build_capability_providers_for_settings(
                 settings,
                 required_capabilities=required_capabilities,
+                openai_factory=lambda _configured_settings: OpenAIProvider(
+                    settings_resolver.get
+                ),
+                gemini_factory=lambda _configured_settings: GeminiProvider(
+                    settings_resolver.get
+                ),
             )
             runtime_capabilities = _compose_runtime_capabilities_from_map(
                 capability_providers

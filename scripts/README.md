@@ -121,9 +121,9 @@ PYTHONPATH=. python3 -m scripts.onboard_openai
 ```
 
 The wizard writes the auth file with private permissions and prints the OpenAI-side
-runtime exports. Keep the printed `AI_PROVIDER_AUDIO_TRANSCRIPTION=gemini` override and
-add `GEMINI_API_KEY` or `GOOGLE_API_KEY`, because the current capability composition
-routes audio transcription to Gemini.
+runtime exports, including `OPENAI_TRANSCRIPTION_MODEL`. If you intentionally route
+some capabilities to Gemini, add the matching `AI_PROVIDER_*` overrides plus
+`GEMINI_API_KEY` or `GOOGLE_API_KEY`.
 
 ## `openai_codex_oauth.py`
 
@@ -143,8 +143,8 @@ PYTHONPATH=. python3 -m scripts.openai_codex_oauth --remote
 ```
 
 This helper also prints the OpenAI-side runtime exports. Mixed-provider routing is still
-configured through the main environment, so keep the printed transcription override and
-provide Gemini credentials separately.
+configured through the main environment, so add any Gemini-specific `AI_PROVIDER_*`
+overrides and credentials separately when that routing is intentional.
 
 ## Notes
 

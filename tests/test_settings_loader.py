@@ -45,11 +45,11 @@ def test_settings_loader_matches_config_facade_behavior(monkeypatch) -> None:
     monkeypatch.setattr(config, "_reload_env", lambda: None)
     _reset_config_cache()
 
-    facade_settings = config.get_settings(force=True)
     loader_settings = settings_loader.get_settings(
-        force=False,
+        force=True,
         reload_env_func=lambda: None,
     )
+    facade_settings = config.get_settings(force=False)
 
     assert loader_settings == facade_settings
     assert loader_settings is facade_settings
@@ -82,11 +82,6 @@ def test_settings_loader_matches_config_facade_behavior(monkeypatch) -> None:
             "AI_PROVIDER_STREAMING_TEXT_GENERATION must be either 'openai' or 'gemini'",
         ),
         (
-            {"GEMINI_MODELS": "not-json"},
-            [],
-            "Failed to parse GEMINI_MODELS",
-        ),
-        (
             {},
             ["OPENAI_API_KEY", "OPENAI_AUTH_JSON_PATH"],
             "OPENAI_API_KEY or OPENAI_AUTH_JSON_PATH is missing",
@@ -113,6 +108,28 @@ def test_settings_loader_validation_matches_config_contract(
     _reset_config_cache()
     with pytest.raises(RuntimeError, match=error_pattern):
         settings_loader.get_settings(force=True, reload_env_func=lambda: None)
+
+
+def test_invalid_gemini_models_falls_back_to_default_model(monkeypatch) -> None:
+    _set_base_openai_env(monkeypatch)
+    monkeypatch.setenv("GEMINI_MODELS", "not-json")
+    monkeypatch.setenv("GEMINI_MODEL", "gemini-2.5-flash")
+    monkeypatch.setattr(config, "_reload_env", lambda: None)
+    _reset_config_cache()
+
+    loader_settings = settings_loader.get_settings(
+        force=True,
+        reload_env_func=lambda: None,
+    )
+    _reset_config_cache()
+    facade_settings = config.get_settings(force=True)
+
+    assert loader_settings.ai.gemini.model_specs == [
+        ModelSpec(name="gemini-2.5-flash", rpm=None, rpd=None)
+    ]
+    assert facade_settings.ai.gemini.model_specs == [
+        ModelSpec(name="gemini-2.5-flash", rpm=None, rpd=None)
+    ]
 
 
 @pytest.mark.skip(

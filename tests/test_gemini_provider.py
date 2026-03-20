@@ -346,3 +346,36 @@ def test_choose_reaction_includes_recent_context() -> None:
     assert "Alice: deploy in 10 minutes" in client.models.calls[0]["contents"]
     assert "Allowed reactions: 😀, 😴" in client.models.calls[0]["contents"]
     assert client.models.calls[0]["config"].thinking_config is None
+
+
+def test_provider_refreshes_runtime_settings_from_callable(monkeypatch) -> None:
+    current_settings = {"value": _settings(default_model="gemini-2.0-pro")}
+
+    class _Factory:
+        def __init__(self, settings) -> None:
+            self._settings = settings
+
+        def get_client(self):
+            return SimpleNamespace(
+                models=SimpleNamespace(
+                    generate_content=lambda **kwargs: SimpleNamespace(
+                        text=f"{self._settings.default_model}:{kwargs['model']}"
+                    )
+                )
+            )
+
+    monkeypatch.setattr(
+        "src.providers.gemini.provider.GeminiClientFactory",
+        _Factory,
+    )
+    provider = GeminiProvider(
+        lambda: current_settings["value"],
+        instruction_loader=_StaticInstructionLoader(""),
+    )
+
+    first = provider.generate_text(TextGenerationRequest(prompt="hello"))
+    current_settings["value"] = _settings(default_model="gemini-2.0-flash")
+    second = provider.generate_text(TextGenerationRequest(prompt="hello"))
+
+    assert first == "gemini-2.0-pro:gemini-2.0-pro"
+    assert second == "gemini-2.0-flash:gemini-2.0-flash"

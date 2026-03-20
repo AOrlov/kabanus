@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Dict, Iterator
+from typing import Any, Callable, Dict, Iterator
 
 from openai import APIStatusError, AuthenticationError, OpenAI
 
@@ -49,9 +49,47 @@ class OpenAIProvider:
         *,
         client_factory: OpenAIClientFactory | None = None,
     ) -> None:
+        self._settings_source: Callable[[], Any] = (
+            settings if callable(settings) else lambda: settings
+        )
+        self._client_factory_override = client_factory
+        self._settings_signature: tuple[Any, ...] | None = None
+        self._settings: Any = None
+        self._language = ""
+        self._client_factory: Any = None
+        self._refresh_runtime_state()
+
+    def _settings_state_signature(self, settings: Any) -> tuple[Any, ...]:
+        openai_settings = settings.ai.openai
+        return (
+            getattr(settings, "language", ""),
+            getattr(openai_settings, "api_key", ""),
+            getattr(openai_settings, "auth_json_path", ""),
+            getattr(openai_settings, "refresh_url", ""),
+            getattr(openai_settings, "refresh_client_id", ""),
+            getattr(openai_settings, "refresh_grant_type", ""),
+            getattr(openai_settings, "auth_leeway_secs", 0),
+            getattr(openai_settings, "auth_timeout_secs", 0),
+            getattr(openai_settings, "codex_base_url", ""),
+            getattr(openai_settings, "codex_default_model", ""),
+            getattr(openai_settings, "text_model", ""),
+            getattr(openai_settings, "low_cost_model", ""),
+            getattr(openai_settings, "reaction_model", ""),
+            getattr(openai_settings, "transcription_model", ""),
+        )
+
+    def _refresh_runtime_state(self) -> None:
+        settings = self._settings_source()
+        signature = self._settings_state_signature(settings)
+        if signature == self._settings_signature:
+            return
         self._settings = settings.ai.openai
-        self._language = settings.language
-        self._client_factory = client_factory or OpenAIClientFactory(self._settings)
+        self._language = getattr(settings, "language", "")
+        if self._client_factory_override is None:
+            self._client_factory = OpenAIClientFactory(self._settings)
+        else:
+            self._client_factory = self._client_factory_override
+        self._settings_signature = signature
 
     def _is_auth_error(self, exc: Exception) -> bool:
         if isinstance(exc, AuthenticationError):
@@ -173,6 +211,7 @@ class OpenAIProvider:
         user_content: Any,
         system_instruction: str = "",
     ) -> str:
+        self._refresh_runtime_state()
         client, client_options = self._client_factory.get_client_context()
         try:
             response = self._create_response(
@@ -237,6 +276,7 @@ class OpenAIProvider:
         return extract_response_text(response)
 
     def generate_text_stream(self, request: TextGenerationRequest) -> Iterator[str]:
+        self._refresh_runtime_state()
         client, client_options = self._client_factory.get_client_context()
         input_items = build_input_items(
             user_content=build_text_user_content(request.prompt),
@@ -346,6 +386,7 @@ class OpenAIProvider:
             ) from exc
 
     def generate_text(self, request: TextGenerationRequest) -> str:
+        self._refresh_runtime_state()
         return self._run_text_request(
             capability="text_generation",
             model=self._settings.text_model,
@@ -353,6 +394,8 @@ class OpenAIProvider:
         )
 
     def transcribe_audio(self, request: AudioTranscriptionRequest) -> str:
+        self._refresh_runtime_state()
+
         def _transcribe(active_client: OpenAI) -> str:
             with open(request.audio_path, "rb") as file_obj:
                 response = active_client.audio.transcriptions.create(
@@ -390,6 +433,7 @@ class OpenAIProvider:
             ) from exc
 
     def generate_low_cost_text(self, request: TextGenerationRequest) -> str:
+        self._refresh_runtime_state()
         return self._run_text_request(
             capability="low_cost_text_generation",
             model=self._settings.low_cost_model,
@@ -397,6 +441,7 @@ class OpenAIProvider:
         )
 
     def select_reaction(self, request: ReactionSelectionRequest) -> str:
+        self._refresh_runtime_state()
         text = self._run_text_request(
             capability="reaction_selection",
             model=self._settings.reaction_model,
@@ -412,6 +457,7 @@ class OpenAIProvider:
         return ""
 
     def parse_image_event(self, request: ImageToEventRequest) -> dict:
+        self._refresh_runtime_state()
         with open(request.image_path, "rb") as file_obj:
             image_bytes = file_obj.read()
         text = self._run_text_request(
@@ -426,6 +472,7 @@ class OpenAIProvider:
             return {}
 
     def extract_image_text(self, request: ImageToTextRequest) -> str:
+        self._refresh_runtime_state()
         return self._run_text_request(
             capability="ocr",
             model=self._settings.low_cost_model,

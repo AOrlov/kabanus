@@ -11,6 +11,7 @@ from src.bot.contracts import (
     RuntimeCapabilities,
 )
 from src.providers.contracts import ProviderRouting
+from src.providers.errors import ProviderConfigurationError
 
 
 class _Provider:
@@ -190,10 +191,16 @@ def test_build_runtime_builds_provider_from_injected_settings_getter(
     captured = {}
 
     def _fake_build_capability_providers_for_settings(
-        configured_settings, *, required_capabilities
+        configured_settings,
+        *,
+        required_capabilities,
+        openai_factory=None,
+        gemini_factory=None,
     ):
         captured["settings"] = configured_settings
         captured["required_capabilities"] = required_capabilities
+        captured["openai_factory"] = openai_factory
+        captured["gemini_factory"] = gemini_factory
         return {
             "text_generation": provider,
             "low_cost_text_generation": provider,
@@ -218,6 +225,8 @@ def test_build_runtime_builds_provider_from_injected_settings_getter(
         "audio_transcription",
         "ocr",
     )
+    assert callable(captured["openai_factory"])
+    assert callable(captured["gemini_factory"])
 
 
 def test_build_runtime_skips_provider_build_when_no_ai_features_enabled(
@@ -272,10 +281,16 @@ def test_build_runtime_scopes_provider_build_to_required_event_capability(
     captured = {}
 
     def _fake_build_capability_providers_for_settings(
-        configured_settings, *, required_capabilities
+        configured_settings,
+        *,
+        required_capabilities,
+        openai_factory=None,
+        gemini_factory=None,
     ):
         captured["settings"] = configured_settings
         captured["required_capabilities"] = required_capabilities
+        captured["openai_factory"] = openai_factory
+        captured["gemini_factory"] = gemini_factory
         return {"event_parsing": provider}
 
     monkeypatch.setattr(
@@ -288,6 +303,8 @@ def test_build_runtime_scopes_provider_build_to_required_event_capability(
 
     assert captured["settings"] is settings
     assert captured["required_capabilities"] == ("event_parsing",)
+    assert callable(captured["openai_factory"])
+    assert callable(captured["gemini_factory"])
     assert runtime.capabilities.events.event_parsing is provider
     assert runtime.capabilities.message_flow.text_generation is None
 
@@ -303,7 +320,7 @@ def test_build_runtime_fails_when_drafts_require_missing_streaming_capability() 
     )
 
     with pytest.raises(
-        Exception,
+        ProviderConfigurationError,
         match="streaming_text_generation",
     ):
         bot_app.build_runtime(
@@ -330,7 +347,7 @@ def test_build_runtime_fails_when_events_require_missing_event_parser() -> None:
     )
 
     with pytest.raises(
-        Exception,
+        ProviderConfigurationError,
         match="event_parsing",
     ):
         bot_app.build_runtime(

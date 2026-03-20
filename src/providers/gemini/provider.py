@@ -51,20 +51,72 @@ class GeminiProvider:
         model_selector: GeminiModelSelector | None = None,
         instruction_loader: SystemInstructionLoader | None = None,
     ) -> None:
-        self._settings = settings.ai.gemini
-        self._language = settings.language
-        self._client_factory = client_factory or GeminiClientFactory(self._settings)
-        self._model_selector = model_selector or GeminiModelSelector(
-            model_specs=self._settings.model_specs,
-            default_model=self._settings.default_model,
-            low_cost_model=self._settings.low_cost_model,
-            reaction_model=self._settings.reaction_model,
+        self._settings_source: Callable[[], Any] = (
+            settings if callable(settings) else lambda: settings
         )
-        self._instruction_loader = instruction_loader or SystemInstructionLoader(
-            self._settings.system_instructions_path,
+        self._client_factory_override = client_factory
+        self._model_selector_override = model_selector
+        self._instruction_loader_override = instruction_loader
+        self._settings_signature: tuple[Any, ...] | None = None
+        self._settings: Any = None
+        self._language = ""
+        self._client_factory: Any = None
+        self._model_selector: Any = None
+        self._instruction_loader: Any = None
+        self._refresh_runtime_state()
+
+    def _settings_state_signature(self, settings: Any) -> tuple[Any, ...]:
+        gemini_settings = settings.ai.gemini
+        model_specs = tuple(
+            (
+                getattr(spec, "name", ""),
+                getattr(spec, "rpm", None),
+                getattr(spec, "rpd", None),
+            )
+            for spec in getattr(gemini_settings, "model_specs", [])
+        )
+        return (
+            getattr(settings, "language", ""),
+            getattr(gemini_settings, "api_key", ""),
+            getattr(gemini_settings, "default_model", ""),
+            getattr(gemini_settings, "low_cost_model", ""),
+            getattr(gemini_settings, "reaction_model", ""),
+            model_specs,
+            getattr(gemini_settings, "thinking_budget", 0),
+            getattr(gemini_settings, "use_google_search", False),
+            getattr(gemini_settings, "system_instructions_path", ""),
         )
 
+    def _refresh_runtime_state(self) -> None:
+        settings = self._settings_source()
+        signature = self._settings_state_signature(settings)
+        if signature == self._settings_signature:
+            return
+        self._settings = settings.ai.gemini
+        self._language = getattr(settings, "language", "")
+        if self._client_factory_override is None:
+            self._client_factory = GeminiClientFactory(self._settings)
+        else:
+            self._client_factory = self._client_factory_override
+        if self._model_selector_override is None:
+            self._model_selector = GeminiModelSelector(
+                model_specs=self._settings.model_specs,
+                default_model=self._settings.default_model,
+                low_cost_model=self._settings.low_cost_model,
+                reaction_model=self._settings.reaction_model,
+            )
+        else:
+            self._model_selector = self._model_selector_override
+        if self._instruction_loader_override is None:
+            self._instruction_loader = SystemInstructionLoader(
+                self._settings.system_instructions_path,
+            )
+        else:
+            self._instruction_loader = self._instruction_loader_override
+        self._settings_signature = signature
+
     def transcribe_audio(self, request: AudioTranscriptionRequest) -> str:
+        self._refresh_runtime_state()
         with open(request.audio_path, "rb") as file_obj:
             audio_bytes = file_obj.read()
         response, model_name = self._generate_content(
@@ -85,6 +137,7 @@ class GeminiProvider:
         )
 
     def generate_text(self, request: TextGenerationRequest) -> str:
+        self._refresh_runtime_state()
         response, model_name = self._generate_content(
             capability="text_generation",
             specs=self._model_selector.text_generation_specs(),
@@ -101,6 +154,7 @@ class GeminiProvider:
         )
 
     def generate_low_cost_text(self, request: TextGenerationRequest) -> str:
+        self._refresh_runtime_state()
         response, model_name = self._generate_content(
             capability="low_cost_text_generation",
             specs=self._model_selector.low_cost_specs(),
@@ -117,6 +171,7 @@ class GeminiProvider:
         )
 
     def select_reaction(self, request: ReactionSelectionRequest) -> str:
+        self._refresh_runtime_state()
         response, model_name = self._generate_content(
             capability="reaction_selection",
             specs=self._model_selector.reaction_specs(),
@@ -132,6 +187,7 @@ class GeminiProvider:
         )
 
     def parse_image_event(self, request: ImageToEventRequest) -> dict:
+        self._refresh_runtime_state()
         with open(request.image_path, "rb") as file_obj:
             image_bytes = file_obj.read()
         response, model_name = self._generate_content(
@@ -145,6 +201,7 @@ class GeminiProvider:
         return parse_event_payload(response, model_name=model_name)
 
     def extract_image_text(self, request: ImageToTextRequest) -> str:
+        self._refresh_runtime_state()
         response, model_name = self._generate_content(
             capability="ocr",
             specs=self._model_selector.multimodal_specs(),
@@ -174,6 +231,7 @@ class GeminiProvider:
         max_attempts: int,
         use_google_search: bool = False,
     ) -> tuple[Any, str]:
+        self._refresh_runtime_state()
         client = self._client_factory.get_client()
         base_contents = build_contents()
         selected_model = ""

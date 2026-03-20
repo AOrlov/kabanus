@@ -6,7 +6,7 @@ Telegram bot for group interaction, AI replies, voice transcription, OCR, and op
 - Listens for voice and text messages in Telegram groups
 - Supports context-aware AI replies for text, voice, and images
 - Explicit per-capability AI routing with fail-fast startup validation
-- OpenAI capabilities: text generation, streaming drafts, low-cost text generation, OCR, reaction selection, event parsing
+- OpenAI capabilities: text generation, streaming drafts, low-cost text generation, audio transcription, OCR, reaction selection, event parsing
 - Gemini capabilities: text generation, low-cost text generation, audio transcription, OCR, reaction selection, event parsing
 - Typed provider failures for auth, quota, capability, configuration, and invalid responses
 - Supports context memory optimization with recent-window + optional long-term summaries
@@ -24,7 +24,7 @@ Telegram bot for group interaction, AI replies, voice transcription, OCR, and op
 - Allowed chat/user IDs (for access control)
 - OpenAI API key or `auth.json` credentials when any routed capability uses OpenAI
 - Google Gemini API key when any routed capability uses Gemini
-- For the full shipped capability map, both providers are usually required because OpenAI does not implement audio transcription and Gemini does not implement streaming text generation
+- One provider is enough when every routed capability stays on that provider; mixed routing requires credentials for every provider referenced by the routing map
 - (Optional) Admin Telegram chat ID (for error notifications)
 - (Optional) Google Calendar credentials and calendar ID (for event creation)
 
@@ -63,7 +63,7 @@ MODEL_PROVIDER=openai                       # Default provider for all capabilit
 AI_PROVIDER_TEXT_GENERATION=openai          # Optional override; defaults to MODEL_PROVIDER
 AI_PROVIDER_STREAMING_TEXT_GENERATION=openai
 AI_PROVIDER_LOW_COST_TEXT_GENERATION=openai
-AI_PROVIDER_AUDIO_TRANSCRIPTION=gemini
+AI_PROVIDER_AUDIO_TRANSCRIPTION=openai
 AI_PROVIDER_OCR=openai
 AI_PROVIDER_REACTION_SELECTION=openai
 AI_PROVIDER_EVENT_PARSING=openai
@@ -81,6 +81,7 @@ OPENAI_CODEX_DEFAULT_MODEL=gpt-5.3-codex
 OPENAI_MODEL=gpt-5.3-codex
 OPENAI_LOW_COST_MODEL=gpt-5.3-codex
 OPENAI_REACTION_MODEL=gpt-5.3-codex
+OPENAI_TRANSCRIPTION_MODEL=gpt-4o-mini-transcribe
 
 # Gemini settings
 GEMINI_API_KEY=your-gemini-api-key         # GOOGLE_API_KEY is also accepted
@@ -147,7 +148,7 @@ Startup rejects unsupported routing or missing credentials before the bot begins
 | Text generation | `AI_PROVIDER_TEXT_GENERATION` | Yes | Yes |
 | Streaming text generation | `AI_PROVIDER_STREAMING_TEXT_GENERATION` | Yes | No |
 | Low-cost text generation | `AI_PROVIDER_LOW_COST_TEXT_GENERATION` | Yes | Yes |
-| Audio transcription | `AI_PROVIDER_AUDIO_TRANSCRIPTION` | No | Yes |
+| Audio transcription | `AI_PROVIDER_AUDIO_TRANSCRIPTION` | Yes | Yes |
 | OCR | `AI_PROVIDER_OCR` | Yes | Yes |
 | Reaction selection | `AI_PROVIDER_REACTION_SELECTION` | Yes | Yes |
 | Event parsing | `AI_PROVIDER_EVENT_PARSING` | Yes | Yes |
@@ -156,9 +157,8 @@ OpenAI-first baseline:
 
 ```dotenv
 MODEL_PROVIDER=openai
-AI_PROVIDER_AUDIO_TRANSCRIPTION=gemini
 OPENAI_API_KEY=...
-GEMINI_API_KEY=...
+OPENAI_TRANSCRIPTION_MODEL=gpt-4o-mini-transcribe
 ```
 
 Gemini-first baseline:
@@ -190,8 +190,9 @@ PYTHONPATH=. python3 -m scripts.onboard_openai
 ```
 
 The wizard prints `export ...` lines for runtime. Apply them before starting the bot.
-It now prints the required `AI_PROVIDER_AUDIO_TRANSCRIPTION=gemini` override for the
-current capability map, but you still need Gemini credentials in the environment.
+It prints the full OpenAI runtime exports, including `OPENAI_TRANSCRIPTION_MODEL`.
+If you intentionally route some capabilities to Gemini, add the matching
+`AI_PROVIDER_*` overrides and Gemini credentials in the environment.
 Use `--open-browser` to open the OpenAI API keys page automatically.
 
 For OpenAI Codex OAuth flow (local callback on `http://localhost:1455/auth/callback`):
@@ -388,8 +389,9 @@ A `.vscode/launch.json` is provided. Use the "Run Telegram Bot (src.main)" or "D
 - OpenAI auth file handling requires an existing file path and private permissions (`0600`) on non-Windows hosts.
 - Gemini support requires a valid API key from Google AI Studio.
 - `GOOGLE_API_KEY` overrides `GEMINI_API_KEY` when both are set.
-- The OpenAI onboarding helpers only provision OpenAI credentials; keep the printed
-  `AI_PROVIDER_AUDIO_TRANSCRIPTION=gemini` override and add Gemini credentials separately.
+- The OpenAI onboarding helpers only provision OpenAI credentials; if your routing map
+  sends any capability to Gemini, add the matching `AI_PROVIDER_*` overrides and Gemini
+  credentials separately.
 - Google Calendar event creation requires a valid calendar ID and service account credentials.
 - `ALLOWED_CHAT_IDS` is required; if empty, the bot denies all users.
 - `DEBUG_MODE` controls your app debug logs (`src.*`, `__main__`).

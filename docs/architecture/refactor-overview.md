@@ -27,7 +27,7 @@
 | Text generation | `AI_PROVIDER_TEXT_GENERATION` | Yes | Yes |
 | Streaming text generation | `AI_PROVIDER_STREAMING_TEXT_GENERATION` | Yes | No |
 | Low-cost text generation | `AI_PROVIDER_LOW_COST_TEXT_GENERATION` | Yes | Yes |
-| Audio transcription | `AI_PROVIDER_AUDIO_TRANSCRIPTION` | No | Yes |
+| Audio transcription | `AI_PROVIDER_AUDIO_TRANSCRIPTION` | Yes | Yes |
 | OCR | `AI_PROVIDER_OCR` | Yes | Yes |
 | Reaction selection | `AI_PROVIDER_REACTION_SELECTION` | Yes | Yes |
 | Event parsing | `AI_PROVIDER_EVENT_PARSING` | Yes | Yes |
@@ -61,7 +61,7 @@ The required compatibility contract is intentionally narrow:
 - Provider routing is capability-first: `src/providers/capabilities.py` defines the protocols and `src/providers/errors.py` defines typed failures.
 - Provider implementations are split into focused packages under `src/providers/openai/*` and `src/providers/gemini/*`.
 - Settings/cache ownership is centralized in `src/settings_loader.py`; `src/config.py` is a facade.
-- Concrete providers receive immutable settings in constructors; request handling does not call global config loaders.
+- Concrete providers can be built from a settings snapshot or a settings getter; runtime composition uses a getter so refreshed settings can update provider behavior without direct global config calls inside request handlers.
 
 ## Migration Guidance (Internal Callers)
 - If you imported private helpers from monolithic modules, migrate to focused modules under:

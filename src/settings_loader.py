@@ -1,6 +1,7 @@
 """Settings parser and cache implementation."""
 
 import json
+import logging
 import os
 import time
 from threading import Lock
@@ -24,6 +25,7 @@ _SETTINGS_CACHE: Optional[Settings] = None
 _SETTINGS_CACHE_TS = 0.0
 _CACHE_TTL = 1.0
 _DEFAULT_OPENAI_TRANSCRIPTION_MODEL = "gpt-4o-mini-transcribe"
+logger = logging.getLogger(__name__)
 
 
 def reload_env() -> None:
@@ -239,7 +241,8 @@ def _load_settings_from_env() -> Settings:
                     )
                 )
         except (ValueError, json.JSONDecodeError) as exc:
-            raise RuntimeError(f"Failed to parse GEMINI_MODELS: {exc}") from exc
+            logger.error("Failed to parse GEMINI_MODELS: %s", exc)
+            gemini_models = []
     if not gemini_models:
         gemini_models = [ModelSpec(name=gemini_model, rpm=None, rpd=None)]
 
