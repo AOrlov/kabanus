@@ -138,3 +138,19 @@ def test_maybe_react_propagates_provider_errors() -> None:
 
     with pytest.raises(RuntimeError, match="reaction unavailable"):
         asyncio.run(service.maybe_react(_update(), "latest"))
+
+
+def test_maybe_react_ignores_enabled_reactions_when_provider_missing() -> None:
+    settings = _settings(reaction_enabled=False)
+    service = _service(
+        provider=None,
+        settings=settings,
+    )
+    update = _update()
+
+    asyncio.run(service.maybe_react(update, "latest"))
+
+    settings.reaction_enabled = True
+    asyncio.run(service.maybe_react(update, "latest"))
+
+    assert update.message.applied == []

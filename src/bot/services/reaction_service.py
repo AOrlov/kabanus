@@ -56,6 +56,7 @@ class ReactionService:
         self._log_context = log_context_fn
         self._logger = logger_override or logging.getLogger(__name__)
         self._state_lock = asyncio.Lock()
+        self._missing_provider_warned = False
 
     @property
     def state(self) -> ReactionState:
@@ -131,7 +132,13 @@ class ReactionService:
                 )
 
             if self._reaction_selection_provider is None:
-                raise RuntimeError("Reaction selection capability is not configured")
+                if not self._missing_provider_warned:
+                    self._logger.warning(
+                        "Reaction selection is enabled but no provider is configured",
+                        extra=self._log_context(update),
+                    )
+                    self._missing_provider_warned = True
+                return
             reaction = self._reaction_selection_provider.select_reaction(
                 ReactionSelectionRequest(
                     message=text,
