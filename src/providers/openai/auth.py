@@ -200,10 +200,41 @@ class OpenAIAuthManager:
         if isinstance(payload.get("openai"), dict):
             return _AuthDocument(
                 root=payload,
-                target=dict(payload["openai"]),
+                target=self._merge_openai_target(payload),
                 section_name="openai",
             )
         return _AuthDocument(root=payload, target=dict(payload), section_name=None)
+
+    def _merge_openai_target(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        merged = dict(payload["openai"])
+        for field_name in (
+            "access_token",
+            "refresh_token",
+            "token_url",
+            "client_id",
+            "grant_type",
+            "expires_at",
+            "expires",
+            "api_key",
+            "OPENAI_API_KEY",
+        ):
+            if field_name not in merged and payload.get(field_name) is not None:
+                merged[field_name] = payload[field_name]
+
+        tokens = payload.get("tokens")
+        if isinstance(tokens, dict):
+            for field_name in (
+                "access_token",
+                "refresh_token",
+                "token_url",
+                "client_id",
+                "grant_type",
+                "expires_at",
+                "expires",
+            ):
+                if field_name not in merged and tokens.get(field_name) is not None:
+                    merged[field_name] = tokens[field_name]
+        return merged
 
     def _write_auth_json(
         self,

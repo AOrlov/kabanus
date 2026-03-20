@@ -165,6 +165,55 @@ def test_auth_manager_reads_codex_style_nested_tokens(tmp_path, monkeypatch) -> 
     assert payload["tokens"]["refresh_token"] == "r-new"
 
 
+def test_auth_manager_reads_root_tokens_when_openai_block_exists(
+    tmp_path, monkeypatch
+) -> None:
+    auth_file = tmp_path / "auth.json"
+    _write_auth_file(
+        auth_file,
+        {
+            "openai": {"model": "gpt-5.3-codex"},
+            "tokens": {
+                "refresh_token": "r-mixed",
+                "client_id": "cid-mixed",
+                "token_url": "https://example.com/token",
+            },
+            "OPENAI_API_KEY": "",
+        },
+    )
+
+    def _fake_urlopen(req, timeout):
+        _ = timeout
+        parsed = urllib.parse.parse_qs(req.data.decode("utf-8"))
+        assert parsed.get("refresh_token") == ["r-mixed"]
+        assert parsed.get("client_id") == ["cid-mixed"]
+        return _FakeResponse(
+            {
+                "access_token": "a-new",
+                "refresh_token": "r-new",
+                "expires_in": 1200,
+            }
+        )
+
+    monkeypatch.setattr("urllib.request.urlopen", _fake_urlopen)
+    manager = OpenAIAuthManager(
+        str(auth_file),
+        refresh_url_default="https://example.com/token",
+        client_id_default="cid-default",
+        grant_type_default="refresh_token",
+        leeway_secs=999999,
+        timeout_secs=5,
+    )
+
+    assert manager.has_refresh_token() is True
+    token = manager.get_access_token(force_refresh=True)
+
+    assert token == "a-new"
+    payload = json.loads(auth_file.read_text(encoding="utf-8"))
+    assert payload["openai"]["access_token"] == "a-new"
+    assert payload["openai"]["refresh_token"] == "r-new"
+
+
 def test_auth_manager_handles_millisecond_expiry(tmp_path) -> None:
     auth_file = tmp_path / "auth.json"
     _write_auth_file(
