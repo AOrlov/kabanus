@@ -245,6 +245,37 @@ class _StreamingResponses:
         return self._StreamManager(self, kwargs)
 
 
+class _CodexFinalResponseEmptyResponses:
+    def __init__(self, deltas) -> None:
+        self.calls = []
+        self._deltas = list(deltas)
+
+    class _StreamManager:
+        def __init__(self, outer, kwargs):
+            self._outer = outer
+            self._kwargs = kwargs
+
+        def __enter__(self):
+            self._outer.calls.append(self._kwargs)
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def __iter__(self):
+            for delta in self._outer._deltas:
+                yield SimpleNamespace(type="response.output_text.delta", delta=delta)
+
+        def until_done(self):
+            return self
+
+        def get_final_response(self):
+            return SimpleNamespace(output_text="", output=[])
+
+    def stream(self, **kwargs):
+        return self._StreamManager(self, kwargs)
+
+
 class _StreamingModelFallbackResponses:
     def __init__(self) -> None:
         self.models = []
@@ -497,6 +528,26 @@ def test_generate_stream_yields_progressive_snapshots() -> None:
     snapshots = list(provider.generate_text_stream(TextGenerationRequest(prompt="hi")))
 
     assert snapshots == ["he", "hello"]
+    assert fake.calls
+    assert fake.calls[0]["instructions"] == "You are a helpful assistant."
+    assert fake.calls[0]["store"] is False
+
+
+def test_generate_text_uses_streamed_snapshot_when_codex_final_response_is_empty() -> None:
+    fake = _CodexFinalResponseEmptyResponses(["o", "k"])
+    provider = OpenAIProvider(
+        _settings(auth_json_path="x"),
+        client_factory=SimpleNamespace(
+            get_client_context=lambda force_refresh=False: (
+                SimpleNamespace(responses=fake),
+                _client_options(codex_mode=True, refreshable=True),
+            )
+        ),
+    )
+
+    result = provider.generate_text(TextGenerationRequest(prompt="hi"))
+
+    assert result == "ok"
     assert fake.calls
     assert fake.calls[0]["instructions"] == "You are a helpful assistant."
     assert fake.calls[0]["store"] is False

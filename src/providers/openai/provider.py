@@ -178,8 +178,20 @@ class OpenAIProvider:
                 "store": False,
             }
             with client.responses.stream(**kwargs) as stream:
+                last_snapshot = ""
+                try:
+                    for snapshot in iter_stream_text_snapshots(stream):
+                        last_snapshot = snapshot
+                except TypeError:
+                    pass
                 stream.until_done()
-                return stream.get_final_response()
+                final_response = stream.get_final_response()
+                final_text = extract_response_text(final_response)
+                if final_text:
+                    return final_response
+                if last_snapshot:
+                    return last_snapshot
+                return final_response
 
         kwargs = {
             "model": model,

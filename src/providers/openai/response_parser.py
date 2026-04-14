@@ -10,6 +10,9 @@ from src.providers.contracts import EventPayload
 
 
 def extract_response_text(response: Any) -> str:
+    if isinstance(response, str):
+        return response.strip()
+
     output_text = getattr(response, "output_text", None)
     if output_text:
         return output_text.strip()
