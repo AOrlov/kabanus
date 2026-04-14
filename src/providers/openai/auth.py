@@ -325,6 +325,15 @@ class OpenAIAuthManager:
                     f"OpenAI token refresh failed with HTTP {exc.code}",
                     provider="openai",
                 ) from exc
+            if exc.code == 401:
+                raise ProviderAuthError(
+                    (
+                        "OpenAI token refresh failed with HTTP 401; "
+                        "auth.json refresh token is likely expired or revoked. "
+                        "Re-run scripts/openai_codex_oauth.py."
+                    ),
+                    provider="openai",
+                ) from exc
             raise ProviderAuthError(
                 f"OpenAI token refresh failed with HTTP {exc.code}",
                 provider="openai",

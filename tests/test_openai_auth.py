@@ -295,4 +295,6 @@ def test_auth_manager_redacts_http_error_details(tmp_path, monkeypatch) -> None:
         manager.get_access_token(force_refresh=True)
 
     assert "HTTP 401" in str(exc_info.value)
+    assert "likely expired or revoked" in str(exc_info.value)
+    assert "scripts/openai_codex_oauth.py" in str(exc_info.value)
     assert "secret-token" not in str(exc_info.value)
